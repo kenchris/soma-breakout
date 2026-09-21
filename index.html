@@ -55,18 +55,63 @@
         .hud-btn:hover {
             background: rgba(0, 188, 212, 0.3);
         }
+        #combo {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+            transition: filter 0.2s;
+        }
+        #combo-label {
+            min-width: 1.6em;
+            font-weight: bold;
+            color: #FFD700;
+        }
+        #combo-pips {
+            display: flex;
+            gap: 3px;
+        }
+        #combo-pips i {
+            width: 9px;
+            height: 16px;
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.15);
+            transition: background 0.1s, box-shadow 0.1s;
+        }
+        #combo-pips i.on:nth-child(1) { background: #00e5ff; }
+        #combo-pips i.on:nth-child(2) { background: #4de08c; }
+        #combo-pips i.on:nth-child(3) { background: #FFD700; }
+        #combo-pips i.on:nth-child(4) { background: #FF9A2E; }
+        #combo-pips i.on:nth-child(5) { background: #FF4D4D; }
+        #combo-pips i.on { box-shadow: 0 0 6px currentColor; }
+        #combo.bump { animation: comboBump 0.25s ease-out; }
+        #combo.max #combo-label { color: #FF4D4D; }
+        #combo.max { filter: drop-shadow(0 0 6px #FF4D4D); }
+        @keyframes comboBump {
+            0% { transform: scale(1.35); }
+            100% { transform: scale(1); }
+        }
         #canvas {
             border: 2px solid #00bcd4;
             background-color: #000000;
             cursor: none; /* Hide default cursor over canvas */
             max-width: 100%;
             max-height: calc(100vh - 90px); /* always fits viewport, keeps 3:2 ratio */
+            max-height: calc(100dvh - 90px); /* mobile: excludes the browser toolbar */
             touch-action: none;
         }
         @media (max-width: 600px) {
             #hud { font-size: 0.9em; flex-wrap: wrap; gap: 6px; }
             #controls { font-size: 0.75em; }
             #overlay { font-size: 1.2em; padding: 18px 28px; }
+        }
+        @media (pointer: coarse) {
+            .hud-btn { min-height: 40px; padding: 6px 12px; } /* finger-sized tap targets */
+            #overlay-button { min-height: 44px; }
+        }
+        @media (max-height: 500px) {
+            #overlay { font-size: 1em; padding: 12px 22px; }
+            #overlay-stats { margin: 6px auto 2px; }
         }
         #overlay {
             position: absolute;
@@ -85,6 +130,36 @@
             -webkit-user-select: none;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
         }
+        #overlay-flag {
+            display: none;
+            color: #FFD700;
+            font-weight: bold;
+            font-size: 0.8em;
+            margin: 2px 0 6px;
+            animation: flagPulse 1s ease-in-out infinite;
+        }
+        @keyframes flagPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+        #overlay-stats {
+            display: none;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            max-width: 420px;
+            margin: 10px auto 4px;
+        }
+        #overlay-stats .stat {
+            display: flex;
+            flex-direction: column;
+            min-width: 92px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.08);
+        }
+        #overlay-stats .stat b { font-size: 0.95em; }
+        #overlay-stats .stat span { font-size: 0.5em; color: #9aa4b2; }
         #overlay-button {
             display: inline-block;
             background: #00bcd4;
@@ -115,18 +190,24 @@
             <div id="lives">Lives: &#9679;&#9679;&#9679;</div>
             <div id="level">Level: 1</div>
             <div id="best">Best: 0</div>
+            <div id="combo" title="Combo multiplier: chain bricks without touching the paddle">
+                <span id="combo-label">&times;1</span>
+                <span id="combo-pips"><i></i><i></i><i></i><i></i><i></i></span>
+            </div>
             <div id="hud-actions">
-                <button id="mute-btn" class="hud-btn" title="Toggle sound (M)">🔊 Sound</button>
+                <button id="mute-btn" class="hud-btn" title="Mute sound and vibration (M)">🔊 Sound</button>
                 <button id="pause-btn" class="hud-btn" title="Pause / Resume (P)">⏸ Pause</button>
                 <button id="fullscreen-btn" class="hud-btn" title="Fullscreen & Lock Landscape (F)">⛶ Fullscreen</button>
             </div>
         </div>
         <div id="controls" style="font-size: 0.9em; color: #888; margin-top: 8px;">
-            Drag / arrows move paddle &bull; tap / Space launch &bull; P pause &bull; R restart &bull; M mute &bull; F fullscreen &bull; catch powerups: + life, S slow, W wide
+            Drag / arrows move paddle &bull; tap / Space launch &bull; P pause &bull; R restart &bull; M mute &bull; F fullscreen &bull; catch powerups: + life, S slow, W wide, E explosive, M multi-ball, &times;2 double score, shield
         </div>
         <canvas id="canvas" width="900" height="600"></canvas>
         <div id="overlay">
             <p id="overlay-message" style="margin: 0 0 10px 0;">Press SPACE to launch</p>
+            <div id="overlay-flag">&#9733; New high score! &#9733;</div>
+            <div id="overlay-stats"></div>
             <button id="overlay-button">Launch</button>
         </div>
     </div>

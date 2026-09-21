@@ -162,11 +162,11 @@ async function toggleFullscreen() {
 
     try {
         if (!isFS) {
-            if (docEl.requestFullscreen) {
-                await docEl.requestFullscreen();
-            } else if (docEl.webkitRequestFullscreen) {
-                await docEl.webkitRequestFullscreen();
-            }
+            // Must be called synchronously from the tap/click (user activation), before any await
+            const request = docEl.requestFullscreen || docEl.webkitRequestFullscreen;
+            if (!request) throw new Error('not supported by this browser');
+            if (doc.fullscreenEnabled === false) throw new Error('not allowed on this page (embedded or blocked)');
+            await request.call(docEl);
             await lockLandscape();
         } else {
             if (doc.exitFullscreen) {
@@ -178,6 +178,9 @@ async function toggleFullscreen() {
         }
     } catch (err) {
         console.warn('Fullscreen / orientation error:', err);
+        // Say why on screen: a refused request is otherwise silent, especially on a phone
+        addPopup(CANVAS_W / 2, CANVAS_H * 0.5, 'Fullscreen unavailable: ' + ((err && err.message) || err),
+            '#ff9a9a', { life: 2.5, size: 18, rise: 0.3 });
     }
 }
 
@@ -506,10 +509,15 @@ function drawBall() {
             ctx.restore();
         }
 
-        // Main ball: glowing sphere with a highlight
+        // Main ball: soft halo (cheaper than shadowBlur) plus a sphere with a highlight
         ctx.save();
-        ctx.shadowColor = '#ff4d4d';
-        ctx.shadowBlur = 16;
+        const halo = ctx.createRadialGradient(b.x, b.y, b.r * 0.6, b.x, b.y, b.r * 2.6);
+        halo.addColorStop(0, 'rgba(255, 77, 77, 0.45)');
+        halo.addColorStop(1, 'rgba(255, 77, 77, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r * 2.6, 0, Math.PI * 2);
+        ctx.fill();
         const g = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.35, 1, b.x, b.y, b.r);
         g.addColorStop(0, '#ffffff');
         g.addColorStop(0.35, '#ff6b6b');
@@ -524,8 +532,11 @@ function drawBall() {
 
 function drawPaddle() {
     ctx.save();
-    ctx.shadowColor = '#0095DD';
-    ctx.shadowBlur = 12;
+    ctx.globalAlpha = 0.25; // glow underlay
+    ctx.fillStyle = '#0095DD';
+    roundRectPath(paddle.x - 3, paddle.y - 3, paddle.w + 6, paddle.h + 6, 8);
+    ctx.fill();
+    ctx.globalAlpha = 1;
     const g = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
     g.addColorStop(0, '#6fd6ff');
     g.addColorStop(1, '#0070b0');
@@ -538,9 +549,9 @@ function drawPaddle() {
 function drawMovingWalls() {
     for (const wall of movingWalls) {
         ctx.save();
+        ctx.fillStyle = "rgba(0, 229, 255, 0.25)"; // glow underlay
+        ctx.fillRect(wall.x - 3, wall.y - 3, wall.w + 6, wall.h + 6);
         ctx.fillStyle = "#00ffff";
-        ctx.shadowColor = "#00e5ff";
-        ctx.shadowBlur = 8;
         ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
 
         // Subtle hazard striped pattern overlay
@@ -557,13 +568,14 @@ function drawShield() {
     if (!shield) return;
     ctx.save();
     ctx.strokeStyle = '#33ddff';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#33ddff';
-    ctx.shadowBlur = 14;
     ctx.globalAlpha = 0.7 + 0.3 * Math.sin(performance.now() / 150);
     ctx.beginPath();
     ctx.moveTo(0, CANVAS_H - 2);
     ctx.lineTo(CANVAS_W, CANVAS_H - 2);
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.globalAlpha *= 0.3; // wide faint stroke as the glow
+    ctx.lineWidth = 9;
     ctx.stroke();
     ctx.restore();
 }
@@ -701,39 +713,77 @@ function addScore(points) {
         newBestShown = true;
         addPopup(CANVAS_W / 2, CANVAS_H * 0.55, 'New high score!', '#FFD700', { size: 30, life: 1.6, rise: 0.5, pop: true });
         addShake(4);
-        tone(523, 0.12, { type: 'triangle', vol: 0.2 });
-        tone(659, 0.12, { type: 'triangle', vol: 0.2, delay: 0.09 });
-        tone(784, 0.12, { type: 'triangle', vol: 0.2, delay: 0.18 });
-        tone(1047, 0.25, { type: 'triangle', vol: 0.2, delay: 0.27 });
+        haptic([20, 40, 20, 40, 60], true);
+        [523, 659, 784, 1047].forEach((f, i) =>
+            tone(f, i === 3 ? 0.25 : 0.12, { type: 'triangle', vol: 0.2, delay: i * 0.09, force: true }));
     }
 }
 
 // --- Sound ---
+// Every sound goes through tone(). Each call builds an oscillator + gain node, so a burst of
+// collisions (a ball riding a moving wall, multi-ball, explosions) used to pile up dozens of
+// nodes and choke the audio thread and the game. tone() therefore:
+//   - throttles repeats of the same sound (`key`) to one per MIN_GAP_MS,
+//   - caps the number of voices playing at once,
+//   - never queues sounds while the AudioContext is blocked or the tab is hidden.
 let audioCtx = null;
+const MAX_VOICES = 8;
+const MIN_GAP_MS = 45;
+let activeVoices = 0;
+const lastPlayedAt = {};
+
 function toggleMute() {
     isMuted = !isMuted;
     const btn = document.getElementById('mute-btn');
     if (btn) {
         btn.textContent = isMuted ? '🔇 Muted' : '🔊 Sound';
-        btn.title = isMuted ? 'Unmute sound (M)' : 'Mute sound (M)';
+        btn.title = isMuted ? 'Unmute sound and vibration (M)' : 'Mute sound and vibration (M)';
     }
 }
 
-// Generic one-shot tone: optional pitch slide and start delay (seconds)
-function tone(freq, dur, { type = 'square', vol = 0.15, slideTo = null, delay = 0 } = {}) {
-    if (isMuted) return;
+// Create/resume the AudioContext. Browsers (notably Chrome on Android) start it suspended until
+// a user gesture, so this is also called from input handlers.
+function ensureAudio() {
     try {
-        if (!audioCtx) audioCtx = new AudioContext();
-        const t0 = audioCtx.currentTime + delay;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) {
+        return null; // Audio not available; ignore
+    }
+    return audioCtx.state === 'running' ? audioCtx : null;
+}
+
+// One-shot tone: optional pitch slide and start delay (seconds).
+// `key` throttles repeats of the same sound; `force` (jingles, fanfares) bypasses throttle and cap.
+function tone(freq, dur, { type = 'square', vol = 0.15, slideTo = null, delay = 0, key = null, force = false } = {}) {
+    if (isMuted || document.hidden) return;
+    const ac = ensureAudio();
+    if (!ac) return;
+    if (!force) {
+        const now = performance.now();
+        if (activeVoices >= MAX_VOICES) return;
+        if (key !== null) {
+            if (now - (lastPlayedAt[key] || 0) < MIN_GAP_MS) return;
+            lastPlayedAt[key] = now;
+        }
+    }
+    try {
+        const t0 = ac.currentTime + delay;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, t0);
         if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
         gain.gain.setValueAtTime(vol, t0);
         gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
         osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(ac.destination);
+        activeVoices++;
+        osc.onended = () => {
+            activeVoices--;
+            osc.disconnect();
+            gain.disconnect();
+        };
         osc.start(t0);
         osc.stop(t0 + dur);
     } catch (e) {
@@ -741,119 +791,59 @@ function tone(freq, dur, { type = 'square', vol = 0.15, slideTo = null, delay = 
     }
 }
 
-function beep(freq = 440) {
-    if (isMuted) return;
+// --- Haptics (navigator.vibrate: Chrome on Android; a no-op on iOS and desktop) ---
+// Follows the mute button, and is skipped for reduced-motion users. Light hits are throttled so a
+// burst of collisions doesn't buzz constantly (each vibrate() call replaces the previous one);
+// `strong` events always go through.
+const MIN_HAPTIC_GAP_MS = 60;
+let lastHapticAt = 0;
+function haptic(pattern, strong = false) {
+    if (isMuted || reduceMotion || document.hidden || !navigator.vibrate) return;
+    // Chrome ignores (and logs a warning for) vibrate() before the user has interacted with the page
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+    const now = performance.now();
+    if (!strong && now - lastHapticAt < MIN_HAPTIC_GAP_MS) return;
+    lastHapticAt = now;
     try {
-        if (!audioCtx) audioCtx = new AudioContext();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'square';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.08);
+        navigator.vibrate(pattern);
     } catch (e) {
-        // Audio not available; ignore
+        // Vibration not available; ignore
     }
+}
+
+function beep(freq = 440, key = 'beep') {
+    tone(freq, 0.08, { type: 'square', vol: 0.15, key: key });
 }
 
 // Short metallic clink when hitting steel brick
 function clink() {
-    if (isMuted) return;
-    try {
-        if (!audioCtx) audioCtx = new AudioContext();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(1100, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.06);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.07);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.07);
-    } catch (e) {
-        // Audio not available; ignore
-    }
+    tone(1100, 0.07, { type: 'triangle', vol: 0.2, slideTo: 600, key: 'clink' });
 }
 
 // Short explosion boom (low, thuddy)
 function boom() {
-    if (isMuted) return;
-    try {
-        if (!audioCtx) audioCtx = new AudioContext();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(90, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.25);
-    } catch (e) {
-        // Audio not available; ignore
-    }
+    tone(90, 0.25, { type: 'sawtooth', vol: 0.3, slideTo: 30, key: 'boom' });
 }
 
-// Win jingle: cheerful rising arpeggio
+// Win jingle: cheerful rising arpeggio (C5, E5, G5, C6)
 function playWinJingle() {
-    if (isMuted) return;
-    try {
-        if (!audioCtx) audioCtx = new AudioContext();
-        const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
-        const now = audioCtx.currentTime;
-        notes.forEach((freq, idx) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.value = freq;
-            const startTime = now + idx * 0.1;
-            gain.gain.setValueAtTime(0.2, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.25);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start(startTime);
-            osc.stop(startTime + 0.25);
-        });
-    } catch (e) {
-        // Audio not available; ignore
-    }
+    [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+        tone(freq, 0.25, { type: 'sine', vol: 0.2, delay: idx * 0.1, force: true });
+    });
 }
 
-// Lose jingle: descending sad tones
+// Lose jingle: descending sad tones (G4, F4, Eb4, C4)
 function playLoseJingle() {
-    if (isMuted) return;
-    try {
-        if (!audioCtx) audioCtx = new AudioContext();
-        const notes = [392.00, 349.23, 311.13, 261.63]; // G4, F4, Eb4, C4
-        const now = audioCtx.currentTime;
-        notes.forEach((freq, idx) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sawtooth';
-            osc.frequency.value = freq;
-            const startTime = now + idx * 0.15;
-            gain.gain.setValueAtTime(0.18, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start(startTime);
-            osc.stop(startTime + 0.3);
-        });
-    } catch (e) {
-        // Audio not available; ignore
-    }
+    [392.00, 349.23, 311.13, 261.63].forEach((freq, idx) => {
+        tone(freq, 0.3, { type: 'sawtooth', vol: 0.18, delay: idx * 0.15, force: true });
+    });
 }
 
-function spawnParticles(x, y, color) {
-    for (let i = 0; i < 12; i++) {
+// Particles are capped: they're pure decoration and a few hundred fillRects per frame add up
+const MAX_PARTICLES = 220;
+function spawnParticles(x, y, color, count = 12) {
+    count = Math.min(count, MAX_PARTICLES - particles.length);
+    for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
         const speed = 2 + Math.random() * 3;
         particles.push({
@@ -934,6 +924,7 @@ function comboShout(mult, x, y) {
     tone(f, 0.1, { type: 'triangle', vol: 0.2 });
     tone(f * 1.5, 0.14, { type: 'triangle', vol: 0.2, delay: 0.07 });
     if (mult === COMBO_MAX) addShake(5);
+    haptic(mult === COMBO_MAX ? [20, 30, 20, 30, 40] : [12, 30, 12], true);
 }
 
 function spawnPowerup(x, y) {
@@ -983,6 +974,7 @@ function updatePowerups() {
             applyPowerup(p.type);
             spawnParticles(p.x, p.y, p.color);
             beep();
+            haptic(15);
             powerups.splice(i, 1);
             continue;
         }
@@ -996,13 +988,15 @@ function drawPowerups() {
     ctx.save();
     ctx.textAlign = 'center';
     for (const p of powerups) {
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 10;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = 0.3; // halo
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
         ctx.beginPath();
         ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
         ctx.fill();
-        ctx.shadowBlur = 0;
         ctx.fillStyle = '#ffffff';
         if (p.label) {
             const wide = p.label.length > 1;
@@ -1046,6 +1040,7 @@ function collisionDetection(b) {
                         brick.hitsLeft--;
                         clink();
                         addShake(2);
+                        haptic(12);
                         spawnParticles(b.x, b.y, '#B0C4DE');
                         addPopup(brick.x + brick.w / 2, brick.y + brick.h / 2, 'CRACK!', '#E0E0E0', { life: 0.8 });
 
@@ -1108,6 +1103,8 @@ function collisionDetection(b) {
 
                     // Screen shake: light per brick (heavier deeper in a combo), big for explosions
                     addShake(wasExplosive ? 12 : brick.steel ? 3 : 1.5 + mult * 0.4);
+                    if (wasExplosive) haptic(45, true);
+                    else haptic(brick.steel ? 15 : 8);
 
                     // Slightly speed up, then re-normalize to keep magnitude sane
                     const speed = Math.hypot(b.vx, b.vy);
@@ -1147,6 +1144,7 @@ function collisionDetection(b) {
                         spawnLevel();
                         playWinJingle();
                         addShake(6);
+                        haptic([30, 60, 30, 60, 80], true);
                         // Reset ball on the paddle
                         const sp = currentSpeed();
                         balls = [makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, sp, -sp)];
@@ -1204,22 +1202,34 @@ function update() {
         }
 
         // 2a. Moving wall collision (circle vs AABB)
+        let touchingWall = false;
         for (const wall of movingWalls) {
             const cx = Math.max(wall.x, Math.min(b.x, wall.x + wall.w));
             const cy = Math.max(wall.y, Math.min(b.y, wall.y + wall.h));
             const dx = b.x - cx;
             const dy = b.y - cy;
             if (dx * dx + dy * dy < b.r * b.r) {
-                // Rebound off moving wall
+                // Rebound off the wall and push the ball out of it. Without the push-out, a wall
+                // sweeping into the ball (or a slow ball riding it) stays overlapped and re-triggers
+                // the sound and particles every frame.
                 if (Math.abs(dx) > Math.abs(dy)) {
-                    b.vx = (dx > 0 ? 1 : -1) * Math.abs(b.vx);
+                    const dir = dx > 0 ? 1 : -1;
+                    b.vx = dir * Math.abs(b.vx);
+                    b.x = dir > 0 ? wall.x + wall.w + b.r : wall.x - b.r;
                 } else {
-                    b.vy = (dy > 0 ? 1 : -1) * Math.abs(b.vy);
+                    const dir = dy > 0 ? 1 : -1;
+                    b.vy = dir * Math.abs(b.vy);
+                    b.y = dir > 0 ? wall.y + wall.h + b.r : wall.y - b.r;
                 }
-                beep(580);
-                spawnParticles(b.x, b.y, '#00ffff');
+                // Effects only when contact begins; a wall carrying the ball stays "in contact"
+                if (!b.onWall) {
+                    beep(580, 'wall');
+                    spawnParticles(b.x, b.y, '#00ffff', 5);
+                }
+                touchingWall = true;
             }
         }
+        b.onWall = touchingWall;
 
         // 2b. Paddle bounce: circle vs AABB test, only while moving down
         if (b.vy > 0) {
@@ -1248,7 +1258,7 @@ function update() {
                         b.vy *= f;
                     }
                 }
-                beep(660);
+                beep(660, 'paddle');
                 combo = 0;
                 // Multi-ball split: the "multi" powerup causes this ball to split on the next paddle bounce
                 if (multiReady) {
@@ -1264,9 +1274,10 @@ function update() {
                 shield = false;
                 b.y = CANVAS_H - b.r;
                 b.vy = -Math.abs(b.vy);
-                for (let x = 0; x < CANVAS_W; x += 45) spawnParticles(x, CANVAS_H - 2, '#33ddff');
+                for (let x = 0; x < CANVAS_W; x += 60) spawnParticles(x, CANVAS_H - 2, '#33ddff', 3);
                 addPopup(b.x, CANVAS_H - 40, 'Shield saved you!', '#33ddff', { life: 1.2 });
                 addShake(6);
+                haptic([20, 40, 20], true);
                 tone(300, 0.25, { type: 'sawtooth', vol: 0.2, slideTo: 900 });
             } else if (b.y + b.r > CANVAS_H) {
                 // Ball fell past the paddle
@@ -1276,9 +1287,11 @@ function update() {
                 powerups.length = 0;
                 clearTimedEffects();
                 addShake(7);
+                haptic(70, true);
                 if (lives === 0) {
                     gameState = 'lost';
                     playLoseJingle();
+                    haptic(250, true);
                     inputLockUntil = performance.now() + 700;
                     showOverlay('Game over — tap or press R to play again.', 'Play again', buildSummary(false));
                 } else if (balls.length === 0) {
@@ -1311,51 +1324,71 @@ function update() {
             paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
         }
     }
+    if (doubleTimer > 0) {
+        doubleTimer -= 1 / 60;
+    }
 
     // 2d. Falling powerups
     updatePowerups();
 
     // 3. Brick collisions for each ball
     for (const b of balls) {
+        if (gameState !== 'playing') break; // a level clear / game over mid-loop ends this frame's collisions
         collisionDetection(b);
     }
 }
 
-// Floating score popups: drift upward and fade out
+// Floating popups: drift upward and fade out; "pop" popups punch in from a larger scale
 function drawPopups() {
     for (let i = popups.length - 1; i >= 0; i--) {
         const p = popups[i];
-        p.y -= 1.5;
+        p.y -= p.rise;
         p.life -= 0.02;
         if (p.life <= 0) {
             popups.splice(i, 1);
             continue;
         }
+        const age = p.maxLife - p.life;
+        const scale = p.pop ? 1 + 0.8 * Math.max(0, 1 - age / 0.12) : 1;
         ctx.save();
         ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2));
-        ctx.fillStyle = p.color || '#ffffff';
-        ctx.font = 'bold 16px sans-serif';
+        ctx.font = 'bold ' + p.size + 'px sans-serif';
         ctx.textAlign = 'center';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-        ctx.shadowBlur = 4;
-        ctx.fillText(p.text, p.x, p.y);
+        ctx.lineJoin = 'round';
+        ctx.translate(p.x, p.y);
+        ctx.scale(scale, scale);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)'; // dark outline keeps text readable (cheaper than a shadow blur)
+        ctx.lineWidth = 3;
+        ctx.strokeText(p.text, 0, 0);
+        ctx.fillStyle = p.color || '#ffffff';
+        ctx.fillText(p.text, 0, 0);
         ctx.restore();
     }
 }
 
 function render() {
-    // Clear canvas
-    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+    // Backdrop stays put while the playfield shakes
+    drawBackground();
 
-    // Draw elements
+    ctx.save();
+    if (shake > 0.3) {
+        ctx.translate((Math.random() * 2 - 1) * shake, (Math.random() * 2 - 1) * shake);
+        shake *= 0.86;
+    } else {
+        shake = 0;
+    }
     drawBricks();
-    drawMovingWall();
+    drawMovingWalls();
+    drawShield();
     drawBall();
     drawPaddle();
     drawPowerups();
-    drawPopups();
-    updateHUD();
     drawParticles();
+    drawPopups();
+    ctx.restore();
+
+    drawStatusChips();
+    updateHUD();
 }
 
 // --- Rendering Loop (always runs; physics only while playing) ---
@@ -1370,6 +1403,14 @@ function gameLoop() {
         if (keys.left) paddle.x = Math.max(0, paddle.x - 10);
         if (keys.right) paddle.x = Math.min(CANVAS_W - paddle.w, paddle.x + 10);
     }
+    // Before launch the ball rides on the paddle
+    if (gameState === 'ready') {
+        for (const b of balls) {
+            b.x = paddle.x + paddle.w / 2;
+            b.y = paddle.y - b.r;
+            b.trail.length = 0;
+        }
+    }
     if (gameState === 'playing') {
         update();
     }
@@ -1379,43 +1420,78 @@ function gameLoop() {
 
 // --- Event Handlers ---
 const keys = {};
-function movePaddleTo(clientX) {
-    if (gameState !== 'ready' && gameState !== 'playing') return;
+// Displayed pixels -> canvas coordinate space
+function canvasX(clientX) {
     const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    // Scale from displayed size to canvas coordinate space
-    const relativeX = (clientX - rect.left) * (canvas.width / rect.width);
-    paddle.x = relativeX - paddle.w / 2;
-    if (paddle.x < 0) paddle.x = 0;
-    if (paddle.x + paddle.w > CANVAS_W) paddle.x = CANVAS_W - paddle.w;
+    if (rect.width <= 0) return 0;
+    return (clientX - rect.left) * (canvas.width / rect.width);
 }
 
-// Pointer-based paddle control (mouse + touch unified).
-// Tap detection: a pointerdown that moves >12px becomes a drag and stops
+function setPaddleX(x) {
+    if (gameState !== 'ready' && gameState !== 'playing') return;
+    paddle.x = Math.max(0, Math.min(x, CANVAS_W - paddle.w));
+}
+
+function movePaddleTo(clientX) {
+    setPaddleX(canvasX(clientX) - paddle.w / 2);
+}
+
+// Pointer-based paddle control.
+// Mouse: the paddle follows the cursor. Touch/pen: relative drag. The paddle keeps its offset from
+// where the finger landed (no jump, and the finger doesn't cover it), and pointer capture keeps the
+// drag alive if the finger slides off the canvas.
+// Tap detection: a pointerdown that moves >25px becomes a drag and stops
 // counting as a tap. Single tap = launch (restart on game over), double tap = pause.
 let lastTapAt = 0;
 let isTap = false;
 let tapStartX = 0;
 let tapStartY = 0;
+let dragPointerId = null; // the touch/pen pointer currently dragging the paddle
+let dragOffset = 0;       // paddle.x minus the finger's canvas x at touch-down
 
 function handlePointerDown(e) {
-    touchDetected = true;
+    if (e.pointerType !== 'mouse') {
+        if (dragPointerId !== null) return; // ignore extra fingers
+        touchDetected = true;
+        dragPointerId = e.pointerId;
+        dragOffset = paddle.x - canvasX(e.clientX);
+        try {
+            canvas.setPointerCapture(e.pointerId);
+        } catch (err) {
+            // Capture unsupported; the drag still works while the finger stays on the canvas
+        }
+    } else {
+        movePaddleTo(e.clientX);
+    }
     isTap = true;
     tapStartX = e.clientX;
     tapStartY = e.clientY;
-    movePaddleTo(e.clientX);
 }
 
 function handlePointerMove(e) {
+    if (e.pointerType !== 'mouse') {
+        if (e.pointerId !== dragPointerId) return;
+        setPaddleX(canvasX(e.clientX) + dragOffset);
+    } else {
+        movePaddleTo(e.clientX);
+    }
     // Increased tolerance to 25px so natural fingertip touch on mobile doesn't cancel tap
     if (isTap && Math.hypot(e.clientX - tapStartX, e.clientY - tapStartY) > 25) {
         isTap = false; // it's a drag now, not a tap
     }
-    movePaddleTo(e.clientX);
 }
 
-function handlePointerUp() {
-    if (isTap) {
+function handlePointerCancel(e) {
+    if (e.pointerId === dragPointerId) dragPointerId = null;
+    isTap = false;
+}
+
+function handlePointerUp(e) {
+    if (e && e.pointerType !== 'mouse') {
+        if (e.pointerId !== dragPointerId) return;
+        dragPointerId = null;
+    }
+    if (isTap && !endScreenLocked()) {
         if (gameState === 'lost') {
             resetGame(getStartingLevel());
             lastTapAt = 0;
@@ -1455,7 +1531,7 @@ function togglePause() {
 function handleKeyDown(e) {
     if (e.key === 'r' || e.key === 'R') {
         // Restart from ready, won, or lost
-        if (gameState === 'ready' || gameState === 'won' || gameState === 'lost') {
+        if ((gameState === 'ready' || gameState === 'won' || gameState === 'lost') && !endScreenLocked()) {
             resetGame(getStartingLevel());
         }
         return;
@@ -1477,7 +1553,7 @@ function handleKeyDown(e) {
     }
     if (e.key === ' ' || e.key === 'Spacebar') {
         // Launch (or continue to next level)
-        if (gameState === 'ready' || gameState === 'won') {
+        if ((gameState === 'ready' || gameState === 'won') && !endScreenLocked()) {
             launchGame();
         }
         return;
@@ -1506,7 +1582,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Attach event listeners
     canvas.addEventListener('pointerdown', handlePointerDown);
     canvas.addEventListener('pointermove', handlePointerMove);
+    // Browsers start audio suspended until a gesture; unlock it on the first tap/click/key
+    window.addEventListener('pointerdown', ensureAudio);
+    window.addEventListener('keydown', ensureAudio);
     window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
 
