@@ -14,7 +14,7 @@ let touchDetected = false;
 let bestScore = 0;      // persisted high score
 let bestAtStart = 0;    // best when this run began, to detect beating it
 let newBestShown = false;
-let runStats = { maxCombo: 0, bricks: 0 };
+let runStats = { maxCombo: 0, bricks: 0, aliens: 0 };
 let bricksLeft = 0;
 let levelBricksTotal = 0;
 let inputLockUntil = 0; // ignore restart/continue input briefly after an end screen appears
@@ -98,7 +98,8 @@ function buildSummary(levelCleared) {
             ['Best', bestScore],
             [levelCleared ? 'Level cleared' : 'Level reached', levelCleared ? level - 1 : level],
             ['Max combo', runStats.maxCombo],
-            ['Bricks broken', runStats.bricks]
+            ['Bricks broken', runStats.bricks],
+            ['Aliens downed', runStats.aliens]
         ]
     };
 }
@@ -247,7 +248,7 @@ function resetGame(startLevel = 1) {
     lives = 3;
     level = startLevel;
     gameState = 'ready';
-    runStats = { maxCombo: 0, bricks: 0 };
+    runStats = { maxCombo: 0, bricks: 0, aliens: 0 };
     bestAtStart = bestScore;
     newBestShown = false;
 
@@ -490,6 +491,7 @@ function spawnLevel() {
     }
     placeTnt();
     levelBricksTotal = bricksLeft;
+    resetAliens(); // no aliens carry over, and a fresh grace period before the first one
 
     movingWalls = buildWalls();
     buildBackground();
@@ -807,22 +809,6 @@ function drawBall() {
         ctx.fill();
         ctx.restore();
     }
-}
-
-function drawPaddle() {
-    ctx.save();
-    ctx.globalAlpha = 0.25; // glow underlay
-    ctx.fillStyle = '#0095DD';
-    roundRectPath(paddle.x - 3, paddle.y - 3, paddle.w + 6, paddle.h + 6, 8);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    const g = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
-    g.addColorStop(0, '#6fd6ff');
-    g.addColorStop(1, '#0070b0');
-    ctx.fillStyle = g;
-    roundRectPath(paddle.x, paddle.y, paddle.w, paddle.h, 6);
-    ctx.fill();
-    ctx.restore();
 }
 
 function drawMovingWalls() {
@@ -1245,6 +1231,7 @@ function clearTimedEffects() {
     explosiveReady = false;
     multiReady = false;
     paddle.w = PADDLE_W;
+    paddleHoles.length = 0; // a new ball / level comes with a repaired paddle
 }
 
 function addBlast(x, y) {
@@ -1331,6 +1318,7 @@ function applyPowerup(type) {
         const next = steps.find(s => s > ratio);
         if (next) paddle.w = Math.round(PADDLE_W * next);
         paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+        paddleHoles.length = 0; // the new, wider paddle is welded whole
     } else if (type === 'explosive') {
         // Next brick hit detonates a 3x3 area around that brick
         explosiveReady = true;
@@ -1354,12 +1342,8 @@ function updatePowerups() {
     for (let i = powerups.length - 1; i >= 0; i--) {
         const p = powerups[i];
         p.y += p.vy;
-        // Circle-vs-AABB catch test against the paddle
-        const cx = Math.max(paddle.x, Math.min(p.x, paddle.x + paddle.w));
-        const cy = Math.max(paddle.y, Math.min(p.y, paddle.y + paddle.h));
-        const dx = p.x - cx;
-        const dy = p.y - cy;
-        if (dx * dx + dy * dy < 12 * 12) {
+        // Catch test against the solid parts of the paddle
+        if (paddleOverlap(p.x, p.y, 12)) {
             applyPowerup(p.type);
             spawnParticles(p.x, p.y, p.color);
             beep();
@@ -1408,6 +1392,341 @@ function drawPowerups() {
 }
 
 // --- Collision Detection ---
+// --- Alien invaders ---
+// Aliens warp in at random times, hover in the open middle of the screen and shoot at the paddle.
+// A bolt that hits solid paddle punches a hole the ball falls through; holes repair by themselves.
+// The ball can shoot aliens down (a bonus and a guaranteed powerup) and destroys their bolts.
+const HOLE_W = 28;        // wider than the 16px ball, so a ball over a hole really falls through
+const HOLE_SECONDS = 9;
+const ALIEN_W = 33;       // 11 x 8 sprite cells at 3px
+const ALIEN_H = 24;
+const ALIEN_COLOR = '#5CFF7A';
+let aliens = [];
+let alienBullets = [];
+let alienTimer = 0;       // frames until the next alien may warp in
+let paddleHoles = [];     // { x: hole centre in paddle-local px, w, life: seconds left }
+
+const ALIEN_SPRITES = [
+    ['00100000100', '00010001000', '00111111100', '01101110110', '11111111111', '10111111101', '10100000101', '00011011000'],
+    ['00100000100', '10010001001', '10111111101', '11101110111', '11111111111', '01111111110', '00100000100', '01000000010']
+];
+
+// -- Paddle holes --
+// The solid parts of the paddle as [x0, x1] intervals in canvas coordinates
+function paddleSegments() {
+    let segs = [[paddle.x, paddle.x + paddle.w]];
+    for (const h of paddleHoles) {
+        const h0 = paddle.x + h.x - h.w / 2;
+        const h1 = paddle.x + h.x + h.w / 2;
+        const next = [];
+        for (const [a, b] of segs) {
+            if (h1 <= a || h0 >= b) {
+                next.push([a, b]);
+                continue;
+            }
+            if (h0 > a) next.push([a, h0]);
+            if (h1 < b) next.push([h1, b]);
+        }
+        segs = next;
+    }
+    return segs;
+}
+
+// Circle vs the solid parts of the paddle (identical to a plain paddle rectangle when it has no holes)
+function paddleOverlap(px, py, r) {
+    const cy = Math.max(paddle.y, Math.min(py, paddle.y + paddle.h));
+    for (const [a, b] of paddleSegments()) {
+        const dx = px - Math.max(a, Math.min(px, b));
+        const dy = py - cy;
+        if (dx * dx + dy * dy < r * r) return true;
+    }
+    return false;
+}
+
+function punchHole(worldX) {
+    const lx = Math.max(HOLE_W / 2, Math.min(paddle.w - HOLE_W / 2, worldX - paddle.x)); // hole stays inside the paddle
+    const near = paddleHoles.find(h => Math.abs(h.x - lx) < HOLE_W * 0.6);
+    if (near) {
+        near.life = HOLE_SECONDS; // hitting an existing hole just refreshes it
+    } else {
+        paddleHoles.push({ x: lx, w: HOLE_W, life: HOLE_SECONDS });
+        const maxHoles = Math.max(1, Math.floor(paddle.w / 45)); // a narrow paddle can't lose most of its width
+        while (paddleHoles.length > maxHoles) paddleHoles.shift();
+    }
+    spawnParticles(worldX, paddle.y + paddle.h / 2, '#ff9a3c', 14);
+    addShake(4);
+    haptic([25, 20, 35], true);
+    tone(700, 0.18, { type: 'sawtooth', vol: 0.22, slideTo: 120, key: 'zap' });
+    addPopup(paddle.x + paddle.w / 2, paddle.y - 22, 'HIT!', '#ff6b6b', { life: 0.8 });
+}
+
+// -- Aliens --
+function resetAliens(graceSeconds = 8, spreadSeconds = 8) {
+    aliens.length = 0;
+    alienBullets.length = 0;
+    alienTimer = Math.round(60 * (graceSeconds + Math.random() * spreadSeconds));
+}
+
+function alienMax() {
+    return Math.min(1 + Math.floor((level - 1) / 5), 3);
+}
+
+// Frames between arrivals: shorter on later levels, never under ~8s, randomised +-30%
+function alienInterval() {
+    const base = Math.max(8, 20 - level * 0.9);
+    return Math.round(60 * base * (0.7 + Math.random() * 0.6));
+}
+
+function alienFireEvery() {
+    return Math.round(60 * Math.max(0.9, 2.2 - level * 0.1) * (0.75 + Math.random() * 0.5));
+}
+
+function alienBoltSpeed() {
+    return Math.min(3.6 + level * 0.25, 6.5);
+}
+
+// Where a bolt fired now would be aimed: the paddle centre, led a little in the direction it's moving
+function alienAimX() {
+    return Math.max(0, Math.min(CANVAS_W, paddle.x + paddle.w / 2 + paddleVX * 10));
+}
+
+function spawnAlien() {
+    const fromLeft = Math.random() < 0.5;
+    const speed = Math.min(1.1 + level * 0.08, 2.4);
+    const hp = Math.min(1 + Math.floor(level / 4), 3);
+    aliens.push({
+        x: fromLeft ? -ALIEN_W : CANVAS_W + ALIEN_W,
+        y: 0,
+        baseY: 250 + Math.random() * 110,
+        w: ALIEN_W,
+        h: ALIEN_H,
+        vx: (fromLeft ? 1 : -1) * speed,
+        hp: hp,
+        maxHp: hp,
+        entered: false,
+        leaving: false,
+        life: Math.round(60 * (10 + Math.random() * 5)),
+        fireIn: Math.round(70 + Math.random() * 50),
+        flash: 0,
+        cool: 0,
+        t: Math.floor(Math.random() * 100)
+    });
+    addPopup(CANVAS_W / 2, 46, 'ALIEN INCOMING!', ALIEN_COLOR, { size: 24, life: 1.4, rise: 0.2, pop: true });
+    tone(330, 0.15, { type: 'triangle', vol: 0.2, key: 'warn' });
+    tone(440, 0.2, { type: 'triangle', vol: 0.2, delay: 0.15, force: true });
+    haptic([15, 40, 15], true);
+}
+
+function fireAlien(a) {
+    const speed = alienBoltSpeed();
+    const y0 = a.y + a.h / 2;
+    const travel = Math.max(1, (paddle.y - y0) / speed);
+    alienBullets.push({ x: a.x, y: y0, vx: (alienAimX() - a.x) / travel, vy: speed });
+    tone(1200, 0.1, { type: 'square', vol: 0.12, slideTo: 420, key: 'laser' });
+}
+
+function killAlien(i, a) {
+    aliens.splice(i, 1);
+    runStats.aliens++;
+    const points = 250 * (doubleTimer > 0 ? 2 : 1);
+    addScore(points);
+    spawnParticles(a.x, a.y, ALIEN_COLOR, 22);
+    spawnParticles(a.x, a.y, '#ffffff', 8);
+    addBlast(a.x, a.y);
+    addPopup(a.x, a.y - 12, 'ALIEN DOWN! +' + points, ALIEN_COLOR, { size: 20, life: 1.3, pop: true });
+    spawnPowerup(a.x, a.y + 14); // guaranteed drop
+    addShake(6);
+    haptic([30, 30, 50], true);
+    tone(520, 0.3, { type: 'sawtooth', vol: 0.25, slideTo: 60, key: 'alienDown' });
+}
+
+function updateAliens() {
+    // Holes repair themselves
+    for (let i = paddleHoles.length - 1; i >= 0; i--) {
+        paddleHoles[i].life -= 1 / 60;
+        if (paddleHoles[i].life <= 0) paddleHoles.splice(i, 1);
+    }
+
+    // Random arrivals (not when the level is nearly cleared)
+    if (aliens.length < alienMax() && bricksLeft > 3 && --alienTimer <= 0) {
+        spawnAlien();
+        alienTimer = alienInterval();
+    }
+
+    for (let i = aliens.length - 1; i >= 0; i--) {
+        const a = aliens[i];
+        a.t++;
+        a.x += a.vx;
+        a.y = a.baseY + Math.sin(a.t / 25) * 12;
+        if (a.flash > 0) a.flash--;
+        if (a.cool > 0) a.cool--;
+        if (!a.entered) {
+            if (a.x > a.w / 2 && a.x < CANVAS_W - a.w / 2) a.entered = true;
+        } else if (!a.leaving) {
+            if (a.x < a.w / 2 || a.x > CANVAS_W - a.w / 2) {
+                a.x = Math.max(a.w / 2, Math.min(CANVAS_W - a.w / 2, a.x));
+                a.vx *= -1;
+            }
+            if (--a.life <= 0) a.leaving = true;
+            if (--a.fireIn <= 0) {
+                fireAlien(a);
+                a.fireIn = alienFireEvery();
+            }
+        } else if (a.x < -a.w || a.x > CANVAS_W + a.w) {
+            aliens.splice(i, 1); // flew off the far side
+        }
+    }
+
+    for (let i = alienBullets.length - 1; i >= 0; i--) {
+        const b = alienBullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        // A ball destroys bolts
+        if (balls.some(ball => Math.hypot(ball.x - b.x, ball.y - b.y) < ball.r + 4)) {
+            spawnParticles(b.x, b.y, ALIEN_COLOR, 6);
+            beep(900, 'shot');
+            alienBullets.splice(i, 1);
+            continue;
+        }
+        // Hits solid paddle (a bolt over an existing hole just passes through)
+        if (b.y + 6 >= paddle.y && b.y - 6 <= paddle.y + paddle.h && paddleSegments().some(([s0, s1]) => b.x >= s0 && b.x <= s1)) {
+            punchHole(b.x);
+            alienBullets.splice(i, 1);
+            continue;
+        }
+        if (b.y > CANVAS_H + 10 || b.x < -10 || b.x > CANVAS_W + 10) alienBullets.splice(i, 1);
+    }
+}
+
+// Ball vs aliens: damage, bounce (a fire ball pierces) and a short cooldown so one contact = one hit
+function alienBallCollision(b) {
+    for (let i = aliens.length - 1; i >= 0; i--) {
+        const a = aliens[i];
+        if (a.cool > 0) continue;
+        const left = a.x - a.w / 2;
+        const top = a.y - a.h / 2;
+        const cx = Math.max(left, Math.min(b.x, left + a.w));
+        const cy = Math.max(top, Math.min(b.y, top + a.h));
+        const dx = b.x - cx;
+        const dy = b.y - cy;
+        if (dx * dx + dy * dy >= b.r * b.r) continue;
+
+        a.cool = 10;
+        a.hp--;
+        a.flash = 6;
+        if (fireTimer <= 0) {
+            if (Math.abs(dx) > Math.abs(dy)) {
+                const dir = dx > 0 ? 1 : -1;
+                b.vx = dir * Math.abs(b.vx);
+                b.x = dir > 0 ? left + a.w + b.r : left - b.r;
+            } else {
+                const dir = dy >= 0 ? 1 : -1;
+                b.vy = dir * Math.abs(b.vy);
+                b.y = dir > 0 ? top + a.h + b.r : top - b.r;
+            }
+        }
+        if (a.hp <= 0) {
+            killAlien(i, a);
+        } else {
+            clink();
+            addShake(2);
+            haptic(15);
+            spawnParticles(b.x, b.y, ALIEN_COLOR, 6);
+        }
+    }
+}
+
+// -- Drawing --
+function drawAliens() {
+    for (const a of aliens) {
+        const charging = a.entered && !a.leaving && a.fireIn <= 30;
+        const cell = 3;
+        const sx = a.x - (11 * cell) / 2;
+        const sy = a.y - (8 * cell) / 2;
+
+        if (charging) {
+            // Aim line to where the bolt would go right now: time to dodge
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 90, 90, 0.4)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 6]);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y + a.h / 2);
+            ctx.lineTo(alienAimX(), paddle.y);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        ctx.save();
+        ctx.globalAlpha = 0.2; // glow underlay
+        ctx.fillStyle = charging ? '#ff5a5a' : ALIEN_COLOR;
+        ctx.beginPath();
+        ctx.ellipse(a.x, a.y, 26, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = a.flash > 0 ? '#ffffff' : (charging && Math.floor(a.t / 3) % 2 === 0 ? '#ff5a5a' : ALIEN_COLOR);
+        const sprite = ALIEN_SPRITES[Math.floor(a.t / 14) % 2];
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 11; c++) {
+                if (sprite[r][c] === '1') ctx.fillRect(sx + c * cell, sy + r * cell, cell, cell);
+            }
+        }
+        // Remaining hit points for tougher aliens
+        if (a.maxHp > 1) {
+            for (let h = 0; h < a.maxHp; h++) {
+                ctx.fillStyle = h < a.hp ? '#ffffff' : 'rgba(255, 255, 255, 0.25)';
+                ctx.fillRect(a.x - (a.maxHp * 6) / 2 + h * 6 + 1, sy - 7, 4, 3);
+            }
+        }
+        ctx.restore();
+    }
+}
+
+function drawAlienBullets() {
+    if (!alienBullets.length) return;
+    ctx.save();
+    for (const b of alienBullets) {
+        ctx.globalAlpha = 0.3; // halo
+        ctx.fillStyle = ALIEN_COLOR;
+        ctx.fillRect(b.x - 5, b.y - 9, 10, 18);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#eafff0';
+        ctx.fillRect(b.x - 1.5, b.y - 7, 3, 14);
+    }
+    ctx.restore();
+}
+
+function drawPaddle() {
+    ctx.save();
+    for (const [a, b] of paddleSegments()) {
+        ctx.globalAlpha = 0.25; // glow underlay
+        ctx.fillStyle = '#0095DD';
+        roundRectPath(a - 3, paddle.y - 3, b - a + 6, paddle.h + 6, 8);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        const g = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
+        g.addColorStop(0, '#6fd6ff');
+        g.addColorStop(1, '#0070b0');
+        ctx.fillStyle = g;
+        roundRectPath(a, paddle.y, b - a, paddle.h, 4);
+        ctx.fill();
+    }
+    // Molten notches on the torn edges of each hole; they blink cyan just before the hole repairs
+    for (const h of paddleHoles) {
+        const repairing = h.life < 1.2 && Math.floor(h.life * 8) % 2 === 0;
+        ctx.fillStyle = repairing ? '#7fe9ff' : '#ff8a2a';
+        const x0 = paddle.x + h.x - h.w / 2;
+        const x1 = paddle.x + h.x + h.w / 2;
+        for (let i = 0; i < 3; i++) {
+            const len = 2 + ((i * 7 + Math.floor(h.x)) % 3);
+            ctx.fillRect(x0 - len, paddle.y + 1 + i * 4, len, 2);
+            ctx.fillRect(x1, paddle.y + 1 + i * 4, len, 2);
+        }
+    }
+    ctx.restore();
+}
+
 // Every brick caught by one hit: the brick itself, its 3x3 neighbours if the Explosive powerup is
 // armed, and, recursively, the 3x3 around any TNT brick caught in the blast (chain reaction).
 // Returns the targets plus the ring centres (armed hit + each TNT) for the shockwave effect.
@@ -1677,11 +1996,8 @@ function update() {
 
         // 2b. Paddle bounce: circle vs AABB test, only while moving down
         if (b.vy > 0) {
-            const cx = Math.max(paddle.x, Math.min(b.x, paddle.x + paddle.w));
-            const cy = Math.max(paddle.y, Math.min(b.y, paddle.y + paddle.h));
-            const dx = b.x - cx;
-            const dy = b.y - cy;
-            if (dx * dx + dy * dy < b.r * b.r) {
+            // Solid parts only: a ball over an alien-shot hole falls straight through
+            if (paddleOverlap(b.x, b.y, b.r)) {
                 // Snap the ball to the top of the paddle
                 b.y = paddle.y - b.r;
                 // Classic paddle bounce logic (steer)
@@ -1727,6 +2043,7 @@ function update() {
                 combo = 0;
                 powerups.length = 0;
                 clearTimedEffects();
+                resetAliens(6, 6); // a lost ball clears the invaders and gives a short breather
                 addShake(7);
                 haptic(70, true);
                 if (lives === 0) {
@@ -1784,10 +2101,15 @@ function update() {
     // 2d. Falling powerups
     updatePowerups();
 
+    // 2e. Alien invaders, their bolts, and paddle-hole repair
+    updateAliens();
+
     // 3. Brick collisions for each ball
     for (const b of balls) {
         if (gameState !== 'playing') break; // a level clear / game over mid-loop ends this frame's collisions
-        if (!b.stuck) collisionDetection(b);
+        if (b.stuck) continue;
+        collisionDetection(b);
+        if (gameState === 'playing') alienBallCollision(b);
     }
 }
 
@@ -1833,6 +2155,8 @@ function render() {
     drawBricks();
     drawMovingWalls();
     drawShield();
+    drawAliens();
+    drawAlienBullets();
     drawBall();
     drawPaddle();
     drawPowerups();
