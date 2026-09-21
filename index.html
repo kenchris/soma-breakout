@@ -37,7 +37,12 @@
             font-size: 1.5em;
             user-select: none;
         }
-        #mute-btn {
+        #hud-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .hud-btn {
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid #00bcd4;
             color: #ffffff;
@@ -47,7 +52,7 @@
             cursor: pointer;
             transition: background 0.2s;
         }
-        #mute-btn:hover {
+        .hud-btn:hover {
             background: rgba(0, 188, 212, 0.3);
         }
         #canvas {
@@ -59,7 +64,7 @@
             touch-action: none;
         }
         @media (max-width: 600px) {
-            #hud { font-size: 1em; }
+            #hud { font-size: 0.9em; flex-wrap: wrap; gap: 6px; }
             #controls { font-size: 0.75em; }
             #overlay { font-size: 1.2em; padding: 18px 28px; }
         }
@@ -68,19 +73,37 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background-color: rgba(0, 0, 0, 0.8);
-            padding: 30px 50px;
-            border-radius: 10px;
+            background-color: rgba(0, 0, 0, 0.85);
+            padding: 24px 40px;
+            border-radius: 12px;
             text-align: center;
-            font-size: 1.8em;
+            font-size: 1.6em;
             display: none; /* Hidden by default */
             z-index: 10;
-        }
-        #overlay button {
-            padding: 10px 20px;
-            margin-top: 20px;
-            font-size: 1.2em;
             cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+        }
+        #overlay-button {
+            display: inline-block;
+            background: #00bcd4;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 24px;
+            margin-top: 15px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        #overlay-button:hover {
+            background: #00e5ff;
+            transform: scale(1.04);
+        }
+        #overlay-button:active {
+            transform: scale(0.98);
         }
     </style>
 </head>
@@ -92,15 +115,19 @@
             <div id="lives">Lives: &#9679;&#9679;&#9679;</div>
             <div id="level">Level: 1</div>
             <div id="best">Best: 0</div>
-            <button id="mute-btn" title="Toggle sound (M)">🔊 Sound</button>
+            <div id="hud-actions">
+                <button id="mute-btn" class="hud-btn" title="Toggle sound (M)">🔊 Sound</button>
+                <button id="pause-btn" class="hud-btn" title="Pause / Resume (P)">⏸ Pause</button>
+                <button id="fullscreen-btn" class="hud-btn" title="Fullscreen & Lock Landscape (F)">⛶ Fullscreen</button>
+            </div>
         </div>
         <div id="controls" style="font-size: 0.9em; color: #888; margin-top: 8px;">
-            Drag / arrows move paddle &bull; tap launch &bull; double-tap pause &bull; tap on game over to restart &bull; P pause &bull; R restart &bull; M mute &bull; catch powerups: + life, S slow, W wide
+            Drag / arrows move paddle &bull; tap / Space launch &bull; P pause &bull; R restart &bull; M mute &bull; F fullscreen &bull; catch powerups: + life, S slow, W wide
         </div>
         <canvas id="canvas" width="900" height="600"></canvas>
         <div id="overlay">
-            <p id="overlay-message">Press SPACE to launch</p>
-            <button id="overlay-button" style="display: none;">Start Game</button>
+            <p id="overlay-message" style="margin: 0 0 10px 0;">Press SPACE to launch</p>
+            <button id="overlay-button">Launch</button>
         </div>
     </div>
 

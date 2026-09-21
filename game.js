@@ -8,6 +8,7 @@ let balls, paddle, bricks, score = 0, lives = 3, level = 1;
 let gameState = 'ready'; // ready, playing, won, lost
 let isMuted = false;
 let movingWall = null; // sliding barrier from level 3+
+let touchDetected = false;
 const BRICK_ROWS = 6;
 const BRICK_COLS = 12;
 const BRICK_W = 64;
@@ -17,6 +18,135 @@ const BRICK_OFFSET_LEFT = (CANVAS_W - BRICK_COLS * BRICK_W) / 2;
 const PADDLE_W = 110;
 const PADDLE_H = 12;
 const BALL_RADIUS = 8;
+
+// --- Device & Input Helpers ---
+function isTouchDevice() {
+    return (
+        touchDetected ||
+        ('ontouchstart' in window) ||
+        (navigator.maxTouchPoints > 0) ||
+        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+    );
+}
+
+function getLaunchMessage(levelWon = false) {
+    const isTouch = isTouchDevice();
+    if (levelWon) {
+        return isTouch
+            ? 'Level ' + level + ' unlocked! Tap or press SPACE to continue.'
+            : 'Level ' + level + ' unlocked! Press SPACE to continue.';
+    }
+    return isTouch
+        ? 'Tap or press SPACE to launch'
+        : 'Press SPACE to launch';
+}
+
+function showOverlay(message, buttonText = 'Launch') {
+    const overlay = document.getElementById('overlay');
+    const msg = document.getElementById('overlay-message');
+    const btn = document.getElementById('overlay-button');
+    if (msg) msg.textContent = message;
+    if (btn) {
+        btn.textContent = buttonText;
+        btn.style.display = 'inline-block';
+    }
+    if (overlay) overlay.style.display = 'block';
+}
+
+function hideOverlay() {
+    const overlay = document.getElementById('overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function handleOverlayAction() {
+    if (gameState === 'lost') {
+        resetGame(getStartingLevel());
+    } else if (gameState === 'ready' || gameState === 'won') {
+        launchGame();
+    } else if (gameState === 'paused') {
+        togglePause();
+    }
+}
+
+// --- Fullscreen & Orientation Lock ---
+async function lockLandscape() {
+    try {
+        if (screen.orientation && typeof screen.orientation.lock === 'function') {
+            await screen.orientation.lock('landscape');
+        } else if (screen.lockOrientation) {
+            screen.lockOrientation('landscape');
+        } else if (screen.mozLockOrientation) {
+            screen.mozLockOrientation('landscape');
+        } else if (screen.msLockOrientation) {
+            screen.msLockOrientation('landscape');
+        }
+    } catch (e) {
+        // Ignored if browser/device doesn't support programmatic orientation lock without fullscreen/PWA
+    }
+}
+
+function unlockOrientation() {
+    try {
+        if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+            screen.orientation.unlock();
+        } else if (screen.unlockOrientation) {
+            screen.unlockOrientation();
+        } else if (screen.mozUnlockOrientation) {
+            screen.mozUnlockOrientation();
+        } else if (screen.msUnlockOrientation) {
+            screen.msUnlockOrientation();
+        }
+    } catch (e) {}
+}
+
+async function toggleFullscreen() {
+    const doc = document;
+    const docEl = doc.documentElement;
+    const isFS = !!(doc.fullscreenElement || doc.webkitFullscreenElement);
+
+    try {
+        if (!isFS) {
+            if (docEl.requestFullscreen) {
+                await docEl.requestFullscreen();
+            } else if (docEl.webkitRequestFullscreen) {
+                await docEl.webkitRequestFullscreen();
+            }
+            await lockLandscape();
+        } else {
+            if (doc.exitFullscreen) {
+                await doc.exitFullscreen();
+            } else if (doc.webkitExitFullscreen) {
+                await doc.webkitExitFullscreen();
+            }
+            unlockOrientation();
+        }
+    } catch (err) {
+        console.warn('Fullscreen / orientation error:', err);
+    }
+}
+
+function updateFullscreenBtn() {
+    const btn = document.getElementById('fullscreen-btn');
+    if (!btn) return;
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    btn.textContent = isFS ? '⛶ Exit' : '⛶ Fullscreen';
+}
+
+function launchGame() {
+    if (gameState !== 'ready' && gameState !== 'won') return;
+    gameState = 'playing';
+    const sp = currentSpeed();
+    for (const b of balls) {
+        b.vx = sp;
+        b.vy = -sp;
+    }
+    hideOverlay();
+
+    // If currently in fullscreen, ensure landscape orientation lock
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+        lockLandscape();
+    }
+}
 
 // --- Initialization Function ---
 function getStartingLevel() {
@@ -96,10 +226,7 @@ function resetGame(startLevel = 1) {
     paddle.w = PADDLE_W;
 
     // Show the launch prompt
-    const msg = document.getElementById('overlay-message');
-    const overlay = document.getElementById('overlay');
-    if (msg) msg.textContent = 'Press SPACE to launch';
-    if (overlay) overlay.style.display = 'block';
+    showOverlay(getLaunchMessage(), 'Launch');
 }
 
 function spawnLevel() {
@@ -731,10 +858,7 @@ function collisionDetection(b) {
                         // Reset ball on the paddle
                         const sp = currentSpeed();
                         balls = [makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, sp, -sp)];
-                        const msg = document.getElementById('overlay-message');
-                        if (msg) msg.textContent = 'Level ' + level + ' unlocked! Press SPACE to continue.';
-                        const overlay = document.getElementById('overlay');
-                        if (overlay) overlay.style.display = 'block';
+                        showOverlay(getLaunchMessage(true), 'Continue');
                         return;
                     }
                 }
@@ -856,18 +980,12 @@ function update() {
                 if (lives === 0) {
                     gameState = 'lost';
                     playLoseJingle();
-                    const msg = document.getElementById('overlay-message');
-                    const overlay = document.getElementById('overlay');
-                    if (msg) msg.textContent = 'Game over — press R to restart.';
-                    if (overlay) overlay.style.display = 'block';
+                    showOverlay('Game over — tap or press R to restart.', 'Restart');
                 } else if (balls.length === 0) {
                     // All balls lost: reset one ball on the paddle
                     balls.push(makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, currentSpeed(), -currentSpeed()));
                     gameState = 'ready';
-                    const msg = document.getElementById('overlay-message');
-                    const overlay = document.getElementById('overlay');
-                    if (msg) msg.textContent = 'Press SPACE to launch';
-                    if (overlay) overlay.style.display = 'block';
+                    showOverlay(getLaunchMessage(false), 'Launch');
                 }
             }
         }
@@ -981,6 +1099,7 @@ let tapStartX = 0;
 let tapStartY = 0;
 
 function handlePointerDown(e) {
+    touchDetected = true;
     isTap = true;
     tapStartX = e.clientX;
     tapStartY = e.clientY;
@@ -988,7 +1107,8 @@ function handlePointerDown(e) {
 }
 
 function handlePointerMove(e) {
-    if (isTap && Math.hypot(e.clientX - tapStartX, e.clientY - tapStartY) > 12) {
+    // Increased tolerance to 25px so natural fingertip touch on mobile doesn't cancel tap
+    if (isTap && Math.hypot(e.clientX - tapStartX, e.clientY - tapStartY) > 25) {
         isTap = false; // it's a drag now, not a tap
     }
     movePaddleTo(e.clientX);
@@ -996,42 +1116,39 @@ function handlePointerMove(e) {
 
 function handlePointerUp() {
     if (isTap) {
-        const now = performance.now();
-        if (now - lastTapAt < 300) {
-            // Double tap = pause/resume (same as P)
+        if (gameState === 'lost') {
+            resetGame(getStartingLevel());
+            lastTapAt = 0;
+        } else if (gameState === 'ready' || gameState === 'won') {
+            launchGame();
+            lastTapAt = 0;
+        } else if (gameState === 'paused') {
             togglePause();
             lastTapAt = 0;
-        } else {
-            // Single tap = launch (same as SPACE), or restart on game over
-            if (gameState === 'lost') {
-                resetGame(getStartingLevel());
-            } else if (gameState === 'ready' || gameState === 'won') {
-                gameState = 'playing';
-                const sp = currentSpeed();
-                for (const b of balls) {
-                    b.vx = sp;
-                    b.vy = -sp;
-                }
-                const overlay = document.getElementById('overlay');
-                if (overlay) overlay.style.display = 'none';
+        } else if (gameState === 'playing') {
+            // While playing, double tap toggles pause
+            const now = performance.now();
+            if (now - lastTapAt < 350) {
+                togglePause();
+                lastTapAt = 0;
+            } else {
+                lastTapAt = now;
             }
-            lastTapAt = now;
         }
     }
     isTap = false;
 }
 
 function togglePause() {
+    const pauseBtn = document.getElementById('pause-btn');
     if (gameState === 'playing') {
         gameState = 'paused';
-        const msg = document.getElementById('overlay-message');
-        const overlay = document.getElementById('overlay');
-        if (msg) msg.textContent = 'Paused — tap or press P to resume.';
-        if (overlay) overlay.style.display = 'block';
+        if (pauseBtn) pauseBtn.textContent = '▶ Resume';
+        showOverlay('Paused — tap or press P to resume.', 'Resume');
     } else if (gameState === 'paused') {
         gameState = 'playing';
-        const overlay = document.getElementById('overlay');
-        if (overlay) overlay.style.display = 'none';
+        if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
+        hideOverlay();
     }
 }
 
@@ -1053,17 +1170,15 @@ function handleKeyDown(e) {
         toggleMute();
         return;
     }
+    if (e.key === 'f' || e.key === 'F') {
+        // Toggle fullscreen & landscape orientation
+        toggleFullscreen();
+        return;
+    }
     if (e.key === ' ' || e.key === 'Spacebar') {
         // Launch (or continue to next level)
         if (gameState === 'ready' || gameState === 'won') {
-            gameState = 'playing';
-            const sp = currentSpeed();
-            for (const b of balls) {
-                b.vx = sp;
-                b.vy = -sp;
-            }
-            const overlay = document.getElementById('overlay');
-            if (overlay) overlay.style.display = 'none';
+            launchGame();
         }
         return;
     }
@@ -1095,10 +1210,57 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
 
+    const overlay = document.getElementById('overlay');
+    if (overlay) {
+        overlay.addEventListener('click', handleOverlayAction);
+    }
+    const overlayBtn = document.getElementById('overlay-button');
+    if (overlayBtn) {
+        overlayBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleOverlayAction();
+        });
+    }
+
     const muteBtn = document.getElementById('mute-btn');
     if (muteBtn) {
         muteBtn.addEventListener('click', toggleMute);
     }
+
+    const pauseBtn = document.getElementById('pause-btn');
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', togglePause);
+    }
+
+    const fsBtn = document.getElementById('fullscreen-btn');
+    if (fsBtn) {
+        fsBtn.addEventListener('click', toggleFullscreen);
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+        updateFullscreenBtn();
+        if (document.fullscreenElement) {
+            lockLandscape();
+        } else {
+            unlockOrientation();
+        }
+    });
+    document.addEventListener('webkitfullscreenchange', () => {
+        updateFullscreenBtn();
+        if (document.webkitFullscreenElement) {
+            lockLandscape();
+        } else {
+            unlockOrientation();
+        }
+    });
+
+    window.addEventListener('touchstart', () => {
+        touchDetected = true;
+        const msg = document.getElementById('overlay-message');
+        if (gameState === 'ready' && msg && msg.textContent.includes('SPACE')) {
+            msg.textContent = getLaunchMessage(false);
+        }
+    }, { once: true, passive: true });
     
     // Start the always-running render loop
     requestAnimationFrame(gameLoop);
