@@ -4,7 +4,7 @@ const CANVAS_H = 600;
 
 // --- Game Entities ---
 let canvas, ctx;
-let ball, paddle, bricks, score = 0, lives = 3, level = 1;
+let balls, paddle, bricks, score = 0, lives = 3, level = 1;
 let gameState = 'ready'; // ready, playing, won, lost
 const BRICK_ROWS = 6;
 const BRICK_COLS = 12;
@@ -46,15 +46,8 @@ function resetGame() {
         h: PADDLE_H
     };
 
-    // Ball setup
-    ball = {
-        x: CANVAS_W / 2,
-        y: paddle.y - BALL_RADIUS,
-        r: BALL_RADIUS,
-        // Initial velocity (magnitude is kept constant)
-        vx: 5, 
-        vy: -5
-    };
+    // Ball setup (multi-ball: starts with a single ball, can split up to 4)
+    balls = [makeBall(CANVAS_W / 2, paddle.y - BALL_RADIUS, 5, -5)];
 
     // Brick setup
     bricks = [];
@@ -76,6 +69,13 @@ function resetGame() {
 
     // Clear leftover particles
     particles.length = 0;
+    powerups.length = 0;
+    slowTimer = 0;
+    wideTimer = 0;
+    explosiveReady = false;
+    combo = 0;
+    popups.length = 0;
+    paddle.w = PADDLE_W;
 
     // Show the launch prompt
     const msg = document.getElementById('overlay-message');
@@ -112,6 +112,10 @@ function spawnLevel() {
     }
 }
 
+function makeBall(x, y, vx, vy) {
+    return { x, y, r: BALL_RADIUS, vx, vy };
+}
+
 // Ball speed ramps up slightly each level (difficulty increases)
 function currentSpeed() {
     return Math.min(5 + (level - 1) * 0.4, 8);
@@ -119,11 +123,13 @@ function currentSpeed() {
 
 // --- Drawing Functions ---
 function drawBall() {
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-    ctx.fillStyle = "#FF0000";
-    ctx.fill();
-    ctx.closePath();
+    for (const b of balls) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fillStyle = "#FF0000";
+        ctx.fill();
+        ctx.closePath();
+    }
 }
 
 function drawPaddle() {
@@ -192,13 +198,13 @@ function updateHUD() {
 
 // --- Sound ---
 let audioCtx = null;
-function beep() {
+function beep(freq = 440) {
     try {
         if (!audioCtx) audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'square';
-        osc.frequency.value = 440;
+        osc.frequency.value = freq;
         gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
         osc.connect(gain);
@@ -210,8 +216,25 @@ function beep() {
     }
 }
 
-// --- Particles ---
-let particles = [];
+// Short explosion boom (low, thuddy)
+function boom() {
+    try {
+        if (!audioCtx) audioCtx = new AudioContext();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(90, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.25);
+    } catch (e) {
+        // Audio not available; ignore
+    }
+}
 
 function spawnParticles(x, y, color) {
     for (let i = 0; i < 12; i++) {
@@ -243,40 +266,161 @@ function drawParticles() {
     }
 }
 
+// --- Powerups ---
+// A destroyed brick has a chance to drop a powerup; the paddle catches it.
+const POWERUP_CHANCE = 0.25;
+const POWERUP_TYPES = [
+    { type: 'life', label: '+', color: '#33cc33' },
+    { type: 'slow', label: 'S', color: '#cc33cc' },
+    { type: 'wide', label: 'W', color: '#ff9900' },
+    { type: 'explosive', label: 'E', color: '#ff3366' },
+    { type: 'multi', label: 'M', color: '#3399ff' }
+];
+let powerups = [];
+let slowTimer = 0;
+let wideTimer = 0;
+let explosiveReady = false; // next brick hit detonates a 3x3 area
+let multiReady = false;    // next paddle bounce splits the ball (cap 4)
+let combo = 0; // bricks destroyed in a row without a paddle bounce
+let popups = []; // floating score popups
+let particles = []; // brick shrapnel
+
+function spawnPowerup(x, y) {
+    const t = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+    powerups.push({ x: x, y: y, type: t.type, label: t.label, color: t.color, vy: 2.5 });
+}
+
+function applyPowerup(type) {
+    if (type === 'life') {
+        lives = Math.min(lives + 1, 5);
+    } else if (type === 'slow') {
+        slowTimer = 6;
+    } else if (type === 'wide') {
+        wideTimer = 8;
+        // W stacks: each W widens the paddle further (1.4x -> 1.7x -> 2.0x, capped)
+        const ratio = paddle.w / PADDLE_W;
+        const steps = [1.4, 1.7, 2.0];
+        const next = steps.find(s => s > ratio);
+        if (next) paddle.w = Math.round(PADDLE_W * next);
+        paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+    } else if (type === 'explosive') {
+        // Next brick hit detonates a 3x3 area around that brick
+        explosiveReady = true;
+    } else if (type === 'multi') {
+        // Next paddle bounce splits that ball into two (cap 4 balls)
+        multiReady = true;
+    }
+}
+
+function updatePowerups() {
+    for (let i = powerups.length - 1; i >= 0; i--) {
+        const p = powerups[i];
+        p.y += p.vy;
+        // Circle-vs-AABB catch test against the paddle
+        const cx = Math.max(paddle.x, Math.min(p.x, paddle.x + paddle.w));
+        const cy = Math.max(paddle.y, Math.min(p.y, paddle.y + paddle.h));
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        if (dx * dx + dy * dy < 12 * 12) {
+            applyPowerup(p.type);
+            spawnParticles(p.x, p.y, p.color);
+            beep();
+            powerups.splice(i, 1);
+            continue;
+        }
+        if (p.y > CANVAS_H) {
+            powerups.splice(i, 1);
+        }
+    }
+}
+
+function drawPowerups() {
+    for (const p of powerups) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.label, p.x, p.y + 5);
+    }
+}
+
 // --- Collision Detection ---
-function collisionDetection() {
+function collisionDetection(b) {
     for (let c = 0; c < BRICK_COLS; c++) {
         for (let r = 0; r < BRICK_ROWS; r++) {
             const brick = bricks[c][r];
             if (brick.alive) {
                 // Circle-AABB test: closest point on the brick's AABB to the ball center
-                const cx = Math.max(brick.x, Math.min(ball.x, brick.x + brick.w));
-                const cy = Math.max(brick.y, Math.min(ball.y, brick.y + brick.h));
-                const dx = ball.x - cx;
-                const dy = ball.y - cy;
-                if (dx * dx + dy * dy < ball.r * ball.r) {
-                    // Hit: flip the axis with the deeper penetration
-                    brick.alive = false;
-                    score += brick.points;
+                const cx = Math.max(brick.x, Math.min(b.x, brick.x + brick.w));
+                const cy = Math.max(brick.y, Math.min(b.y, brick.y + brick.h));
+                const dx = b.x - cx;
+                const dy = b.y - cy;
+                if (dx * dx + dy * dy < b.r * b.r) {
+                    // Explosive ball: if ready, detonate the 3x3 area around the hit brick
+                    const wasExplosive = explosiveReady;
+                    explosiveReady = false;
+                    let targets = [[c, r]];
+                    if (wasExplosive) {
+                        for (let cc = c - 1; cc <= c + 1; cc++) {
+                            for (let rr = r - 1; rr <= r + 1; rr++) {
+                                if (cc >= 0 && cc < BRICK_COLS && rr >= 0 && rr < BRICK_ROWS) {
+                                    targets.push([cc, rr]);
+                                }
+                            }
+                        }
+                    }
+
+                    // Combo: bricks broken in a row since the last paddle bounce,
+                    // multiplier capped at x5 (applied to every brick in the burst)
+                    combo++;
+                    const mult = Math.min(combo, 5);
+                    let totalEarned = 0;
+                    for (const [tc, tr] of targets) {
+                        const t = bricks[tc][tr];
+                        if (!t.alive) continue;
+                        t.alive = false;
+                        totalEarned += t.points * mult;
+                        spawnParticles(t.x + t.w / 2, t.y + t.h / 2, t.color);
+                    }
+                    score += totalEarned;
+                    // Floating score popup at the break point
+                    popups.push({
+                        x: brick.x + brick.w / 2,
+                        y: brick.y + brick.h / 2,
+                        text: wasExplosive
+                            ? '+' + totalEarned + ' (boom)'
+                            : (mult > 1 ? '+' + totalEarned + ' (x' + mult + ')' : '+' + totalEarned),
+                        life: 1
+                    });
 
                     // Slightly speed up, then re-normalize to keep magnitude sane
-                    const speed = Math.hypot(ball.vx, ball.vy);
+                    const speed = Math.hypot(b.vx, b.vy);
                     const newSpeed = Math.min(speed * 1.02, 10);
                     const factor = newSpeed / speed;
-                    ball.vx *= factor;
-                    ball.vy *= factor;
+                    b.vx *= factor;
+                    b.vy *= factor;
 
                     if (Math.abs(dx) > Math.abs(dy)) {
                         // ball entered from the side -> flip vx
-                        ball.vx *= -1;
+                        b.vx *= -1;
                     } else {
                         // ball entered from top/bottom -> flip vy
-                        ball.vy *= -1;
+                        b.vy *= -1;
                     }
 
-                    // Particle burst at the brick's center
-                    spawnParticles(brick.x + brick.w / 2, brick.y + brick.h / 2, brick.color);
-                    beep();
+                    if (wasExplosive) {
+                        boom();
+                    } else {
+                        beep();
+                    }
+                    
+                    // Chance for a powerup to drop from the destroyed brick
+                    if (Math.random() < POWERUP_CHANCE) {
+                        spawnPowerup(brick.x + brick.w / 2, brick.y + brick.h / 2);
+                    }
                     
                     // Check for win condition
                     let bricksLeft = 0;
@@ -288,13 +432,15 @@ function collisionDetection() {
                     if (bricksLeft === 0) {
                         level++;
                         gameState = 'won';
+                        powerups.length = 0;
+                        slowTimer = 0;
+                        wideTimer = 0;
+                        explosiveReady = false;
+                        paddle.w = PADDLE_W;
                         spawnLevel();
                         // Reset ball on the paddle
-                        ball.x = paddle.x + paddle.w / 2;
-                        ball.y = paddle.y - ball.r;
                         const sp = currentSpeed();
-                        ball.vx = sp;
-                        ball.vy = -sp;
+                        balls = [makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, sp, -sp)];
                         const msg = document.getElementById('overlay-message');
                         if (msg) msg.textContent = 'Level ' + level + ' unlocked! Press SPACE to continue.';
                         const overlay = document.getElementById('overlay');
@@ -312,68 +458,138 @@ function collisionDetection() {
 
 // --- Game Logic Update ---
 function update() {
-    // 1. Move the ball
-    ball.x += ball.vx;
-    ball.y += ball.vy;
+    // 1. Move each ball
+    for (let i = balls.length - 1; i >= 0; i--) {
+        const b = balls[i];
 
-    // 2. Wall Collision
-    if (ball.x + ball.r > CANVAS_W || ball.x - ball.r < 0) {
-        ball.vx *= -1;
-    }
-    if (ball.y - ball.r < 0) {
-        // Top Wall Bounce
-        ball.y = ball.r;
-        ball.vy *= -1;
-    }
+        b.x += b.vx;
+        b.y += b.vy;
 
-    // 2b. Paddle bounce: circle-vs-AABB test, only while moving down
-    if (ball.vy > 0) {
-        const cx = Math.max(paddle.x, Math.min(ball.x, paddle.x + paddle.w));
-        const cy = Math.max(paddle.y, Math.min(ball.y, paddle.y + paddle.h));
-        const dx = ball.x - cx;
-        const dy = ball.y - cy;
-        if (dx * dx + dy * dy < ball.r * ball.r) {
-            // Snap the ball to the paddle top
-            ball.y = paddle.y - ball.r;
-            // Classic paddle bounce logic (steer)
-            // Hit point relative to paddle center: -1 (left) to 1 (right)
-            let hitRatio = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
-            hitRatio = Math.max(-1, Math.min(1, hitRatio));
-            // Cap the horizontal component so the bounce stays within ~60 degrees
-            // of vertical — otherwise an edge hit yields vy ~ 0 and the ball
-            // shuttles left-right off the side walls forever
-            const bSpeed = currentSpeed();
-            let newVX = hitRatio * bSpeed * 0.866;
-            let newVY = -Math.sqrt(bSpeed * bSpeed - newVX * newVX);
-            ball.vx = newVX;
-            ball.vy = newVY;
-        } else if (ball.y + ball.r > CANVAS_H) {
-            // Ball fell past the paddle
-            lives--;
-            if (lives === 0) {
-                gameState = 'lost';
-                const msg = document.getElementById('overlay-message');
-                const overlay = document.getElementById('overlay');
-                if (msg) msg.textContent = 'Game over — press R to restart.';
-                if (overlay) overlay.style.display = 'block';
-            } else {
-                // Reset ball on the paddle
-                ball.x = paddle.x + paddle.w / 2;
-                ball.y = paddle.y - ball.r;
-                const sp = currentSpeed();
-                ball.vx = sp;
-                ball.vy = -sp;
-                gameState = 'ready';
-                const msg = document.getElementById('overlay-message');
-                const overlay = document.getElementById('overlay');
-                if (msg) msg.textContent = 'Press SPACE to launch';
-                if (overlay) overlay.style.display = 'block';
+        // 2. Wall collisions
+        if (b.x + b.r > CANVAS_W || b.x - b.r < 0) {
+            b.vx *= -1;
+        }
+        if (b.y - b.r < 0) {
+            // Top wall bounce
+            b.y = b.r;
+            b.vy *= -1;
+        }
+
+        // 2b. Paddle bounce: circle vs AABB test, only while moving down
+        if (b.vy > 0) {
+            const cx = Math.max(paddle.x, Math.min(b.x, paddle.x + paddle.w));
+            const cy = Math.max(paddle.y, Math.min(b.y, paddle.y + paddle.h));
+            const dx = b.x - cx;
+            const dy = b.y - cy;
+            if (dx * dx + dy * dy < b.r * b.r) {
+                // Snap the ball to the top of the paddle
+                b.y = paddle.y - b.r;
+                // Classic paddle bounce logic (steer)
+                let hitRatio = (b.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
+                hitRatio = Math.max(-1, Math.min(1, hitRatio));
+                const bSpeed = currentSpeed();
+                let newVX = hitRatio * bSpeed * 0.866;
+                let newVY = -Math.sqrt(bSpeed * bSpeed - newVX * newVX);
+                b.vx = newVX;
+                b.vy = newVY;
+                if (paddleVX !== 0) {
+                    b.vx += paddleVX * 0.4;
+                    const mag = Math.hypot(b.vx, b.vy);
+                    const maxSpeed = currentSpeed() * 1.6;
+                    if (mag > maxSpeed) {
+                        const f = maxSpeed / mag;
+                        b.vx *= f;
+                        b.vy *= f;
+                    }
+                }
+                beep(660);
+                combo = 0;
+                // Multi-ball split: the "multi" powerup causes this ball to split on the next paddle bounce
+                if (multiReady) {
+                    multiReady = false;
+                    if (balls.length < 4) {
+                        const mag = Math.hypot(b.vx, b.vy);
+                        const f = 0.7 * mag;
+                        balls.push(makeBall(b.x, b.y, b.vx + f, b.vy));
+                    }
+                }
+            } else if (b.y + b.r > CANVAS_H) {
+                // Ball fell past the paddle
+                balls.splice(i, 1);
+                lives--;
+                combo = 0;
+                powerups.length = 0;
+                slowTimer = 0;
+                wideTimer = 0;
+                explosiveReady = false;
+                multiReady = false;
+                paddle.w = PADDLE_W;
+                if (lives === 0) {
+                    gameState = 'lost';
+                    const msg = document.getElementById('overlay-message');
+                    const overlay = document.getElementById('overlay');
+                    if (msg) msg.textContent = 'Game over — press R to restart.';
+                    if (overlay) overlay.style.display = 'block';
+                } else if (balls.length === 0) {
+                    // All balls lost: reset one ball on the paddle
+                    balls.push(makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, currentSpeed(), -currentSpeed()));
+                    gameState = 'ready';
+                    const msg = document.getElementById('overlay-message');
+                    const overlay = document.getElementById('overlay');
+                    if (msg) msg.textContent = 'Press SPACE to launch';
+                    if (overlay) overlay.style.display = 'block';
+                }
             }
         }
     }
 
-    // 3. Collision Check
-    collisionDetection();
+    // 2c. Active powerup timers (slow affects all balls)
+    if (slowTimer > 0) {
+        for (const b of balls) {
+            const target = currentSpeed() * 0.6;
+            const mag = Math.hypot(b.vx, b.vy);
+            if (mag > 0) {
+                const f = target / mag;
+                b.vx *= f;
+                b.vy *= f;
+            }
+        }
+        slowTimer -= 1 / 60;
+    }
+    if (wideTimer > 0) {
+        wideTimer -= 1 / 60;
+        if (wideTimer <= 0) {
+            paddle.w = PADDLE_W;
+            paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+        }
+    }
+
+    // 2d. Falling powerups
+    updatePowerups();
+
+    // 3. Brick collisions for each ball
+    for (const b of balls) {
+        collisionDetection(b);
+    }
+}
+
+// Floating score popups: drift upward and fade out
+function drawPopups() {
+    for (let i = popups.length - 1; i >= 0; i--) {
+        const p = popups[i];
+        p.y -= 1.5;
+        p.life -= 0.02;
+        if (p.life <= 0) {
+            popups.splice(i, 1);
+            continue;
+        }
+        ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2));
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.text, p.x, p.y);
+        ctx.globalAlpha = 1;
+    }
 }
 
 function render() {
@@ -384,12 +600,18 @@ function render() {
     drawBricks();
     drawBall();
     drawPaddle();
+    drawPowerups();
     updateHUD();
     drawParticles();
 }
 
 // --- Rendering Loop (always runs; physics only while playing) ---
+let paddleVX = 0;
+let paddlePrevX = 0;
 function gameLoop() {
+    // Track paddle velocity per frame (used for the paddle "throw")
+    paddleVX = paddle.x - paddlePrevX;
+    paddlePrevX = paddle.x;
     // Continuous paddle keyboard control (works before launch too)
     if (gameState === 'ready' || gameState === 'playing') {
         if (keys.left) paddle.x = Math.max(0, paddle.x - 10);
@@ -451,8 +673,10 @@ function handlePointerUp() {
             } else if (gameState === 'ready' || gameState === 'won') {
                 gameState = 'playing';
                 const sp = currentSpeed();
-                ball.vx = sp;
-                ball.vy = -sp;
+                for (const b of balls) {
+                    b.vx = sp;
+                    b.vy = -sp;
+                }
                 const overlay = document.getElementById('overlay');
                 if (overlay) overlay.style.display = 'none';
             }
@@ -494,8 +718,10 @@ function handleKeyDown(e) {
         if (gameState === 'ready' || gameState === 'won') {
             gameState = 'playing';
             const sp = currentSpeed();
-            ball.vx = sp;
-            ball.vy = -sp;
+            for (const b of balls) {
+                b.vx = sp;
+                b.vy = -sp;
+            }
             const overlay = document.getElementById('overlay');
             if (overlay) overlay.style.display = 'none';
         }
