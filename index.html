@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Breakout Game</title>
+    <style>
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            background-color: #1a1a2e;
+            color: #ffffff;
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            touch-action: none; /* no panning/pinch-zoom on mobile */
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #game-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #hud {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            max-width: 900px;
+            margin-bottom: 10px;
+            font-size: 1.5em;
+            user-select: none;
+        }
+        #canvas {
+            border: 2px solid #00bcd4;
+            background-color: #000000;
+            cursor: none; /* Hide default cursor over canvas */
+            max-width: 100%;
+            max-height: calc(100vh - 90px); /* always fits viewport, keeps 3:2 ratio */
+            touch-action: none;
+        }
+        @media (max-width: 600px) {
+            #hud { font-size: 1em; }
+            #controls { font-size: 0.75em; }
+            #overlay { font-size: 1.2em; padding: 18px 28px; }
+        }
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 30px 50px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 1.8em;
+            display: none; /* Hidden by default */
+            z-index: 10;
+        }
+        #overlay button {
+            padding: 10px 20px;
+            margin-top: 20px;
+            font-size: 1.2em;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="hud">
+            <div id="score">Score: 0</div>
+            <div id="lives">Lives: &#9679;&#9679;&#9679;</div>
+            <div id="level">Level: 1</div>
+            <div id="best">Best: 0</div>
+        </div>
+        <div id="controls" style="font-size: 0.9em; color: #888; margin-top: 8px;">
+            Drag / arrows move paddle &bull; tap launch &bull; double-tap pause &bull; tap on game over to restart &bull; P pause &bull; R restart
+        </div>
+        <canvas id="canvas" width="900" height="600"></canvas>
+        <div id="overlay">
+            <p id="overlay-message">Press SPACE to launch</p>
+            <button id="overlay-button" style="display: none;">Start Game</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
