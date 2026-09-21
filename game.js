@@ -291,6 +291,7 @@ function resetGame(startLevel = 1) {
     shake = 0;
     combo = 0;
     popups.length = 0;
+    blasts.length = 0;
 
     // Show the launch prompt
     showOverlay(getLaunchMessage(), 'Launch');
@@ -335,6 +336,48 @@ function currentLayout() {
     return LAYOUTS[(level - 1) % LAYOUTS.length];
 }
 
+// --- Steel brick cracks ---
+// Procedural and random per hit: 3-4 jagged fissures radiate from where the ball actually struck,
+// each with a chance of short offshoots, and every fissure stops when it reaches the brick's edge.
+// Stored on the brick as polylines in brick-local coordinates and drawn by drawCrack().
+function crackPath(x, y, angle, length, brick, out, branchChance) {
+    const pts = [[x, y]];
+    const steps = 3 + Math.floor(Math.random() * 3);
+    let a = angle;
+    for (let s = 0; s < steps; s++) {
+        a += (Math.random() - 0.5) * 1.1; // jagged
+        const seg = (length / steps) * (0.6 + Math.random() * 0.8);
+        const nx = x + Math.cos(a) * seg;
+        const ny = y + Math.sin(a) * seg;
+        if (nx < 1 || nx > brick.w - 1 || ny < 1 || ny > brick.h - 1) {
+            // Ran into the brick's edge: end exactly on it
+            pts.push([Math.max(1, Math.min(brick.w - 1, nx)), Math.max(1, Math.min(brick.h - 1, ny))]);
+            break;
+        }
+        x = nx;
+        y = ny;
+        pts.push([x, y]);
+        if (branchChance && Math.random() < branchChance) {
+            const side = Math.random() < 0.5 ? -1 : 1;
+            out.push(crackPath(x, y, a + side * (0.6 + Math.random() * 0.8), length * 0.35, brick, out, 0));
+        }
+    }
+    return pts;
+}
+
+function makeCrack(brick, hitX, hitY) {
+    const ox = Math.max(3, Math.min(brick.w - 3, hitX - brick.x));
+    const oy = Math.max(3, Math.min(brick.h - 3, hitY - brick.y));
+    const lines = [];
+    const arms = 3 + Math.floor(Math.random() * 2);
+    const base = Math.random() * Math.PI * 2;
+    for (let i = 0; i < arms; i++) {
+        const angle = base + (i / arms) * Math.PI * 2 + (Math.random() - 0.5) * 0.9;
+        lines.push(crackPath(ox, oy, angle, 16 + Math.random() * 30, brick, lines, 0.4));
+    }
+    return { ox, oy, lines };
+}
+
 // Small seeded PRNG (mulberry32) so a given level always generates the same layout, also for ?level=N
 function seededRandom(seed) {
     let s = seed >>> 0;
@@ -371,6 +414,34 @@ function buildSteelMask(layout, style) {
     return (c, r) => marked.has(c * BRICK_ROWS + r);
 }
 
+// TNT bricks: 1 on level 1, growing to 5. Placed only where they have neighbours so the blast is
+// worth it (never in the top row), seeded per level like the steel clusters. Adjacent TNTs chain.
+const TNT_COLOR = '#7a1010';
+function placeTnt() {
+    const rand = seededRandom(level * 104729);
+    const target = Math.min(1 + Math.floor(level / 2), 5);
+    let placed = 0;
+    for (let attempt = 0; attempt < 80 && placed < target; attempt++) {
+        const c = Math.floor(rand() * BRICK_COLS);
+        const r = 1 + Math.floor(rand() * (BRICK_ROWS - 1));
+        const cell = bricks[c][r];
+        if (!cell.alive || cell.steel || cell.tnt) continue;
+        let neighbours = 0;
+        for (let cc = c - 1; cc <= c + 1; cc++) {
+            for (let rr = r - 1; rr <= r + 1; rr++) {
+                if ((cc !== c || rr !== r) && cc >= 0 && cc < BRICK_COLS && rr >= 0 && rr < BRICK_ROWS && bricks[cc][rr].alive) {
+                    neighbours++;
+                }
+            }
+        }
+        if (neighbours < 3) continue;
+        cell.tnt = true;
+        cell.points = 25;
+        cell.color = TNT_COLOR;
+        placed++;
+    }
+}
+
 // Sliding barriers: one from level 3, a counter-moving second from level 8; speed ramps and is capped
 function buildWalls() {
     const walls = [];
@@ -396,6 +467,9 @@ function spawnLevel() {
             brick.x = (c * BRICK_W) + BRICK_OFFSET_LEFT;
             brick.y = (r * BRICK_H) + BRICK_OFFSET_TOP;
             brick.alive = layout.alive(c, r);
+            brick.tnt = false;
+            brick.crack = null;
+            brick.flash = 0;
             if (brick.alive) bricksLeft++;
 
             if (brick.alive && isSteel(c, r)) {
@@ -414,6 +488,7 @@ function spawnLevel() {
             }
         }
     }
+    placeTnt();
     levelBricksTotal = bricksLeft;
 
     movingWalls = buildWalls();
@@ -421,7 +496,156 @@ function spawnLevel() {
 }
 
 function makeBall(x, y, vx, vy) {
-    return { x, y, r: BALL_RADIUS, vx, vy, trail: [] };
+    return { x, y, r: BALL_RADIUS, vx, vy, trail: [], stuck: false, stuckFor: 0, aim: null, aimIn: 0 };
+}
+
+// --- Guided ball: aim for maximum damage ---
+// How much a shot is worth if its first hit is brick (c, r): the points it (and anything it sets off)
+// would clear. Mirrors the game's real damage rules: TNT chains, the armed Explosive blast, fire-ball
+// pierce lines, and otherwise the brick plus a bonus for the cluster around it (good follow-up bounces).
+function hitValue(c, r) {
+    const t = bricks[c][r];
+    const worth = q => (q.steel ? (q.hitsLeft > 1 ? 8 : 20) : q.points);
+    if (explosiveReady || t.tnt) {
+        const { targets, tnt } = collectBlast(c, r, explosiveReady);
+        let v = t.tnt ? 20 : 0;
+        for (const [tc, tr] of targets) {
+            if (bricks[tc][tr].alive) v += worth(bricks[tc][tr]);
+        }
+        return v + (tnt >= 2 ? 50 * tnt : 0);
+    }
+    if (fireTimer > 0) {
+        // Pierces straight through: everything left in this column counts
+        let v = 0;
+        for (let rr = 0; rr < BRICK_ROWS; rr++) {
+            if (bricks[c][rr].alive) v += worth(bricks[c][rr]);
+        }
+        return v;
+    }
+    let v = worth(t);
+    for (let cc = c - 1; cc <= c + 1; cc++) {
+        for (let rr = r - 1; rr <= r + 1; rr++) {
+            if ((cc !== c || rr !== r) && cc >= 0 && cc < BRICK_COLS && rr >= 0 && rr < BRICK_ROWS && bricks[cc][rr].alive) {
+                v += 0.25 * worth(bricks[cc][rr]);
+            }
+        }
+    }
+    return v;
+}
+
+// March a ray from (x, y) along the unit vector (dx, dy), reflecting off the side walls, and return
+// the first alive brick it reaches ({c, r}), 'wall' if a sliding barrier blocks it, or null.
+function castRay(x, y, dx, dy) {
+    const step = 5;
+    const lo = BALL_RADIUS;
+    const hi = CANVAS_W - BALL_RADIUS;
+    for (let i = 0; i < 170; i++) {
+        x += dx * step;
+        y += dy * step;
+        if (x < lo) {
+            x = 2 * lo - x;
+            dx = -dx;
+        } else if (x > hi) {
+            x = 2 * hi - x;
+            dx = -dx;
+        }
+        if (y < 0 || y > CANVAS_H) return null;
+        for (const w of movingWalls) {
+            if (x > w.x - 4 && x < w.x + w.w + 4 && y > w.y - 4 && y < w.y + w.h + 4) return 'wall';
+        }
+        const c = Math.floor((x - BRICK_OFFSET_LEFT) / BRICK_W);
+        const r = Math.floor((y - BRICK_OFFSET_TOP) / BRICK_H);
+        if (c >= 0 && c < BRICK_COLS && r >= 0 && r < BRICK_ROWS && bricks[c][r].alive) return { c, r };
+    }
+    return null;
+}
+
+// Sample the upward arc, score what each ray would hit, and return the best shot as
+// { vx, vy, c, r } at the current ball speed (null if nothing is hittable).
+function bestAim(x, y) {
+    const speed = currentSpeed();
+    let best = null;
+    let bestValue = 0;
+    for (let deg = -70; deg <= 70; deg += 7) {
+        const a = (deg * Math.PI) / 180;
+        const dx = Math.sin(a);
+        const dy = -Math.cos(a);
+        const hit = castRay(x, y, dx, dy);
+        if (!hit || hit === 'wall') continue;
+        const v = hitValue(hit.c, hit.r) * (1 - Math.abs(deg) / 400); // slight preference for straighter shots
+        if (v > bestValue) {
+            bestValue = v;
+            best = { vx: dx * speed, vy: dy * speed, c: hit.c, r: hit.r };
+        }
+    }
+    return best;
+}
+
+// Where a ball leaving the paddle at b goes: the best shot while Guided, else normal paddle steering
+function launchVelocity(b, throwVX) {
+    if (guidedTimer > 0) {
+        const aim = bestAim(b.x, b.y);
+        if (aim) return [aim.vx, aim.vy];
+    }
+    return paddleDeflection(b.x, throwVX);
+}
+
+// In flight: every so often re-pick the best shot, and curve toward it at a limited turn rate
+function steerGuided(b) {
+    if (b.vy >= 0) return; // only while heading up toward the bricks
+    if (--b.aimIn <= 0) {
+        b.aimIn = 15;
+        b.aim = bestAim(b.x, b.y);
+    }
+    if (!b.aim) return;
+    const cur = Math.atan2(b.vy, b.vx);
+    const want = Math.atan2(b.aim.vy, b.aim.vx);
+    const diff = Math.atan2(Math.sin(want - cur), Math.cos(want - cur)); // shortest signed angle
+    const turn = Math.max(-GUIDED_TURN, Math.min(GUIDED_TURN, diff));
+    const speed = Math.hypot(b.vx, b.vy);
+    b.vx = Math.cos(cur + turn) * speed;
+    b.vy = Math.sin(cur + turn) * speed;
+}
+
+// Velocity for a ball leaving the paddle at x: steered by where it hits the paddle, plus a little of
+// the paddle's own sideways motion (the "throw"). Used by bounces, sticky releases and the aim preview.
+function paddleDeflection(x, throwVX) {
+    const hitRatio = Math.max(-1, Math.min(1, (x - (paddle.x + paddle.w / 2)) / (paddle.w / 2)));
+    const speed = currentSpeed();
+    let vx = hitRatio * speed * 0.866;
+    let vy = -Math.sqrt(speed * speed - vx * vx);
+    if (throwVX !== 0) {
+        vx += throwVX * 0.4;
+        const mag = Math.hypot(vx, vy);
+        const maxSpeed = speed * 1.6;
+        if (mag > maxSpeed) {
+            vx *= maxSpeed / mag;
+            vy *= maxSpeed / mag;
+        }
+    }
+    return [vx, vy];
+}
+
+// Sticky paddle: a caught ball rides the paddle (slide the paddle under it to aim) until released
+function releaseBall(b) {
+    const [vx, vy] = launchVelocity(b, paddleVX);
+    b.vx = vx;
+    b.vy = vy;
+    b.stuck = false;
+    b.stuckFor = 0;
+    beep(760, 'release');
+    haptic(10);
+}
+
+function releaseStuckBalls() {
+    let released = false;
+    for (const b of balls) {
+        if (b.stuck) {
+            releaseBall(b);
+            released = true;
+        }
+    }
+    return released;
 }
 
 // Ball speed ramps up each level (capped), plus up to +1.2 within a level as its bricks are cleared
@@ -488,8 +712,62 @@ function fillPoly(points, style) {
 }
 
 // --- Drawing Functions ---
+// Dotted preview of where a stuck ball will go when released, plus a ring that drains toward auto-release
+function drawStuckAim(b) {
+    const [vx, vy] = launchVelocity(b, 0);
+    const speed = Math.hypot(vx, vy);
+    ctx.save();
+    ctx.fillStyle = '#c6ff6a';
+    for (let d = 26; d <= 190; d += 18) {
+        ctx.globalAlpha = 0.85 - d / 260;
+        ctx.beginPath();
+        ctx.arc(b.x + (vx / speed) * d, b.y + (vy / speed) * d, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = '#c6ff6a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - b.stuckFor / STICKY_MAX_FRAMES));
+    ctx.stroke();
+    ctx.restore();
+}
+
+// Ball look by state: a fire ball burns orange, a guided ball glows violet, otherwise red
+const BALL_LOOKS = {
+    normal: { trailCore: '255, 150, 70', trailEdge: '255, 60, 60', trailA: 0.32, trailGrow: 0.9, halo: '255, 77, 77', haloA: 0.45, haloR: 2.6, mid: '#ff6b6b', edge: '#d40000' },
+    fire: { trailCore: '255, 190, 40', trailEdge: '255, 90, 0', trailA: 0.42, trailGrow: 1.3, halo: '255, 150, 20', haloA: 0.6, haloR: 3.4, mid: '#ffd23f', edge: '#ff5a00' },
+    guided: { trailCore: '190, 140, 255', trailEdge: '110, 60, 230', trailA: 0.4, trailGrow: 1.1, halo: '160, 108, 255', haloA: 0.55, haloR: 3.0, mid: '#c9a0ff', edge: '#6a2fd0' }
+};
+
+// Lock-on reticle over the brick a guided ball is heading for
+function drawReticle(brick) {
+    const cx = brick.x + brick.w / 2;
+    const cy = brick.y + brick.h / 2;
+    const spin = performance.now() / 500;
+    const pulse = 13 + Math.sin(performance.now() / 120) * 2;
+    ctx.save();
+    ctx.strokeStyle = '#c9a0ff';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+        const a = spin + (i * Math.PI) / 2;
+        ctx.moveTo(cx + Math.cos(a) * (pulse - 4), cy + Math.sin(a) * (pulse - 4));
+        ctx.lineTo(cx + Math.cos(a) * (pulse + 6), cy + Math.sin(a) * (pulse + 6));
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
 function drawBall() {
+    const look = BALL_LOOKS[fireTimer > 0 ? 'fire' : guidedTimer > 0 ? 'guided' : 'normal'];
     for (const b of balls) {
+        if (b.stuck) drawStuckAim(b);
+        if (guidedTimer > 0 && b.aim && bricks[b.aim.c][b.aim.r].alive) drawReticle(bricks[b.aim.c][b.aim.r]);
         // Glowing trail: additive blending so overlapping ghosts brighten into a comet tail
         if (b.trail && b.trail.length) {
             ctx.save();
@@ -497,10 +775,10 @@ function drawBall() {
             for (let t = 0; t < b.trail.length; t++) {
                 const tr = b.trail[t];
                 const ratio = (t + 1) / b.trail.length;
-                const rad = b.r * (0.4 + 0.9 * ratio);
+                const rad = b.r * (0.4 + look.trailGrow * ratio);
                 const g = ctx.createRadialGradient(tr.x, tr.y, 0, tr.x, tr.y, rad);
-                g.addColorStop(0, 'rgba(255, 150, 70, ' + (0.32 * ratio) + ')');
-                g.addColorStop(1, 'rgba(255, 60, 60, 0)');
+                g.addColorStop(0, 'rgba(' + look.trailCore + ', ' + (look.trailA * ratio) + ')');
+                g.addColorStop(1, 'rgba(' + look.trailEdge + ', 0)');
                 ctx.fillStyle = g;
                 ctx.beginPath();
                 ctx.arc(tr.x, tr.y, rad, 0, Math.PI * 2);
@@ -511,17 +789,18 @@ function drawBall() {
 
         // Main ball: soft halo (cheaper than shadowBlur) plus a sphere with a highlight
         ctx.save();
-        const halo = ctx.createRadialGradient(b.x, b.y, b.r * 0.6, b.x, b.y, b.r * 2.6);
-        halo.addColorStop(0, 'rgba(255, 77, 77, 0.45)');
-        halo.addColorStop(1, 'rgba(255, 77, 77, 0)');
+        const haloR = b.r * look.haloR;
+        const halo = ctx.createRadialGradient(b.x, b.y, b.r * 0.6, b.x, b.y, haloR);
+        halo.addColorStop(0, 'rgba(' + look.halo + ', ' + look.haloA + ')');
+        halo.addColorStop(1, 'rgba(' + look.halo + ', 0)');
         ctx.fillStyle = halo;
         ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r * 2.6, 0, Math.PI * 2);
+        ctx.arc(b.x, b.y, haloR, 0, Math.PI * 2);
         ctx.fill();
         const g = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.35, 1, b.x, b.y, b.r);
         g.addColorStop(0, '#ffffff');
-        g.addColorStop(0.35, '#ff6b6b');
-        g.addColorStop(1, '#d40000');
+        g.addColorStop(0.35, look.mid);
+        g.addColorStop(1, look.edge);
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
@@ -580,6 +859,40 @@ function drawShield() {
     ctx.restore();
 }
 
+function drawCrack(brick) {
+    const k = brick.crack;
+    const x = brick.x;
+    const y = brick.y;
+    ctx.save();
+    // Dented, darkened spot where the ball struck
+    const dent = ctx.createRadialGradient(x + k.ox, y + k.oy, 0, x + k.ox, y + k.oy, 10);
+    dent.addColorStop(0, 'rgba(15, 20, 25, 0.6)');
+    dent.addColorStop(1, 'rgba(15, 20, 25, 0)');
+    ctx.fillStyle = dent;
+    ctx.fillRect(x, y, brick.w, brick.h);
+
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // A dark groove with a bright lip on top of it reads as a real fissure
+    const passes = [
+        { off: 0.9, style: 'rgba(0, 0, 0, 0.7)', width: 2.6 },
+        { off: 0, style: 'rgba(255, 255, 255, 0.92)', width: 1.2 }
+    ];
+    for (const pass of passes) {
+        ctx.strokeStyle = pass.style;
+        ctx.lineWidth = pass.width;
+        ctx.beginPath();
+        for (const line of k.lines) {
+            ctx.moveTo(x + line[0][0] + pass.off, y + line[0][1] + pass.off);
+            for (let i = 1; i < line.length; i++) {
+                ctx.lineTo(x + line[i][0] + pass.off, y + line[i][1] + pass.off);
+            }
+        }
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
 function drawBricks() {
     const bev = 3; // bevel thickness
     for (let c = 0; c < BRICK_COLS; c++) {
@@ -609,18 +922,27 @@ function drawBricks() {
                 ctx.lineWidth = 1.5;
                 ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
 
-                // If cracked (took 1 hit), draw crack marks
-                if (brick.hitsLeft === 1) {
-                    ctx.strokeStyle = "#FFFFFF";
-                    ctx.lineWidth = 1.8;
-                    ctx.beginPath();
-                    ctx.moveTo(x + w * 0.25, y + 3);
-                    ctx.lineTo(x + w * 0.45, y + h * 0.55);
-                    ctx.lineTo(x + w * 0.38, y + h - 3);
-                    ctx.moveTo(x + w * 0.45, y + h * 0.55);
-                    ctx.lineTo(x + w * 0.72, y + h * 0.4);
-                    ctx.stroke();
+                // If cracked (took 1 hit), draw its crack; a brief white flash sells the impact
+                if (brick.hitsLeft === 1 && brick.crack) drawCrack(brick);
+                if (brick.flash > 0) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, ' + (brick.flash / 6) * 0.6 + ')';
+                    ctx.fillRect(x, y, w, h);
+                    brick.flash--;
                 }
+            } else if (brick.tnt) {
+                // TNT: hazard stripes, a pulsing glow, and a label so it reads as a bomb
+                ctx.fillStyle = 'rgba(255, 210, 0, 0.35)';
+                for (let sx = x + 4; sx < x + w - 8; sx += 14) {
+                    fillPoly([[sx, y + h - bev], [sx + 6, y + h - bev], [sx + 10, y + bev], [sx + 4, y + bev]], 'rgba(255, 210, 0, 0.28)');
+                }
+                ctx.fillStyle = 'rgba(255, 90, 0, ' + (0.15 + 0.15 * Math.sin(performance.now() / 180)) + ')';
+                ctx.fillRect(x + bev, y + bev, w - 2 * bev, h - 2 * bev);
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#ffe14d';
+                ctx.fillText('TNT', x + w / 2, y + h / 2 + 1);
+                ctx.textBaseline = 'alphabetic';
             }
         }
     }
@@ -632,6 +954,9 @@ function drawStatusChips() {
     if (slowTimer > 0) chips.push({ text: 'SLOW ' + Math.ceil(slowTimer), color: '#cc33cc' });
     if (wideTimer > 0) chips.push({ text: 'WIDE ' + Math.ceil(wideTimer), color: '#ff9900' });
     if (doubleTimer > 0) chips.push({ text: '2× SCORE ' + Math.ceil(doubleTimer), color: '#e6b800' });
+    if (fireTimer > 0) chips.push({ text: 'FIRE ' + Math.ceil(fireTimer), color: '#ff6a00' });
+    if (guidedTimer > 0) chips.push({ text: 'GUIDED ' + Math.ceil(guidedTimer), color: '#a06cff' });
+    if (stickyCatches > 0) chips.push({ text: 'STICKY ×' + stickyCatches, color: '#7cb518' });
     if (shield) chips.push({ text: 'SHIELD', color: '#33ddff' });
     if (explosiveReady) chips.push({ text: 'BOOM READY', color: '#ff3366' });
     if (multiReady) chips.push({ text: 'MULTI READY', color: '#3399ff' });
@@ -875,19 +1200,32 @@ function drawParticles() {
 // --- Powerups ---
 // A destroyed brick has a chance to drop a powerup; the paddle catches it.
 const POWERUP_CHANCE = 0.25;
+// weight: relative drop chance (extra life is the rarest)
 const POWERUP_TYPES = [
-    { type: 'life', label: '+', color: '#33cc33', text: '+1 Life' },
-    { type: 'slow', label: 'S', color: '#cc33cc', text: 'Slow Ball' },
-    { type: 'wide', label: 'W', color: '#ff9900', text: 'Wide Paddle' },
-    { type: 'explosive', label: 'E', color: '#ff3366', text: 'Explosive!' },
-    { type: 'multi', label: 'M', color: '#3399ff', text: 'Multi-Ball!' },
-    { type: 'double', label: '2×', color: '#c98f00', text: '2× Score!' },
-    { type: 'shield', label: null, color: '#22bbdd', text: 'Shield!' } // label null: drawn as a shield icon
+    { type: 'life', label: '+', color: '#33cc33', text: '+1 Life', weight: 1 },
+    { type: 'slow', label: 'S', color: '#cc33cc', text: 'Slow Ball', weight: 2 },
+    { type: 'wide', label: 'W', color: '#ff9900', text: 'Wide Paddle', weight: 2 },
+    { type: 'explosive', label: 'E', color: '#ff3366', text: 'Explosive!', weight: 2 },
+    { type: 'multi', label: 'M', color: '#3399ff', text: 'Multi-Ball!', weight: 2 },
+    { type: 'double', label: '2×', color: '#c98f00', text: '2× Score!', weight: 1.5 },
+    { type: 'shield', label: null, color: '#22bbdd', text: 'Shield!', weight: 1.5 }, // label null: drawn as a shield icon
+    { type: 'fire', label: 'F', color: '#ff6a00', text: 'Fire Ball!', weight: 1.5 },
+    { type: 'sticky', label: 'G', color: '#7cb518', text: 'Sticky Paddle!', weight: 2 },
+    { type: 'guided', label: 'A', color: '#a06cff', text: 'Guided Ball!', weight: 1.5 }
 ];
+const GUIDED_SECONDS = 8;
+const GUIDED_TURN = 0.045; // max steering per frame (radians), so the ball curves rather than snaps
+const FIRE_SECONDS = 6;
+const STICKY_CATCHES = 3;
+const STICKY_MAX_FRAMES = 180; // a stuck ball auto-releases after 3s so it can never soft-lock the game
 let powerups = [];
 let slowTimer = 0;
 let wideTimer = 0;
 let doubleTimer = 0;       // seconds of 2x score left
+let fireTimer = 0;         // seconds of fire ball left: pierces every brick, never bounces off them
+let guidedTimer = 0;       // seconds of guided ball left: aims for the highest-damage shot
+let stickyCatches = 0;     // the next N paddle catches stick to the paddle until released
+let blasts = [];           // expanding shockwave rings from explosions (decoration)
 let shield = false;        // one free miss: the next ball to fall bounces off the bottom edge
 let explosiveReady = false; // next brick hit detonates a 3x3 area
 let multiReady = false;    // next paddle bounce splits the ball (cap 4)
@@ -901,9 +1239,43 @@ function clearTimedEffects() {
     slowTimer = 0;
     wideTimer = 0;
     doubleTimer = 0;
+    fireTimer = 0;
+    guidedTimer = 0;
+    stickyCatches = 0;
     explosiveReady = false;
     multiReady = false;
     paddle.w = PADDLE_W;
+}
+
+function addBlast(x, y) {
+    if (blasts.length < 24) blasts.push({ x, y, r: 12, life: 1 });
+}
+
+// Shockwave rings: expand and fade (frame-based, like popups and particles)
+function drawBlasts() {
+    if (!blasts.length) return;
+    ctx.save();
+    for (let i = blasts.length - 1; i >= 0; i--) {
+        const b = blasts[i];
+        b.r += 5;
+        b.life -= 0.06;
+        if (b.life <= 0) {
+            blasts.splice(i, 1);
+            continue;
+        }
+        ctx.globalAlpha = b.life * 0.8;
+        ctx.strokeStyle = '#ffb347';
+        ctx.lineWidth = 2 + b.life * 5;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = b.life * 0.35;
+        ctx.fillStyle = '#ff7a1a';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
 }
 
 function addShake(amount) {
@@ -911,8 +1283,8 @@ function addShake(amount) {
     shake = Math.min(shake + amount, 16);
 }
 
-function addPopup(x, y, text, color, { life = 1, size = 16, rise = 1.5, pop = false } = {}) {
-    popups.push({ x, y, text, color, life, maxLife: life, size, rise, pop });
+function addPopup(x, y, text, color, { life = 1, size = 16, rise = 1.5, pop = false, tag = null } = {}) {
+    popups.push({ x, y, text, color, life, maxLife: life, size, rise, pop, tag });
 }
 
 // Big "x3!" / "x4!" / "x5!" call-out when the combo multiplier climbs
@@ -928,13 +1300,24 @@ function comboShout(mult, x, y) {
 }
 
 function spawnPowerup(x, y) {
-    const t = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+    // Weighted pick
+    let roll = Math.random() * POWERUP_TYPES.reduce((sum, p) => sum + p.weight, 0);
+    let t = POWERUP_TYPES[POWERUP_TYPES.length - 1];
+    for (const p of POWERUP_TYPES) {
+        roll -= p.weight;
+        if (roll < 0) {
+            t = p;
+            break;
+        }
+    }
     powerups.push({ x: x, y: y, type: t.type, label: t.label, color: t.color, vy: 2.5 });
 }
 
 function applyPowerup(type) {
     const def = POWERUP_TYPES.find(p => p.type === type);
-    addPopup(paddle.x + paddle.w / 2, paddle.y - 10, def.text, def.color, { life: 1.2 });
+    // Stack the name above any still-visible catch popups so back-to-back catches stay readable
+    const stacked = popups.filter(p => p.tag === 'powerup').length;
+    addPopup(paddle.x + paddle.w / 2, paddle.y - 10 - stacked * 22, def.text, def.color, { life: 1.2, tag: 'powerup' });
 
     if (type === 'life') {
         lives = Math.min(lives + 1, 5);
@@ -958,6 +1341,12 @@ function applyPowerup(type) {
         doubleTimer = 10; // catching another refreshes the timer
     } else if (type === 'shield') {
         shield = true;
+    } else if (type === 'fire') {
+        fireTimer = FIRE_SECONDS; // catching another refreshes the timer
+    } else if (type === 'sticky') {
+        stickyCatches = Math.min(stickyCatches + STICKY_CATCHES, 5);
+    } else if (type === 'guided') {
+        guidedTimer = GUIDED_SECONDS;
     }
 }
 
@@ -1019,7 +1408,43 @@ function drawPowerups() {
 }
 
 // --- Collision Detection ---
+// Every brick caught by one hit: the brick itself, its 3x3 neighbours if the Explosive powerup is
+// armed, and, recursively, the 3x3 around any TNT brick caught in the blast (chain reaction).
+// Returns the targets plus the ring centres (armed hit + each TNT) for the shockwave effect.
+function collectBlast(c, r, armed) {
+    const targets = [[c, r]];
+    const seen = new Set([c * BRICK_ROWS + r]);
+    const centers = [];
+    const addAround = (bc, br) => {
+        for (let cc = bc - 1; cc <= bc + 1; cc++) {
+            for (let rr = br - 1; rr <= br + 1; rr++) {
+                if (cc < 0 || cc >= BRICK_COLS || rr < 0 || rr >= BRICK_ROWS) continue;
+                const key = cc * BRICK_ROWS + rr;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    targets.push([cc, rr]);
+                }
+            }
+        }
+    };
+    if (armed) {
+        addAround(c, r);
+        centers.push(bricks[c][r]);
+    }
+    let tnt = 0;
+    for (let i = 0; i < targets.length; i++) { // targets grows as TNT bricks are found
+        const t = bricks[targets[i][0]][targets[i][1]];
+        if (t.alive && t.tnt) {
+            tnt++;
+            centers.push(t);
+            addAround(targets[i][0], targets[i][1]);
+        }
+    }
+    return { targets, tnt, centers };
+}
+
 function collisionDetection(b) {
+    const onFire = fireTimer > 0;
     for (let c = 0; c < BRICK_COLS; c++) {
         for (let r = 0; r < BRICK_ROWS; r++) {
             const brick = bricks[c][r];
@@ -1034,10 +1459,12 @@ function collisionDetection(b) {
                     const wasExplosive = explosiveReady;
                     explosiveReady = false;
 
-                    // If it's a steel brick with 2 hits left and NOT hit by explosive burst:
+                    // If it's a steel brick with 2 hits left and NOT hit by explosive burst or a fire ball:
                     // First hit cracks it, does not destroy it, awards 0 points
-                    if (brick.steel && brick.hitsLeft > 1 && !wasExplosive) {
+                    if (brick.steel && brick.hitsLeft > 1 && !wasExplosive && !onFire) {
                         brick.hitsLeft--;
+                        brick.crack = makeCrack(brick, b.x, b.y);
+                        brick.flash = 6;
                         clink();
                         addShake(2);
                         haptic(12);
@@ -1053,16 +1480,11 @@ function collisionDetection(b) {
                         return;
                     }
 
-                    // Brick destruction (either 1-hit brick, cracked steel brick second hit, or explosive)
-                    let targets = [[c, r]];
-                    if (wasExplosive) {
-                        for (let cc = c - 1; cc <= c + 1; cc++) {
-                            for (let rr = r - 1; rr <= r + 1; rr++) {
-                                if (cc >= 0 && cc < BRICK_COLS && rr >= 0 && rr < BRICK_ROWS) {
-                                    targets.push([cc, rr]);
-                                }
-                            }
-                        }
+                    // Brick destruction (1-hit brick, cracked steel second hit, fire ball, explosive, or TNT)
+                    const { targets, tnt, centers } = collectBlast(c, r, wasExplosive);
+                    const wasBlast = wasExplosive || tnt > 0;
+                    for (const center of centers) {
+                        addBlast(center.x + center.w / 2, center.y + center.h / 2);
                     }
 
                     // Combo: bricks broken in a row since the last paddle bounce,
@@ -1081,13 +1503,16 @@ function collisionDetection(b) {
                         totalEarned += t.points * mult * scoreMult;
                         spawnParticles(t.x + t.w / 2, t.y + t.h / 2, t.color);
                     }
+                    // Chain bonus: 2+ TNT bricks going off together
+                    const chainBonus = tnt >= 2 ? 50 * tnt * scoreMult : 0;
+                    totalEarned += chainBonus;
                     bricksLeft -= destroyed;
                     runStats.bricks += destroyed;
                     addScore(totalEarned);
 
                     // Floating score popup at the break point
                     const tags = [];
-                    if (wasExplosive) tags.push('boom');
+                    if (wasBlast) tags.push('boom');
                     if (mult > 1) tags.push('x' + mult);
                     if (scoreMult > 1) tags.push('2x');
                     const popupText = brick.steel
@@ -1101,27 +1526,36 @@ function collisionDetection(b) {
                     // Combo call-out when the multiplier climbs to x3, x4, x5
                     if (combo >= 3 && combo <= COMBO_MAX) comboShout(combo, popupX, popupY);
 
-                    // Screen shake: light per brick (heavier deeper in a combo), big for explosions
-                    addShake(wasExplosive ? 12 : brick.steel ? 3 : 1.5 + mult * 0.4);
-                    if (wasExplosive) haptic(45, true);
-                    else haptic(brick.steel ? 15 : 8);
-
-                    // Slightly speed up, then re-normalize to keep magnitude sane
-                    const speed = Math.hypot(b.vx, b.vy);
-                    const newSpeed = Math.min(speed * 1.02, 10);
-                    const factor = newSpeed / speed;
-                    b.vx *= factor;
-                    b.vy *= factor;
-
-                    if (Math.abs(dx) > Math.abs(dy)) {
-                        // ball entered from the side -> flip vx
-                        b.vx *= -1;
-                    } else {
-                        // ball entered from top/bottom -> flip vy
-                        b.vy *= -1;
+                    // TNT chain call-out
+                    if (tnt >= 2) {
+                        addPopup(Math.max(80, Math.min(popupX, CANVAS_W - 80)), popupY - 44,
+                            'CHAIN x' + tnt + '!  +' + chainBonus, '#FF8C1A', { size: 26, life: 1.4, rise: 0.7, pop: true });
                     }
 
-                    if (wasExplosive) {
+                    // Screen shake: light per brick (heavier deeper in a combo), big for explosions
+                    addShake(wasBlast ? Math.min(12 + 2 * (tnt - 1), 16) : brick.steel ? 3 : 1.5 + mult * 0.4);
+                    if (wasBlast) haptic(tnt >= 2 ? [40, 30, 60] : 45, true);
+                    else haptic(brick.steel ? 15 : 8);
+
+                    // A fire ball pierces straight through: no speed-up, no bounce
+                    if (!onFire) {
+                        // Slightly speed up, then re-normalize to keep magnitude sane
+                        const speed = Math.hypot(b.vx, b.vy);
+                        const newSpeed = Math.min(speed * 1.02, 10);
+                        const factor = newSpeed / speed;
+                        b.vx *= factor;
+                        b.vy *= factor;
+
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            // ball entered from the side -> flip vx
+                            b.vx *= -1;
+                        } else {
+                            // ball entered from top/bottom -> flip vy
+                            b.vy *= -1;
+                        }
+                    }
+
+                    if (wasBlast) {
                         boom();
                     } else if (brick.steel) {
                         clink();
@@ -1177,6 +1611,15 @@ function update() {
     for (let i = balls.length - 1; i >= 0; i--) {
         const b = balls[i];
 
+        // Sticky: a caught ball keeps its x (slide the paddle under it to aim), clamped onto the paddle
+        if (b.stuck) {
+            b.x = Math.max(paddle.x + b.r, Math.min(b.x, paddle.x + paddle.w - b.r));
+            b.y = paddle.y - b.r;
+            b.trail.length = 0;
+            if (++b.stuckFor >= STICKY_MAX_FRAMES) releaseBall(b);
+            continue;
+        }
+
         // Update ball trail (store previous positions)
         if (!b.trail) b.trail = [];
         b.trail.push({ x: b.x, y: b.y });
@@ -1184,6 +1627,7 @@ function update() {
             b.trail.shift();
         }
 
+        if (guidedTimer > 0) steerGuided(b);
         b.x += b.vx;
         b.y += b.vy;
 
@@ -1241,27 +1685,24 @@ function update() {
                 // Snap the ball to the top of the paddle
                 b.y = paddle.y - b.r;
                 // Classic paddle bounce logic (steer)
-                let hitRatio = (b.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
-                hitRatio = Math.max(-1, Math.min(1, hitRatio));
-                const bSpeed = currentSpeed();
-                let newVX = hitRatio * bSpeed * 0.866;
-                let newVY = -Math.sqrt(bSpeed * bSpeed - newVX * newVX);
-                b.vx = newVX;
-                b.vy = newVY;
-                if (paddleVX !== 0) {
-                    b.vx += paddleVX * 0.4;
-                    const mag = Math.hypot(b.vx, b.vy);
-                    const maxSpeed = currentSpeed() * 1.6;
-                    if (mag > maxSpeed) {
-                        const f = maxSpeed / mag;
-                        b.vx *= f;
-                        b.vy *= f;
-                    }
-                }
+                [b.vx, b.vy] = launchVelocity(b, paddleVX);
+                b.aim = null;
+                b.aimIn = 0;
                 beep(660, 'paddle');
                 combo = 0;
-                // Multi-ball split: the "multi" powerup causes this ball to split on the next paddle bounce
-                if (multiReady) {
+                if (stickyCatches > 0) {
+                    // Sticky paddle: catch the ball instead of bouncing it
+                    stickyCatches--;
+                    b.stuck = true;
+                    b.stuckFor = 0;
+                    b.vx = 0;
+                    b.vy = 0;
+                    addPopup(paddle.x + paddle.w / 2, paddle.y - 34,
+                        isTouchDevice() ? 'Tap to release' : 'Click or Space to release',
+                        '#c6ff6a', { life: 1.6, size: 14, rise: 0.2 });
+                    haptic(10);
+                } else if (multiReady) {
+                    // Multi-ball split: the "multi" powerup causes this ball to split on the next paddle bounce
                     multiReady = false;
                     if (balls.length < 4) {
                         const mag = Math.hypot(b.vx, b.vy);
@@ -1327,6 +1768,18 @@ function update() {
     if (doubleTimer > 0) {
         doubleTimer -= 1 / 60;
     }
+    if (guidedTimer > 0) {
+        guidedTimer -= 1 / 60;
+    }
+    if (fireTimer > 0) {
+        fireTimer -= 1 / 60;
+        // Flames shed off each moving ball
+        for (const b of balls) {
+            if (!b.stuck && Math.random() < 0.6) {
+                spawnParticles(b.x, b.y, Math.random() < 0.5 ? '#ff9a1f' : '#ffd23f', 1);
+            }
+        }
+    }
 
     // 2d. Falling powerups
     updatePowerups();
@@ -1334,7 +1787,7 @@ function update() {
     // 3. Brick collisions for each ball
     for (const b of balls) {
         if (gameState !== 'playing') break; // a level clear / game over mid-loop ends this frame's collisions
-        collisionDetection(b);
+        if (!b.stuck) collisionDetection(b);
     }
 }
 
@@ -1383,6 +1836,7 @@ function render() {
     drawBall();
     drawPaddle();
     drawPowerups();
+    drawBlasts();
     drawParticles();
     drawPopups();
     ctx.restore();
@@ -1491,6 +1945,12 @@ function handlePointerUp(e) {
         if (e.pointerId !== dragPointerId) return;
         dragPointerId = null;
     }
+    // Sticky paddle: a click, a tap, or lifting the finger after a touch drag fires the held ball
+    if (gameState === 'playing' && (isTap || (e && e.pointerType !== 'mouse')) && releaseStuckBalls()) {
+        lastTapAt = 0;
+        isTap = false;
+        return;
+    }
     if (isTap && !endScreenLocked()) {
         if (gameState === 'lost') {
             resetGame(getStartingLevel());
@@ -1555,6 +2015,8 @@ function handleKeyDown(e) {
         // Launch (or continue to next level)
         if ((gameState === 'ready' || gameState === 'won') && !endScreenLocked()) {
             launchGame();
+        } else if (gameState === 'playing') {
+            releaseStuckBalls();
         }
         return;
     }

@@ -91,15 +91,67 @@
             0% { transform: scale(1.35); }
             100% { transform: scale(1); }
         }
+        /* The stage wraps canvas + overlay so the overlay centres on the canvas itself */
+        #stage {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            max-width: 100%;
+        }
         #canvas {
+            display: block;
+            box-sizing: border-box; /* so max-width: 100% includes the border and never overflows a phone screen */
             border: 2px solid #00bcd4;
             background-color: #000000;
             cursor: none; /* Hide default cursor over canvas */
             max-width: 100%;
-            max-height: calc(100vh - 90px); /* always fits viewport, keeps 3:2 ratio */
-            max-height: calc(100dvh - 90px); /* mobile: excludes the browser toolbar */
+            max-height: calc(100vh - 150px); /* always fits viewport (HUD above, legend below), keeps 3:2 ratio */
+            max-height: calc(100dvh - 150px); /* mobile: excludes the browser toolbar */
             touch-action: none;
         }
+        /* Keys + powerup legend, below the playfield */
+        #controls {
+            width: 100%;
+            max-width: 900px;
+            margin-top: 10px;
+            color: #8b93a8;
+            font-size: 0.8em;
+            text-align: center;
+            user-select: none;
+        }
+        #controls .row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px 16px;
+        }
+        #controls .row + .row { margin-top: 8px; }
+        #controls kbd {
+            font: inherit;
+            font-size: 0.9em;
+            color: #d5dbeb;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 4px;
+            padding: 0 5px;
+            margin-right: 3px;
+        }
+        #controls .pu { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+        #controls .pu i {
+            display: inline-grid;
+            place-items: center;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 3px;
+            box-sizing: border-box;
+            border-radius: 9px;
+            background: var(--c, #7a1010);
+            color: #ffffff;
+            font-style: normal;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        #controls .pu.tnt i { border-radius: 4px; color: #ffe14d; }
         @media (max-width: 600px) {
             #hud { font-size: 0.9em; flex-wrap: wrap; gap: 6px; }
             #controls { font-size: 0.75em; }
@@ -108,10 +160,16 @@
         @media (pointer: coarse) {
             .hud-btn { min-height: 40px; padding: 6px 12px; } /* finger-sized tap targets */
             #overlay-button { min-height: 44px; }
+            #controls .keys { display: none; } /* no keyboard on a touch screen */
         }
         @media (max-height: 500px) {
             #overlay { font-size: 1em; padding: 12px 22px; }
             #overlay-stats { margin: 6px auto 2px; }
+            #controls { display: none; } /* landscape phone: every pixel goes to the playfield */
+            #canvas {
+                max-height: calc(100vh - 90px);
+                max-height: calc(100dvh - 90px);
+            }
         }
         #overlay {
             position: absolute;
@@ -200,15 +258,37 @@
                 <button id="fullscreen-btn" class="hud-btn" title="Fullscreen & Lock Landscape (F)">⛶ Fullscreen</button>
             </div>
         </div>
-        <div id="controls" style="font-size: 0.9em; color: #888; margin-top: 8px;">
-            Drag / arrows move paddle &bull; tap / Space launch &bull; P pause &bull; R restart &bull; M mute &bull; F fullscreen &bull; catch powerups: + life, S slow, W wide, E explosive, M multi-ball, &times;2 double score, shield
+        <div id="stage">
+            <canvas id="canvas" width="900" height="600"></canvas>
+            <div id="overlay">
+                <p id="overlay-message" style="margin: 0 0 10px 0;">Press SPACE to launch</p>
+                <div id="overlay-flag">&#9733; New high score! &#9733;</div>
+                <div id="overlay-stats"></div>
+                <button id="overlay-button">Launch</button>
+            </div>
         </div>
-        <canvas id="canvas" width="900" height="600"></canvas>
-        <div id="overlay">
-            <p id="overlay-message" style="margin: 0 0 10px 0;">Press SPACE to launch</p>
-            <div id="overlay-flag">&#9733; New high score! &#9733;</div>
-            <div id="overlay-stats"></div>
-            <button id="overlay-button">Launch</button>
+        <div id="controls">
+            <div class="row keys">
+                <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> / drag move</span>
+                <span><kbd>Space</kbd> / tap launch &amp; release</span>
+                <span><kbd>P</kbd> pause</span>
+                <span><kbd>R</kbd> restart</span>
+                <span><kbd>M</kbd> mute</span>
+                <span><kbd>F</kbd> fullscreen</span>
+            </div>
+            <div class="row legend">
+                <span class="pu" style="--c:#33cc33"><i>+</i>Life</span>
+                <span class="pu" style="--c:#cc33cc"><i>S</i>Slow</span>
+                <span class="pu" style="--c:#ff9900"><i>W</i>Wide</span>
+                <span class="pu" style="--c:#ff3366"><i>E</i>Explosive</span>
+                <span class="pu" style="--c:#3399ff"><i>M</i>Multi-ball</span>
+                <span class="pu" style="--c:#c98f00"><i>&times;2</i>Score</span>
+                <span class="pu" style="--c:#22bbdd"><i><svg width="10" height="11" viewBox="0 0 10 11" aria-hidden="true"><path d="M5 0l4 1.5v3.5C9 7.5 7 9.5 5 11 3 9.5 1 7.5 1 5V1.5z" fill="#fff"/></svg></i>Shield</span>
+                <span class="pu" style="--c:#ff6a00"><i>F</i>Fire ball</span>
+                <span class="pu" style="--c:#7cb518"><i>G</i>Sticky</span>
+                <span class="pu" style="--c:#a06cff"><i>A</i>Guided</span>
+                <span class="pu tnt"><i>TNT</i>chain-explodes</span>
+            </div>
         </div>
     </div>
 
