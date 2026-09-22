@@ -426,6 +426,33 @@
         </div>
     </div>
 
-    <script src="game.js"></script>
+    <!--
+        The game used to be one ~4500-line game.js. It's now split into these files by concern, each
+        independently readable. They're loaded as classic scripts sharing one global scope (NOT ES
+        modules): this codebase reassigns shared state directly from everywhere (level++, balls = [...],
+        boss = null, shield--, ...), which real ES-module imports can't do since imported bindings are
+        read-only views. Load order only matters where a file's own top-level code runs immediately and
+        reads another file's data (constants.js before state.js, for the star field's initial layout);
+        every other file just defines functions, which aren't called until the game loop starts, well
+        after every script below has loaded.
+    -->
+    <script src="js/constants.js"></script>
+    <script src="js/state.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/fx.js"></script>
+    <script src="js/sprites.js"></script>
+    <script src="js/level.js"></script>
+    <script src="js/chaos.js"></script>
+    <script src="js/powerups.js"></script>
+    <script src="js/aliens.js"></script>
+    <script src="js/boss.js"></script>
+    <script src="js/crates.js"></script>
+    <script src="js/ghostRows.js"></script>
+    <script src="js/warpRift.js"></script>
+    <script src="js/rally.js"></script>
+    <script src="js/guided.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/input.js"></script>
+    <script src="js/main.js"></script>
 </body>
 </html>
