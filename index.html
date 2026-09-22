@@ -52,6 +52,10 @@
             cursor: pointer;
             transition: background 0.2s;
         }
+        .hud-btn.active {
+            background: rgba(0, 188, 212, 0.45);
+            border-color: #00e5ff;
+        }
         .hud-btn:hover {
             background: rgba(0, 188, 212, 0.3);
         }
@@ -373,6 +377,7 @@
             </div>
             <div id="hud-actions">
                 <button id="touch-btn" class="hud-btn" style="display: none;">&#128070; Follow</button>
+                <button id="lock-btn" class="hud-btn" style="display: none;" title="Lock the mouse for unlimited-range relative control (L)">&#128275; Lock</button>
                 <button id="mute-btn" class="hud-btn" title="Mute sound and vibration (M)">🔊 Sound</button>
                 <button id="pause-btn" class="hud-btn" title="Pause / Resume (P)">⏸ Pause</button>
                 <button id="fullscreen-btn" class="hud-btn" title="Fullscreen & Lock Landscape (F)">⛶ Fullscreen</button>
@@ -400,6 +405,7 @@
                 <span><kbd>R</kbd> restart</span>
                 <span><kbd>M</kbd> mute</span>
                 <span><kbd>F</kbd> fullscreen</span>
+                <span><kbd>L</kbd> pointer lock</span>
             </div>
             <div class="row legend">
                 <span class="pu" style="--c:#33cc33"><i>+</i>Life</span>
@@ -414,6 +420,7 @@
                 <span class="pu" style="--c:#a06cff"><i>A</i>Guided</span>
                 <span class="pu tnt"><i>TNT</i>chain-explodes</span>
                 <span class="pu alien"><i>&#128126;</i>shoots holes: hit it!</span>
+                <span class="pu alien" style="--c:#5a3fd6"><i>&#9889;</i>warp rift: jumps you 1-5 levels ahead</span>
             </div>
         </div>
     </div>

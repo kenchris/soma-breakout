@@ -14,7 +14,7 @@ let touchDetected = false;
 let bestScore = 0;      // persisted high score
 let bestAtStart = 0;    // best when this run began, to detect beating it
 let newBestShown = false;
-let runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0 };
+let runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0, warps: 0 };
 let bricksLeft = 0;
 let levelBricksTotal = 0;
 let inputLockUntil = 0; // ignore restart/continue input briefly after an end screen appears
@@ -120,6 +120,7 @@ function buildSummary(levelCleared) {
     ];
     if (runStats.aliens > 0) rows.push(['Aliens', runStats.aliens]);
     if (runStats.bosses > 0) rows.push(['Bosses', runStats.bosses]);
+    if (runStats.warps > 0) rows.push(['Warps', runStats.warps]);
     return { newBest: score > 0 && score > bestAtStart, rows };
 }
 
@@ -268,7 +269,7 @@ function resetGame(startLevel = 1) {
     lives = 3;
     level = startLevel;
     gameState = 'ready';
-    runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0 };
+    runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0, warps: 0 };
     bestAtStart = bestScore;
     newBestShown = false;
 
@@ -308,11 +309,13 @@ function resetGame(startLevel = 1) {
     particles.length = 0;
     powerups.length = 0;
     clearTimedEffects();
-    shield = false;
+    shield = 0;
     shake = 0;
     combo = 0;
     popups.length = 0;
     blasts.length = 0;
+    warpRift = null;
+    warpTimer = warpInterval() + 60 * 20; // a fresh run gets ~20s of grace before the first rift can appear
 
     // Show the launch prompt
     showOverlay(getLaunchMessage(), 'Launch');
@@ -845,7 +848,7 @@ function updateBoss() {
             addPopup(CANVAS_W / 2, 215, 'BOSS INCOMING!', '#ff4d6a', { size: 30, life: 1.8, rise: 0.3, pop: true });
             tone(300, 0.5, { type: 'sawtooth', vol: 0.25, slideTo: 200, key: 'siren', force: true });
             haptic([60, 40, 60], true);
-            shield = true; // a free miss to start the fight
+            shield = Math.min(shield + 1, SHIELD_MAX); // a free miss to start the fight, on top of any already banked
             addPopup(CANVAS_W / 2, 380, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 });
         }
         B.intro--;
@@ -1371,6 +1374,154 @@ function drawBossBar() {
     ctx.restore();
 }
 
+// --- Warp rifts ---
+// A rare, random shortcut: a shimmering portal appears somewhere in the open play area, gives a few
+// seconds' warning, then sits there for a while, pulling the ball in like gravity once it's within range.
+// Getting sucked in jumps you forward 1-5 levels (randomly, never more), so a run stuck on a hard level
+// always has an escape hatch. It skips boss intros/deaths so it can't interrupt those, and killing an
+// alien has a 50% chance of opening one on the spot, as a bonus for the fight.
+const WARP_MAX_STEPS = 5;
+const WARP_WARN_FRAMES = 90;   // 1.5s telegraph before it's live
+const WARP_LIFE_FRAMES = 480;  // ~8s to reach it once live, or it closes unused
+const WARP_R = 30;             // the rift's own visible/consuming size
+const WARP_PULL_R = 130;       // how far out it starts pulling the ball in
+const WARP_PULL_MAX = 0.9;     // strongest pull, applied right at the edge of the rift itself
+const WARP_ON_ALIEN_KILL_CHANCE = 0.5;
+let warpRift = null;    // { x, y, r, pullR, warn, life, t }
+let warpTimer = 0;      // frames until the next one may appear
+
+// Longer than a boss/ghost level takes to notice help is needed, shorter later on; always some randomness
+function warpInterval() {
+    const base = Math.max(38, 75 - level * 0.6);
+    return Math.round(60 * base * (0.75 + Math.random() * 0.6));
+}
+
+function canSpawnWarp() {
+    return gameState === 'playing' && !warpRift &&
+        !(boss && (boss.intro > 0 || boss.dying > 0)) &&
+        !(ghost && ghostCount() <= 6) &&
+        !(!ghost && !boss && bricksLeft <= 3);
+}
+
+function spawnWarpRift() {
+    warpRift = {
+        x: 90 + Math.random() * (CANVAS_W - 180),
+        y: 300 + Math.random() * 140,
+        r: WARP_R,
+        pullR: WARP_PULL_R,
+        warn: WARP_WARN_FRAMES,
+        life: WARP_LIFE_FRAMES,
+        t: 0
+    };
+    addPopup(CANVAS_W / 2, 100, '⚡ WARP RIFT OPENING…', '#7be8ff', { size: 20, life: 1.6, rise: 0.2, pop: true });
+    tone(220, 0.4, { type: 'sine', vol: 0.2, slideTo: 600, key: 'warpWarn', force: true });
+    haptic([20, 40, 20, 40], true);
+}
+
+function triggerWarp() {
+    const from = level;
+    const steps = 1 + Math.floor(Math.random() * WARP_MAX_STEPS); // 1-5 levels forward, never more
+    level += steps;
+    gameState = 'ready';
+    runStats.warps++;
+    powerups.length = 0;
+    clearTimedEffects();
+    endChaos(false);
+    combo = 0;
+    addScore(50 * steps);
+    warpRift = null;
+    spawnLevel();
+    const sp = currentSpeed();
+    balls = [makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, sp, -sp)];
+    inputLockUntil = performance.now() + 700;
+    addShake(8);
+    haptic([30, 20, 30, 20, 60], true);
+    tone(300, 0.12, { type: 'sine', vol: 0.22, key: 'warpJump', force: true });
+    tone(900, 0.35, { type: 'sine', vol: 0.22, slideTo: 1800, delay: 0.1, force: true });
+    showOverlay('WARP!\nJumped from level ' + from + ' to ' + level, 'Continue');
+}
+
+function updateWarpRift() {
+    if (warpRift) {
+        warpRift.t++;
+        if (warpRift.warn > 0) {
+            warpRift.warn--;
+        } else if (--warpRift.life <= 0) {
+            warpRift = null; // closed unused
+        }
+    } else if (canSpawnWarp() && --warpTimer <= 0) {
+        spawnWarpRift();
+        warpTimer = warpInterval();
+    }
+}
+
+function warpRiftBallCollision(b) {
+    if (!warpRift || warpRift.warn > 0) return;
+    const dx = warpRift.x - b.x;
+    const dy = warpRift.y - b.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < warpRift.pullR) {
+        // Gravity: bend the ball's velocity toward the rift's centre, stronger the closer it gets, then
+        // restore its original speed so it curves in rather than speeding up or stalling
+        const speed = Math.hypot(b.vx, b.vy);
+        const pull = 1 - dist / warpRift.pullR; // 0 at the edge of the field, 1 at the rift's own centre
+        const nx = dist > 0.01 ? dx / dist : 0;
+        const ny = dist > 0.01 ? dy / dist : 0;
+        b.vx += nx * pull * WARP_PULL_MAX;
+        b.vy += ny * pull * WARP_PULL_MAX;
+        const mag = Math.hypot(b.vx, b.vy);
+        if (mag > 0.01) {
+            const f = speed / mag;
+            b.vx *= f;
+            b.vy *= f;
+        }
+        if (Math.random() < 0.4) spawnParticles(b.x, b.y, '#a78bff', 1);
+    }
+    if (dist < warpRift.r + b.r) triggerWarp();
+}
+
+function drawWarpRift() {
+    if (!warpRift) return;
+    const r = warpRift;
+    ctx.save();
+    if (r.warn > 0) {
+        // Telegraph: a growing dashed ring
+        const k = 1 - r.warn / WARP_WARN_FRAMES;
+        ctx.globalAlpha = 0.5 + 0.4 * k;
+        ctx.strokeStyle = '#7be8ff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, 4 + r.r * k, 0, Math.PI * 2);
+        ctx.stroke();
+    } else {
+        const spin = r.t / 12;
+        const fade = r.life < 90 && Math.floor(r.life / 6) % 2 === 0 ? 0.35 : 1; // blinks just before closing
+        ctx.globalAlpha = fade;
+        // The pull field itself: a faint vignette out to pullR, so its reach is visible, not just felt
+        const field = ctx.createRadialGradient(r.x, r.y, r.r, r.x, r.y, r.pullR);
+        field.addColorStop(0, 'rgba(120, 90, 255, 0.16)');
+        field.addColorStop(1, 'rgba(120, 90, 255, 0)');
+        ctx.fillStyle = field;
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, r.pullR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.translate(r.x, r.y);
+        for (let i = 0; i < 3; i++) {
+            ctx.rotate(spin * (i % 2 === 0 ? 1 : -1) + i);
+            const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, r.r - i * 5);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+            grad.addColorStop(0.5, 'rgba(120, 90, 255, 0.55)');
+            grad.addColorStop(1, 'rgba(60, 30, 180, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r.r - i * 5, (r.r - i * 5) * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
+}
+
 // --- Ghost rows ("Tetris") levels ---
 // The bricks are ghosts: the ball flies straight through them, and each ghost it has passed through turns
 // solid once the ball has left it. Solid cells bounce the ball like walls and are never destroyed by it.
@@ -1838,6 +1989,7 @@ function spawnLevel() {
     boss = null;
     crates = [];
     crateTimer = 0;
+    warpRift = null; // any rift belonged to the level just left
     const layout = currentLayout();
     const isSteel = buildSteelMask(layout, STEEL_STYLES[(level - 1) % STEEL_STYLES.length]);
 
@@ -2283,19 +2435,31 @@ function drawMovingWalls() {
 
 // The shield is a glowing line along the bottom edge that saves one missed ball
 function drawShield() {
-    if (!shield) return;
+    if (shield <= 0) return;
+    // Shields compound: the line reads thicker and brighter the more misses are banked
+    const stacks = Math.min(shield, SHIELD_MAX);
     ctx.save();
     ctx.strokeStyle = '#33ddff';
     ctx.globalAlpha = 0.7 + 0.3 * Math.sin(performance.now() / 150);
     ctx.beginPath();
     ctx.moveTo(0, CANVAS_H - 2);
     ctx.lineTo(CANVAS_W, CANVAS_H - 2);
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 + (stacks - 1);
     ctx.stroke();
     ctx.globalAlpha *= 0.3; // wide faint stroke as the glow
-    ctx.lineWidth = 9;
+    ctx.lineWidth = 9 + (stacks - 1) * 2;
     ctx.stroke();
     ctx.restore();
+    if (shield > 1) {
+        ctx.save();
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#dffcff';
+        ctx.shadowColor = '#33ddff';
+        ctx.shadowBlur = 4;
+        ctx.fillText('×' + shield, CANVAS_W / 2, CANVAS_H - 8);
+        ctx.restore();
+    }
 }
 
 // --- Brick sprites ---
@@ -2426,7 +2590,7 @@ function drawStatusChips() {
     if (fireTimer > 0) chips.push({ text: 'FIRE ' + Math.ceil(fireTimer), color: '#ff6a00' });
     if (guidedTimer > 0) chips.push({ text: 'GUIDED ' + Math.ceil(guidedTimer), color: '#a06cff' });
     if (stickyCatches > 0) chips.push({ text: 'STICKY ×' + stickyCatches, color: '#7cb518' });
-    if (shield) chips.push({ text: 'SHIELD', color: '#33ddff' });
+    if (shield > 0) chips.push({ text: 'SHIELD ×' + shield, color: '#33ddff' });
     if (explosiveReady) chips.push({ text: 'BOOM READY', color: '#ff3366' });
     if (multiReady) chips.push({ text: 'MULTI READY', color: '#3399ff' });
     if (!chips.length) return;
@@ -2592,16 +2756,48 @@ function tone(freq, dur, { type = 'square', vol = 0.15, slideTo = null, delay = 
 const MIN_HAPTIC_GAP_MS = 60;
 let lastHapticAt = 0;
 function haptic(pattern, strong = false) {
-    if (isMuted || reduceMotion || document.hidden || !navigator.vibrate) return;
+    if (isMuted || reduceMotion || document.hidden) return;
     // Chrome ignores (and logs a warning for) vibrate() before the user has interacted with the page
     if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     const now = performance.now();
     if (!strong && now - lastHapticAt < MIN_HAPTIC_GAP_MS) return;
     lastHapticAt = now;
+    if (navigator.vibrate) {
+        try {
+            navigator.vibrate(pattern);
+        } catch (e) {
+            // Vibration not available; ignore
+        }
+    } else {
+        iosHapticTick(); // iOS Safari has no navigator.vibrate at all; see iosHapticTick()
+    }
+}
+
+// iOS Safari has never implemented navigator.vibrate(). Toggling a native <input type="checkbox" switch>
+// (the iOS 17.4+ "switch" control, https://www.npmjs.com/package/ios-vibrator-pro-max) fires the OS's
+// switch-flip haptic tick, the closest thing to vibrate() iOS exposes to the web. It is one short, fixed
+// tap only (no custom patterns or durations) and is silently a no-op on every other browser.
+let iosHapticEl = null;
+function ensureIosHapticEl() {
+    if (iosHapticEl || typeof document === 'undefined' || !document.body) return iosHapticEl;
+    const label = document.createElement('label');
+    label.style.cssText = 'position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden;';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.setAttribute('switch', '');
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+    label.appendChild(input);
+    document.body.appendChild(label);
+    iosHapticEl = input;
+    return iosHapticEl;
+}
+function iosHapticTick() {
     try {
-        navigator.vibrate(pattern);
+        const el = ensureIosHapticEl();
+        if (el) el.click();
     } catch (e) {
-        // Vibration not available; ignore
+        // Not supported on this browser; ignore
     }
 }
 
@@ -2686,6 +2882,7 @@ const GUIDED_SECONDS = 8;
 const GUIDED_TURN = 0.045; // max steering per frame (radians), so the ball curves rather than snaps
 const FIRE_SECONDS = 6;
 const STICKY_CATCHES = 3;
+const SHIELD_MAX = 5; // shields compound: each catch banks one more free miss, up to this cap
 const STICKY_MAX_FRAMES = 180; // a stuck ball auto-releases after 3s so it can never soft-lock the game
 let powerups = [];
 let slowTimer = 0;
@@ -2695,7 +2892,7 @@ let fireTimer = 0;         // seconds of fire ball left: pierces every brick, ne
 let guidedTimer = 0;       // seconds of guided ball left: aims for the highest-damage shot
 let stickyCatches = 0;     // the next N paddle catches stick to the paddle until released
 let blasts = [];           // expanding shockwave rings from explosions (decoration)
-let shield = false;        // one free miss: the next ball to fall bounces off the bottom edge
+let shield = 0;            // banked free misses: a falling ball bounces off the bottom edge instead of costing a life
 let explosiveReady = false; // next brick hit detonates a 3x3 area
 let multiReady = false;    // next paddle bounce splits the ball (cap 4)
 let combo = 0; // bricks destroyed in a row without a paddle bounce
@@ -2812,7 +3009,7 @@ function applyPowerup(type) {
     } else if (type === 'double') {
         doubleTimer = 10; // catching another refreshes the timer
     } else if (type === 'shield') {
-        shield = true;
+        shield = Math.min(shield + 1, SHIELD_MAX); // shields compound: catching another banks one more
     } else if (type === 'fire') {
         fireTimer = FIRE_SECONDS; // catching another refreshes the timer
     } else if (type === 'sticky') {
@@ -3022,6 +3219,24 @@ function killAlien(i, a) {
     addShake(6);
     haptic([30, 30, 50], true);
     tone(520, 0.3, { type: 'sawtooth', vol: 0.25, slideTo: 60, key: 'alienDown' });
+    alienKillBonus();
+}
+
+// A downed alien has a 50% chance of something fun happening right on the spot: either a warp rift opens,
+// or one of the timed weird events (upside down, reversed controls, full flip, time warp) kicks off
+// immediately, picked at random between whichever of the two are currently possible. The chaos event is a
+// bonus and does not spend the level's own chaos budget (see the matching chaosEventsLeft++ below).
+function alienKillBonus() {
+    if (Math.random() >= WARP_ON_ALIEN_KILL_CHANCE) return;
+    const canWarp = canSpawnWarp();
+    const canChaos = chaosPool().length > 0 && !chaos.type && chaos.warn === 0;
+    if (canWarp && (!canChaos || Math.random() < 0.5)) {
+        spawnWarpRift();
+        warpTimer = warpInterval();
+    } else if (canChaos) {
+        chaosEventsLeft++;
+        startChaosWarning();
+    }
 }
 
 function updateAliens() {
@@ -3522,15 +3737,15 @@ function update() {
                         balls.push(makeBall(b.x, b.y, b.vx + f, b.vy));
                     }
                 }
-            } else if (b.y + b.r > CANVAS_H && (shield || (boss && boss.dying > 0))) {
-                // Shield: one free miss. The ball bounces off the bottom edge and the shield breaks.
+            } else if (b.y + b.r > CANVAS_H && (shield > 0 || (boss && boss.dying > 0))) {
+                // Shield: shields compound, so this consumes just one banked miss and any others carry over.
                 // (While a boss is blowing up you can't lose a life to it: the edge bounces for free.)
                 const free = !!(boss && boss.dying > 0);
-                if (!free) shield = false;
+                if (!free) shield--;
                 b.y = CANVAS_H - b.r;
                 b.vy = -Math.abs(b.vy);
                 for (let x = 0; x < CANVAS_W; x += 60) spawnParticles(x, CANVAS_H - 2, '#33ddff', 3);
-                if (!free) addPopup(b.x, CANVAS_H - 40, 'Shield saved you!', '#33ddff', { life: 1.2 });
+                if (!free) addPopup(b.x, CANVAS_H - 40, shield > 0 ? 'Shield saved you! (' + shield + ' left)' : 'Shield saved you!', '#33ddff', { life: 1.2 });
                 addShake(6);
                 haptic([20, 40, 20], true);
                 tone(300, 0.25, { type: 'sawtooth', vol: 0.2, slideTo: 900 });
@@ -3547,8 +3762,9 @@ function update() {
                 combo = 0;
                 powerups.length = 0;
                 clearTimedEffects();
-                resetAliens(6, 6); // a lost ball clears the invaders and gives a short breather
-                endChaos(true);
+                // Aliens and an active weird event (mirrored view, reversed controls, ...) survive a lost
+                // ball: a surprise event is often what causes the ball to be lost in the first place, and
+                // cutting it short right then would mean never really getting to react to it
                 bossBreather();
                 addShake(7);
                 haptic(70, true);
@@ -3614,6 +3830,7 @@ function update() {
     updateChaos();
     updateBoss();
     updateCrates();
+    updateWarpRift();
 
     // 3. Brick collisions for each ball
     for (const b of balls) {
@@ -3624,6 +3841,7 @@ function update() {
         if (gameState === 'playing') bossBallCollision(b);
         if (gameState === 'playing') crateBallCollision(b);
         if (gameState === 'playing') ghostBallCollision(b);
+        if (gameState === 'playing') warpRiftBallCollision(b);
     }
     if (gameState === 'playing') updateGhostGrid();
 }
@@ -3686,6 +3904,7 @@ function render() {
     drawBricks();
     drawGhostGrid();
     drawCrates();
+    drawWarpRift();
     drawMovingWalls();
     drawShield();
     drawBoss();
@@ -3866,6 +4085,52 @@ function updateTouchUi() {
             ? 'Slide your thumb anywhere: the paddle follows'
             : 'Drag anywhere to move the paddle';
     }
+    updateLockUi(); // the two buttons are mutually exclusive: only one device type is in play at a time
+}
+
+// --- Pointer Lock (mouse only, desktop) ---
+// Grabs the OS mouse cursor: the browser reports only relative movement (movementX) instead of an absolute
+// position, so the paddle is never limited by screen edges or window size, and moving the mouse fast keeps
+// working even past the edge of the monitor. Opt-in (a friend asked for it) since it hides the cursor and
+// takes over the mouse, which not everyone wants.
+const POINTER_LOCK_SENSITIVITY = 1.6;
+let pointerLockWanted = false; // the player turned it on; the browser may still grant/revoke it independently
+let pointerLocked = false;     // document.pointerLockElement === canvas, cached on pointerlockchange
+
+function updateLockUi() {
+    const btn = document.getElementById('lock-btn');
+    if (!btn) return;
+    const supported = !!(canvas && canvas.requestPointerLock);
+    btn.style.display = supported && !isTouchDevice() ? 'inline-block' : 'none';
+    btn.textContent = pointerLocked ? '🔒 Locked' : '🔓 Lock';
+    btn.classList.toggle('active', pointerLocked);
+    btn.title = pointerLocked
+        ? 'Mouse is locked to the game (Esc to release, or click here) (L)'
+        : 'Lock the mouse for unlimited-range relative control (L)';
+}
+
+function requestLock() {
+    if (!canvas || !canvas.requestPointerLock) return;
+    pointerLockWanted = true;
+    try {
+        canvas.requestPointerLock();
+    } catch (e) {
+        // Refused (e.g. no recent gesture); the button/UI just stays unlocked
+    }
+}
+
+function releaseLock() {
+    pointerLockWanted = false;
+    try {
+        if (document.exitPointerLock) document.exitPointerLock();
+    } catch (e) {
+        // Ignore
+    }
+}
+
+function toggleLock() {
+    if (pointerLocked || pointerLockWanted) releaseLock();
+    else requestLock();
 }
 
 function setTouchMode(mode) {
@@ -3935,7 +4200,8 @@ let lastDragClientX = null; // where the dragging finger currently is
 function handlePointerDown(e) {
     if (e.pointerType === 'mouse') {
         if (e.target !== canvas) return; // a mouse only steers over the game itself
-        movePaddleTo(e.clientX);
+        if (!pointerLocked) movePaddleTo(e.clientX); // once locked, movement is relative (see handlePointerMove)
+        if (pointerLockWanted && !pointerLocked) requestLock(); // this click is the gesture the browser requires
     } else {
         if (dragPointerId !== null) return; // ignore extra fingers
         if (isControlTarget(e.target)) return;
@@ -3960,6 +4226,14 @@ function handlePointerDown(e) {
 
 function handlePointerMove(e) {
     if (e.pointerType === 'mouse') {
+        if (pointerLocked) {
+            // Locked: clientX is frozen, so steer from the relative delta instead (reversed controls / a
+            // flipped view swap the direction, same as the keyboard)
+            const dir = mapMirror() ? -1 : 1;
+            const scale = (canvas.width / canvas.getBoundingClientRect().width) * POINTER_LOCK_SENSITIVITY;
+            setPaddleX(paddle.x + (e.movementX || 0) * scale * dir);
+            return;
+        }
         if (e.target !== canvas) return;
         movePaddleTo(e.clientX);
     } else {
@@ -4042,6 +4316,11 @@ function handleKeyDown(e) {
     if (e.key === 'f' || e.key === 'F') {
         // Toggle fullscreen & landscape orientation
         toggleFullscreen();
+        return;
+    }
+    if (e.key === 'l' || e.key === 'L') {
+        // Toggle mouse pointer lock (desktop only; a no-op button is hidden on touch devices)
+        toggleLock();
         return;
     }
     if (e.key === ' ' || e.key === 'Spacebar') {
@@ -4142,7 +4421,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { once: true, passive: true });
     
     initTouchUi();
+    initPointerLock();
 
     // Start the always-running render loop
     requestAnimationFrame(gameLoop);
 });
+
+function initPointerLock() {
+    const btn = document.getElementById('lock-btn');
+    if (btn) btn.addEventListener('click', toggleLock);
+    document.addEventListener('pointerlockchange', () => {
+        pointerLocked = document.pointerLockElement === canvas;
+        updateLockUi();
+    });
+    document.addEventListener('pointerlockerror', () => {
+        pointerLocked = false;
+        pointerLockWanted = false;
+        updateLockUi();
+    });
+    updateLockUi();
+}
