@@ -109,6 +109,96 @@
             max-height: calc(100dvh - 150px); /* mobile: excludes the browser toolbar */
             touch-action: none;
         }
+        /* The view flips (weird events) with a smooth turn */
+        #canvas { transition: transform 0.6s ease-in-out; }
+        /* Weird-event / warning banner: a compact pill whose fat bar drains as time runs out, so it is obvious
+           at a glance when the event ends. It sits over the playfield (which may be flipped); it is never flipped. */
+        #event-banner {
+            position: absolute;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 6;
+            display: none;
+            width: min(280px, 78%);
+            height: 26px;
+            box-sizing: border-box;
+            border-radius: 13px;
+            overflow: hidden;
+            border: 2px solid #ff4dd8;
+            background: rgba(0, 0, 0, 0.7);
+            pointer-events: none;
+            user-select: none;
+        }
+        #event-banner b {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+            background: linear-gradient(90deg, #d61fb0, #ff7be8);
+        }
+        #event-banner span {
+            position: relative;
+            display: block;
+            line-height: 22px;
+            text-align: center;
+            font-size: 0.72em;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            color: #ffffff;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+            white-space: nowrap;
+        }
+        #event-banner.low { top: auto; bottom: 8px; } /* view flipped: the paddle is at the top now */
+        #event-banner.warn {
+            border-color: #ffd23f;
+            animation: bannerPulse 0.4s ease-in-out infinite alternate;
+        }
+        #event-banner.warn b { background: linear-gradient(90deg, #e09a00, #ffe58a); }
+        #event-banner.warn span { color: #2a1c00; text-shadow: none; }
+        @keyframes bannerPulse {
+            from { transform: translateX(-50%) scale(1); }
+            to { transform: translateX(-50%) scale(1.04); }
+        }
+        /* Thumb pad (touch devices, portrait): a visible place to rest your thumb, off the playfield.
+           The dot shows where your finger maps to; touches work anywhere, not just here. */
+        #touchpad {
+            display: none;
+            position: relative;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 900px;
+            height: 54px;
+            margin-top: 10px;
+            box-sizing: border-box;
+            border: 1px dashed rgba(0, 188, 212, 0.55);
+            border-radius: 14px;
+            background: rgba(0, 188, 212, 0.06);
+            color: #7fa9b3;
+            font-size: 0.75em;
+            user-select: none;
+        }
+        body.touch #touchpad { display: flex; }
+        #touchpad-dot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 30px;
+            height: 30px;
+            margin: -15px 0 0 -15px;
+            border-radius: 50%;
+            background: rgba(0, 188, 212, 0.35);
+            border: 2px solid #00e5ff;
+            box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+            transition: left 0.06s linear;
+            pointer-events: none;
+        }
+        body.touch #canvas {
+            max-height: calc(100vh - 230px);
+            max-height: calc(100dvh - 230px); /* room for the thumb pad as well */
+        }
         /* Keys + powerup legend, below the playfield */
         #controls {
             width: 100%;
@@ -153,80 +243,79 @@
         }
         #controls .pu.tnt i { border-radius: 4px; color: #ffe14d; }
         #controls .pu.alien i { --c: #1c7a34; font-size: 11px; }
-        @media (max-width: 600px) {
-            #hud { font-size: 0.9em; flex-wrap: wrap; gap: 6px; }
-            #controls { font-size: 0.75em; }
-            #overlay { font-size: 1.2em; padding: 18px 28px; }
-        }
-        @media (pointer: coarse) {
-            .hud-btn { min-height: 40px; padding: 6px 12px; } /* finger-sized tap targets */
-            #overlay-button { min-height: 44px; }
-            #controls .keys { display: none; } /* no keyboard on a touch screen */
-        }
-        @media (max-height: 500px) {
-            #overlay { font-size: 1em; padding: 12px 22px; }
-            #overlay-stats { margin: 6px auto 2px; }
-            #controls { display: none; } /* landscape phone: every pixel goes to the playfield */
-            #canvas {
-                max-height: calc(100vh - 90px);
-                max-height: calc(100dvh - 90px);
-            }
-        }
         #overlay {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background-color: rgba(0, 0, 0, 0.85);
-            padding: 24px 40px;
-            border-radius: 12px;
+            /* An explicit width: a shrink-to-fit box placed at left: 50% only gets half the width to work with,
+               which squeezed the old dialog into a tall, narrow column on a phone. */
+            width: min(92%, 440px);
+            box-sizing: border-box;
+            max-height: 96%;
+            overflow: hidden;
+            background-color: rgba(8, 10, 24, 0.92);
+            border: 1px solid rgba(0, 188, 212, 0.45);
+            padding: 14px 16px 16px;
+            border-radius: 14px;
             text-align: center;
-            font-size: 1.6em;
+            font-size: 1rem;
             display: none; /* Hidden by default */
             z-index: 10;
             cursor: pointer;
             user-select: none;
             -webkit-user-select: none;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+        }
+        #overlay-message { margin: 0; }
+        #overlay-message .ov-title {
+            display: block;
+            font-size: 1.35em;
+            font-weight: 800;
+            line-height: 1.15;
+        }
+        #overlay-message .ov-hint {
+            display: block;
+            margin-top: 4px;
+            font-size: 0.82em;
+            color: #aab4c8;
         }
         #overlay-flag {
             display: none;
             color: #FFD700;
             font-weight: bold;
-            font-size: 0.8em;
-            margin: 2px 0 6px;
+            font-size: 0.85em;
+            margin: 6px 0 0;
             animation: flagPulse 1s ease-in-out infinite;
         }
         @keyframes flagPulse {
             0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.08); }
+            50% { transform: scale(1.06); }
         }
         #overlay-stats {
-            display: none;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 8px;
-            max-width: 420px;
-            margin: 10px auto 4px;
+            display: none; /* becomes a grid when there is a summary to show */
+            grid-template-columns: repeat(auto-fit, minmax(62px, 1fr));
+            gap: 6px;
+            margin: 10px 0 0;
         }
         #overlay-stats .stat {
             display: flex;
             flex-direction: column;
-            min-width: 92px;
-            padding: 6px 10px;
+            align-items: center;
+            padding: 6px 4px;
             border-radius: 8px;
             background: rgba(255, 255, 255, 0.08);
         }
-        #overlay-stats .stat b { font-size: 0.95em; }
-        #overlay-stats .stat span { font-size: 0.5em; color: #9aa4b2; }
+        #overlay-stats .stat b { font-size: 1.05em; line-height: 1.1; }
+        #overlay-stats .stat span { margin-top: 2px; font-size: 0.66em; line-height: 1.2; color: #9aa4b2; }
         #overlay-button {
             display: inline-block;
             background: #00bcd4;
             color: #ffffff;
             border: none;
             border-radius: 8px;
-            padding: 10px 24px;
-            margin-top: 15px;
+            padding: 9px 28px;
+            margin-top: 12px;
             font-size: 1rem;
             font-weight: bold;
             cursor: pointer;
@@ -238,6 +327,35 @@
         }
         #overlay-button:active {
             transform: scale(0.98);
+        }
+        /* Responsive overrides go LAST so they beat the base rules above (they used to sit above the overlay
+           rules and silently lost, which left the desktop-sized dialog on phones). */
+        @media (max-width: 600px) {
+            #hud { font-size: 0.9em; flex-wrap: wrap; gap: 6px; }
+            #controls { font-size: 0.75em; }
+            #overlay { padding: 10px 10px 12px; }
+            #overlay-message .ov-title { font-size: 1.2em; }
+            #overlay-stats { margin-top: 8px; gap: 5px; }
+            #overlay-stats .stat { padding: 4px 2px; }
+            #overlay-button { margin-top: 10px; padding: 7px 24px; }
+        }
+        @media (pointer: coarse) {
+            .hud-btn { min-height: 40px; padding: 6px 12px; } /* finger-sized tap targets */
+            #overlay-button { min-height: 44px; }
+            #controls .keys { display: none; } /* no keyboard on a touch screen */
+        }
+        @media (max-height: 500px) {
+            #overlay { width: min(72%, 560px); padding: 8px 14px 10px; }
+            #overlay-message .ov-title { font-size: 1.15em; }
+            #overlay-stats { margin: 6px 0 0; }
+            #overlay-stats .stat { padding: 4px 2px; }
+            #overlay-button { margin-top: 8px; padding: 6px 24px; }
+            #controls { display: none; } /* landscape phone: every pixel goes to the playfield */
+            body.touch #touchpad { display: none; } /* the whole screen is the pad */
+            #canvas, body.touch #canvas {
+                max-height: calc(100vh - 90px);
+                max-height: calc(100dvh - 90px);
+            }
         }
     </style>
 </head>
@@ -254,6 +372,7 @@
                 <span id="combo-pips"><i></i><i></i><i></i><i></i><i></i></span>
             </div>
             <div id="hud-actions">
+                <button id="touch-btn" class="hud-btn" style="display: none;">&#128070; Follow</button>
                 <button id="mute-btn" class="hud-btn" title="Mute sound and vibration (M)">🔊 Sound</button>
                 <button id="pause-btn" class="hud-btn" title="Pause / Resume (P)">⏸ Pause</button>
                 <button id="fullscreen-btn" class="hud-btn" title="Fullscreen & Lock Landscape (F)">⛶ Fullscreen</button>
@@ -261,12 +380,17 @@
         </div>
         <div id="stage">
             <canvas id="canvas" width="900" height="600"></canvas>
+            <div id="event-banner"><b></b><span></span></div>
             <div id="overlay">
-                <p id="overlay-message" style="margin: 0 0 10px 0;">Press SPACE to launch</p>
+                <p id="overlay-message"><span class="ov-title">Ready?</span><span class="ov-hint">Press SPACE to launch</span></p>
                 <div id="overlay-flag">&#9733; New high score! &#9733;</div>
                 <div id="overlay-stats"></div>
                 <button id="overlay-button">Launch</button>
             </div>
+        </div>
+        <div id="touchpad" aria-hidden="true">
+            <span id="touchpad-label">Slide your thumb anywhere: the paddle follows</span>
+            <i id="touchpad-dot"></i>
         </div>
         <div id="controls">
             <div class="row keys">

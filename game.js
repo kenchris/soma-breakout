@@ -14,12 +14,14 @@ let touchDetected = false;
 let bestScore = 0;      // persisted high score
 let bestAtStart = 0;    // best when this run began, to detect beating it
 let newBestShown = false;
-let runStats = { maxCombo: 0, bricks: 0, aliens: 0 };
+let runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0 };
 let bricksLeft = 0;
 let levelBricksTotal = 0;
 let inputLockUntil = 0; // ignore restart/continue input briefly after an end screen appears
 const COMBO_MAX = 5;
 const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+// Add ?perf to the URL for an on-screen frame-rate / frame-time readout (for finding slowdowns on a device)
+const PERF = /[?&]perf(=|&|$)/.test(window.location.search);
 const BRICK_ROWS = 6;
 const BRICK_COLS = 12;
 const BRICK_W = 64;
@@ -43,14 +45,28 @@ function isTouchDevice() {
 function getLaunchMessage(levelWon = false) {
     const isTouch = isTouchDevice();
     if (levelWon) {
-        const name = currentLayout().name;
-        return isTouch
-            ? 'Level ' + level + ' · ' + name + ' unlocked! Tap or press SPACE to continue.'
-            : 'Level ' + level + ' · ' + name + ' unlocked! Press SPACE to continue.';
+        const name = plan.boss ? 'Boss fight' : plan.tetris ? 'Ghost rows' : currentLayout().name;
+        return 'Level ' + level + ' · ' + name + '\n' + (isTouch ? 'Tap to continue' : 'Press SPACE to continue');
     }
-    return isTouch
-        ? 'Tap or press SPACE to launch'
-        : 'Press SPACE to launch';
+    return 'Ready?\n' + (isTouch ? 'Tap or press SPACE to launch' : 'Press SPACE to launch');
+}
+
+// The first line of the message is the headline; any further lines are a smaller hint under it
+function setOverlayMessage(text) {
+    const msg = document.getElementById('overlay-message');
+    if (!msg) return;
+    const [title, ...rest] = String(text).split('\n');
+    msg.textContent = '';
+    const t = document.createElement('span');
+    t.className = 'ov-title';
+    t.textContent = title;
+    msg.appendChild(t);
+    if (rest.length) {
+        const h = document.createElement('span');
+        h.className = 'ov-hint';
+        h.textContent = rest.join(' ');
+        msg.appendChild(h);
+    }
 }
 
 // summary (optional): { newBest, rows: [[label, value], ...] } rendered as stat tiles
@@ -58,7 +74,7 @@ function showOverlay(message, buttonText = 'Launch', summary = null) {
     const overlay = document.getElementById('overlay');
     const msg = document.getElementById('overlay-message');
     const btn = document.getElementById('overlay-button');
-    if (msg) msg.textContent = message;
+    setOverlayMessage(message);
     if (btn) {
         btn.textContent = buttonText;
         btn.style.display = 'inline-block';
@@ -87,21 +103,24 @@ function renderSummary(summary) {
         tile.append(v, l);
         list.appendChild(tile);
     }
-    list.style.display = 'flex';
+    // Balanced rows instead of an orphan tile: up to 5 in one row, otherwise split evenly (6 -> 3+3, 7 -> 4+3)
+    const n = summary.rows.length;
+    list.style.gridTemplateColumns = 'repeat(' + (n <= 5 ? n : Math.ceil(n / 2)) + ', 1fr)';
+    list.style.display = 'grid';
 }
 
 function buildSummary(levelCleared) {
-    return {
-        newBest: score > 0 && score > bestAtStart,
-        rows: [
-            ['Score', score],
-            ['Best', bestScore],
-            [levelCleared ? 'Level cleared' : 'Level reached', levelCleared ? level - 1 : level],
-            ['Max combo', runStats.maxCombo],
-            ['Bricks broken', runStats.bricks],
-            ['Aliens downed', runStats.aliens]
-        ]
-    };
+    // Short labels so the tiles stay small on a phone; aliens and bosses only appear once you have some
+    const rows = [
+        ['Score', score],
+        ['Best', bestScore],
+        [levelCleared ? 'Cleared' : 'Level', levelCleared ? level - 1 : level],
+        ['Combo', runStats.maxCombo],
+        ['Bricks', runStats.bricks]
+    ];
+    if (runStats.aliens > 0) rows.push(['Aliens', runStats.aliens]);
+    if (runStats.bosses > 0) rows.push(['Bosses', runStats.bosses]);
+    return { newBest: score > 0 && score > bestAtStart, rows };
 }
 
 function hideOverlay() {
@@ -201,6 +220,7 @@ function launchGame() {
         b.vy = -sp;
     }
     hideOverlay();
+    showLevelIntro();
 
     // If currently in fullscreen, ensure landscape orientation lock
     if (document.fullscreenElement || document.webkitFullscreenElement) {
@@ -248,7 +268,7 @@ function resetGame(startLevel = 1) {
     lives = 3;
     level = startLevel;
     gameState = 'ready';
-    runStats = { maxCombo: 0, bricks: 0, aliens: 0 };
+    runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0 };
     bestAtStart = bestScore;
     newBestShown = false;
 
@@ -340,7 +360,7 @@ function currentLayout() {
 // --- Steel brick cracks ---
 // Procedural and random per hit: 3-4 jagged fissures radiate from where the ball actually struck,
 // each with a chance of short offshoots, and every fissure stops when it reaches the brick's edge.
-// Stored on the brick as polylines in brick-local coordinates and drawn by drawCrack().
+// Stored on the brick as polylines in brick-local coordinates and baked into a sprite by bakeCrack().
 function crackPath(x, y, angle, length, brick, out, branchChance) {
     const pts = [[x, y]];
     const steps = 3 + Math.floor(Math.random() * 3);
@@ -415,12 +435,1368 @@ function buildSteelMask(layout, style) {
     return (c, r) => marked.has(c * BRICK_ROWS + r);
 }
 
-// TNT bricks: 1 on level 1, growing to 5. Placed only where they have neighbours so the blast is
+// --- What appears when ---
+// Mechanics are introduced gradually, and once unlocked they show up on some levels rather than every
+// one. What a level contains is decided per level from a seeded PRNG (so a level always plays the same,
+// and ?level=N works); *when* things happen inside a level (alien arrivals, weird events) is random at
+// runtime. Tune the whole curve here.
+const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7 };
+// First level each powerup can drop on (anything not listed is there from level 1)
+const POWERUP_UNLOCK = { multi: 2, explosive: 2, double: 2, sticky: 3, shield: 3, fire: 4, guided: 6 };
+// Short "what's new" hints, shown when the level starts
+const LEVEL_INTROS = {
+    2: ['NEW: TNT bricks chain-explode', 'NEW drops: Multi-ball, Explosive, 2× Score'],
+    3: ['NEW: sliding walls', 'NEW: aliens shoot holes in your paddle: shoot them down!', 'NEW drops: Sticky, Shield'],
+    4: ['NEW: weird events: the world may flip or change speed', 'NEW drop: Fire ball'],
+    5: ['BOSS FIGHT', 'Hit the amber \u00d73 hatch on its belly for triple damage', 'Gold crates hold powerups (new ones keep appearing): break them, or catch what the boss shoots loose', 'Hit it again within 5 seconds to chain: \u00d72, then \u00d73 damage'],
+    6: ['NEW: your controls may reverse', 'NEW drop: Guided ball'],
+    8: ['NEW: the whole screen may flip']
+};
+let plan = { boss: false, tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null };
+let introPending = false;
+
+function isBossLevel(l = level) {
+    return l % UNLOCK.boss === 0;
+}
+
+// Ghost rows: introduced on level 7, then on about 3 levels in 10, never two in a row and never on a boss level.
+// (Its own random stream, so it doesn't change what the other features do on any level.)
+const ghostLevelCache = {};
+function isGhostLevel(l) {
+    if (l < UNLOCK.tetris || isBossLevel(l)) return false;
+    if (ghostLevelCache[l] === undefined) {
+        ghostLevelCache[l] = l === UNLOCK.tetris || (seededRandom(l * 7368787 + 3)() < 0.3 && !isGhostLevel(l - 1));
+    }
+    return ghostLevelCache[l];
+}
+
+function planLevel(l) {
+    const rand = seededRandom(l * 15485863 + 7);
+    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null };
+    if (p.boss) return p; // a boss arena has no bricks, walls or random visitors: the boss brings its own
+
+    if (l >= UNLOCK.tnt) {
+        // Introduced with a couple; after that 0 to a few (never many on early levels)
+        p.tnt = l === UNLOCK.tnt ? 2 : (rand() < 0.2 ? 0 : 1 + Math.floor(rand() * Math.min(1 + Math.floor(l / 2), 5)));
+    }
+    if (l >= UNLOCK.walls) {
+        p.walls = (l === UNLOCK.walls || rand() < 0.65) ? 1 : 0;
+        if (p.walls && l >= 8 && rand() < 0.5) p.walls = 2;
+    }
+    if (l >= UNLOCK.aliens && (l === UNLOCK.aliens || rand() < Math.min(0.7, 0.4 + 0.04 * (l - UNLOCK.aliens)))) {
+        p.aliens = { max: alienMax(l), grace: 10 };
+    }
+    if (l >= UNLOCK.chaos && (l === UNLOCK.chaos || rand() < Math.min(0.55, 0.3 + 0.04 * (l - UNLOCK.chaos)))) {
+        p.chaos = { events: 1 + (l >= 9 && rand() < 0.5 ? 1 : 0) };
+    }
+    // Ghost rows replace the bricks, so no TNT or sliding walls on those levels
+    if (isGhostLevel(l)) {
+        p.tetris = true;
+        p.tnt = 0;
+        p.walls = 0;
+    }
+    return p;
+}
+
+function showLevelIntro() {
+    if (!introPending) return;
+    introPending = false;
+    let lines = LEVEL_INTROS[level];
+    if (plan.tetris) {
+        lines = ghostIntroSeen
+            ? ['GHOST ROWS', 'Fill whole rows to clear them']
+            : ['GHOST ROWS', 'Fly the ball THROUGH the ghost bricks to make them solid', 'Fill a whole row and it clears, like Tetris'];
+        ghostIntroSeen = true;
+    }
+    if (!lines) return;
+    lines.forEach((text, i) => {
+        addPopup(CANVAS_W / 2, CANVAS_H * 0.42 + i * 30, text, i === 0 ? '#ffe58a' : '#d8e2ff',
+            { size: i === 0 ? 22 : 17, life: 3, rise: 0.15, pop: i === 0 });
+    });
+}
+
+// Clearing a level (bricks gone, or the boss beaten): on to the next one with a fresh ball
+function completeLevel() {
+    level++;
+    gameState = 'won';
+    powerups.length = 0;
+    clearTimedEffects();
+    combo = 0;
+    spawnLevel();
+    playWinJingle();
+    addShake(6);
+    haptic([30, 60, 30, 60, 80], true);
+    const sp = currentSpeed();
+    balls = [makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, sp, -sp)];
+    inputLockUntil = performance.now() + 700;
+    showOverlay(getLaunchMessage(true), 'Continue', buildSummary(true));
+}
+
+// --- Weird events ---
+// Now and then the game does something odd for ~10 seconds, with a 2 second warning first:
+//   UPSIDE DOWN (view flips vertically), REVERSED CONTROLS (drag right, paddle goes left),
+//   FULL FLIP (view rotates 180 degrees; controls follow what you see) and TIME WARP (turbo or slow-mo).
+// Each unlocks at its own level, and a level either has them or not (see planLevel).
+const CHAOS = {
+    timeWarp: { name: 'TIME WARP', seconds: 9, unlock: UNLOCK.chaos },
+    upsideDown: { name: 'UPSIDE DOWN', seconds: 10, unlock: UNLOCK.chaos, visual: true },
+    reverse: { name: 'REVERSED CONTROLS', seconds: 8, unlock: UNLOCK.reverse },
+    fullFlip: { name: 'FULL FLIP', seconds: 10, unlock: UNLOCK.fullFlip, visual: true }
+};
+const CHAOS_WARN_FRAMES = 120;
+const TIME_WARP = { turbo: 1.6, slow: 0.5 };
+let chaos = { type: null, pending: null, warn: 0, left: 0, total: 0, scale: 1 };
+let chaosTimer = Infinity;   // frames until the next event's warning
+let chaosEventsLeft = 0;     // events still to come on this level
+let timeScale = 1;           // game speed multiplier (Time Warp)
+let reverseFrames = 0;       // controls reversed by the boss's mind-flip beam (separate from the timed events)
+let reverseTotal = 1;
+
+function controlsReversed() {
+    return chaos.type === 'reverse' || reverseFrames > 0;
+}
+function viewMirrored() {
+    return chaos.type === 'fullFlip';
+}
+// Left/right in what you touch vs canvas coordinates: swapped when the view is mirrored (so touch follows
+// the screen) and swapped again when controls are reversed
+function mapMirror() {
+    return viewMirrored() !== controlsReversed();
+}
+
+function chaosPool() {
+    return Object.keys(CHAOS).filter(k => level >= CHAOS[k].unlock && !(reduceMotion && CHAOS[k].visual));
+}
+
+function scheduleChaos(minSeconds, spreadSeconds) {
+    chaosTimer = Math.round(60 * (minSeconds + Math.random() * spreadSeconds));
+}
+
+function applyView() {
+    if (!canvas) return;
+    canvas.style.transform = chaos.type === 'upsideDown' ? 'scaleY(-1)' : chaos.type === 'fullFlip' ? 'rotate(180deg)' : '';
+}
+
+// A drag in progress must not jump when the mapping flips underneath it
+function refreshInputMapping() {
+    if (dragPointerId === null || lastDragClientX === null) return;
+    if (touchMode === 'follow') followTarget = followPaddleTarget(lastDragClientX);
+    else dragOffset = paddle.x - canvasX(lastDragClientX);
+}
+
+const bannerCache = { text: null, pct: -1, kind: null };
+// `low` puts the banner at the bottom: when the view is flipped vertically the paddle is at the top of the screen
+function setBanner(text, fraction = 0, kind = 'active', low = false) {
+    const el = document.getElementById('event-banner');
+    if (!el) return;
+    if (text === null) {
+        if (bannerCache.text !== null) {
+            el.style.display = 'none';
+            bannerCache.text = null;
+        }
+        return;
+    }
+    const pct = Math.round(fraction * 100);
+    const cls = kind + (low ? ' low' : '');
+    if (bannerCache.text !== text || bannerCache.kind !== cls) {
+        el.lastElementChild.textContent = text;
+        el.className = cls;
+        el.style.display = 'block';
+        bannerCache.text = text;
+        bannerCache.kind = cls;
+        bannerCache.pct = -1;
+    }
+    if (bannerCache.pct !== pct) {
+        el.firstElementChild.style.width = pct + '%';
+        bannerCache.pct = pct;
+    }
+}
+
+function chaosLabel(key) {
+    if (key === 'timeWarp') return chaos.scale > 1 ? '\u23e9 TURBO \u00d7' + chaos.scale : '\ud83d\udc22 SLOW-MO \u00d7' + chaos.scale;
+    return CHAOS[key].name;
+}
+
+function updateBanner() {
+    if (chaos.warn > 0) {
+        setBanner('\u26a0 ' + chaosLabel(chaos.pending) + ' in ' + Math.ceil(chaos.warn / 60) + '\u2026', chaos.warn / CHAOS_WARN_FRAMES, 'warn');
+    } else if (chaos.type) {
+        const flippedVertically = chaos.type === 'upsideDown' || chaos.type === 'fullFlip';
+        setBanner(chaosLabel(chaos.type) + '  ' + Math.ceil(chaos.left / 60) + 's', chaos.left / chaos.total, 'active', flippedVertically);
+    } else if (reverseFrames > 0) {
+        setBanner('MIND FLIP: CONTROLS REVERSED ' + Math.ceil(reverseFrames / 60) + 's', reverseFrames / reverseTotal, 'active');
+    } else {
+        setBanner(null);
+    }
+}
+
+function endChaos(reschedule) {
+    chaos.type = null;
+    chaos.pending = null;
+    chaos.warn = 0;
+    chaos.left = 0;
+    timeScale = 1;
+    reverseFrames = 0;
+    applyView();
+    refreshInputMapping();
+    setBanner(null);
+    if (reschedule && chaosEventsLeft > 0) scheduleChaos(20, 20);
+}
+
+function initChaos() {
+    endChaos(false);
+    chaosEventsLeft = plan.chaos ? plan.chaos.events : 0;
+    if (plan.chaos) scheduleChaos(22, 18); // the first one arrives 22-40 seconds in
+    else chaosTimer = Infinity;
+}
+
+function startChaosWarning() {
+    const pool = chaosPool();
+    if (!pool.length) {
+        chaosEventsLeft = 0;
+        return;
+    }
+    chaos.pending = pool[Math.floor(Math.random() * pool.length)];
+    if (chaos.pending === 'timeWarp') chaos.scale = Math.random() < 0.5 ? TIME_WARP.turbo : TIME_WARP.slow;
+    chaos.warn = CHAOS_WARN_FRAMES;
+    tone(330, 0.15, { type: 'sawtooth', vol: 0.18, key: 'chaos' });
+    tone(440, 0.15, { type: 'sawtooth', vol: 0.18, delay: 0.17, force: true });
+    tone(330, 0.15, { type: 'sawtooth', vol: 0.18, delay: 0.34, force: true });
+    haptic([30, 50, 30], true);
+}
+
+function startChaos(key) {
+    chaos.type = key;
+    chaos.pending = null;
+    chaos.warn = 0;
+    chaos.total = chaos.left = CHAOS[key].seconds * 60;
+    chaosEventsLeft--;
+    if (key === 'timeWarp') timeScale = chaos.scale;
+    applyView();
+    refreshInputMapping();
+    addShake(6);
+    haptic([40, 40, 80], true);
+    tone(200, 0.4, { type: 'sawtooth', vol: 0.25, slideTo: 800, key: 'chaosStart', force: true });
+}
+
+function updateChaos() {
+    if (reverseFrames > 0 && --reverseFrames === 0) refreshInputMapping();
+    if (chaos.warn > 0) {
+        if (--chaos.warn === 0) startChaos(chaos.pending);
+    } else if (chaos.type) {
+        if (--chaos.left <= 0) endChaos(true);
+    } else if (chaosEventsLeft > 0 && --chaosTimer <= 0) {
+        startChaosWarning();
+    }
+    updateBanner();
+}
+
+// --- Boss fights (every 5th level) ---
+// A mothership with a health bar and a weak point (the amber x3 hatch on its belly, worth triple damage). Three phases as its health drops: aimed fans of bolts; then bolt rain and
+// summoned aliens; then a "mind flip" beam that reverses your controls. Bolts punch holes in the paddle
+// like any alien's. Beating it clears the level, awards points and an extra life.
+let boss = null;
+const BOSS_HOLE_SECONDS = 5; // holes from a boss's bolts close faster than an alien's
+const BEAM_HALF = 26;        // half-width of the mind-flip beam
+const BOSS_CHAIN_FRAMES = 300; // hit the boss again within 5 seconds to keep a damage chain going
+
+// Damage multiplier for the n-th boss hit in a chain: x1, then x2 from the 2nd hit, x3 from the 4th
+function bossChainMult(n) {
+    return n >= 4 ? 3 : n >= 2 ? 2 : 1;
+}
+
+function bossPhase() {
+    const ratio = boss.hp / boss.maxHp;
+    return ratio > 0.66 ? 1 : ratio > 0.33 ? 2 : 3;
+}
+
+function spawnBoss() {
+    const n = Math.floor(level / UNLOCK.boss);
+    const hp = 6 + 8 * n; // 14, 22, 30, 38 ... (a chain multiplies damage, so later bosses need to grow faster)
+    boss = {
+        n, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 130, t: 0, mt: 0, intro: 100,
+        atk: null, atkIn: 150, lastAtk: null, minionIn: 60 * 12, flash: 0, cool: 0,
+        dying: 0, beamFx: 0, beamX: 0, lastPhase: 1, chain: 0, chainT: 0
+    };
+    spawnCrates();
+}
+
+// Hull and dome as two rectangles (x0, y0, x1, y1)
+function bossRects() {
+    const B = boss;
+    return [[B.x - 108, B.y - 17, B.x + 108, B.y + 43], [B.x - 46, B.y - 43, B.x + 46, B.y - 17]];
+}
+
+// The weak point: a fixed hatch on the belly. A ball touching the hull from below is ~21px under its centre.
+function bossCore() {
+    return { x: boss.x, y: boss.y + 30 };
+}
+
+function inBossHatch(x, y) {
+    const core = bossCore();
+    return Math.hypot(x - core.x, y - core.y) < 34;
+}
+
+function bossInterval() {
+    // Frames between attacks: 260 / 240 / 220 (phases 1-3) for the first boss, noticeably faster for later ones
+    return Math.max(110, 280 - 20 * boss.n - (bossPhase() - 1) * 20);
+}
+
+function bossBoltSpeed() {
+    return Math.min(3 + 0.2 * boss.n + 0.3 * bossPhase(), 6);
+}
+
+function fireBossFan() {
+    const B = boss;
+    const count = bossPhase() >= 2 ? 4 : 3;
+    const speed = bossBoltSpeed();
+    const y0 = B.y + 40;
+    const base = Math.atan2(paddle.x + paddle.w / 2 - B.x, paddle.y - y0);
+    for (let i = 0; i < count; i++) {
+        const a = base + (i - (count - 1) / 2) * 0.28;
+        alienBullets.push({ x: B.x, y: y0, vx: Math.sin(a) * speed, vy: Math.cos(a) * speed, hole: BOSS_HOLE_SECONDS });
+    }
+    tone(900, 0.14, { type: 'square', vol: 0.15, slideTo: 300, key: 'laser' });
+}
+
+function startBossAttack() {
+    const B = boss;
+    const phase = bossPhase();
+    const pool = ['fan'];
+    if (phase >= 2) pool.push('rain', 'fan');
+    if (phase >= 3) pool.push('beam', 'rain');
+    let kind = pool[Math.floor(Math.random() * pool.length)];
+    if (kind === B.lastAtk) kind = pool[Math.floor(Math.random() * pool.length)]; // avoid the same attack twice in a row
+    const atk = { kind, t: 0, dur: kind === 'fan' ? 40 : kind === 'rain' ? 46 : 90 };
+    if (kind === 'rain') {
+        atk.cols = [];
+        const count = Math.min(3 + B.n, 7);
+        for (let tries = 0; atk.cols.length < count && tries < 60; tries++) {
+            const x = 30 + Math.random() * (CANVAS_W - 60);
+            if (atk.cols.every(c => Math.abs(c - x) > 60)) atk.cols.push(x);
+        }
+    }
+    if (kind === 'beam') atk.x = paddle.x + paddle.w / 2;
+    B.atk = atk;
+    tone(220, 0.25, { type: 'triangle', vol: 0.2, slideTo: 330, key: 'bossWarn' });
+}
+
+function endBossAttack() {
+    const B = boss;
+    B.lastAtk = B.atk.kind;
+    B.atk = null;
+    B.atkIn = Math.round(bossInterval() * (0.8 + Math.random() * 0.4));
+}
+
+function updateBossAttacks() {
+    const B = boss;
+    if (!B.atk) {
+        if (--B.atkIn <= 0) startBossAttack();
+    } else {
+        const a = B.atk;
+        a.t++;
+        if (a.kind === 'fan') {
+            if (a.t === a.dur) {
+                fireBossFan();
+                endBossAttack();
+            }
+        } else if (a.kind === 'rain') {
+            if (a.t === a.dur) {
+                const speed = Math.min(3.6 + 0.25 * B.n, 6);
+                for (const x of a.cols) alienBullets.push({ x, y: 70, vx: 0, vy: speed, hole: BOSS_HOLE_SECONDS });
+                tone(700, 0.2, { type: 'square', vol: 0.14, slideTo: 250, key: 'laser' });
+                endBossAttack();
+            }
+        } else if (a.kind === 'beam') {
+            if (a.t < a.dur - 30) a.x = paddle.x + paddle.w / 2; // tracks you, then locks on (30 frames to get out of the way)
+            if (a.t === a.dur) {
+                B.beamFx = 18;
+                B.beamX = a.x;
+                addShake(7);
+                tone(150, 0.4, { type: 'sawtooth', vol: 0.3, slideTo: 60, key: 'beam', force: true });
+                if (paddle.x < a.x + BEAM_HALF && paddle.x + paddle.w > a.x - BEAM_HALF) {
+                    reverseFrames = reverseTotal = 180;
+                    refreshInputMapping();
+                    addPopup(paddle.x + paddle.w / 2, paddle.y - 40, 'MIND FLIP!', '#ff4dd8', { size: 24, life: 1.4, pop: true });
+                    haptic([40, 30, 40, 30, 80], true);
+                }
+            }
+            if (a.t >= a.dur + 18) endBossAttack();
+        }
+    }
+    if (B.phase >= 2 || bossPhase() >= 2) {
+        if (--B.minionIn <= 0) {
+            if (aliens.length < 1) spawnAlien();
+            B.minionIn = 60 * 18;
+        }
+    }
+}
+
+function updateBoss() {
+    const B = boss;
+    if (!B) return;
+    B.t++;
+    if (B.dying > 0) {
+        updateBossDeath();
+        return;
+    }
+    if (B.intro > 0) {
+        if (B.t === 1) {
+            addPopup(CANVAS_W / 2, 215, 'BOSS INCOMING!', '#ff4d6a', { size: 30, life: 1.8, rise: 0.3, pop: true });
+            tone(300, 0.5, { type: 'sawtooth', vol: 0.25, slideTo: 200, key: 'siren', force: true });
+            haptic([60, 40, 60], true);
+            shield = true; // a free miss to start the fight
+            addPopup(CANVAS_W / 2, 380, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 });
+        }
+        B.intro--;
+        const k = 1 - B.intro / 100;
+        B.y = -70 + (B.homeY + 70) * (1 - (1 - k) * (1 - k)); // ease out
+        return;
+    }
+    const phase = bossPhase();
+    const rate = 0.011 + 0.0015 * B.n + 0.002 * (phase - 1);
+    B.mt += timeScale; // boss motion follows Time Warp; its attack timers do not
+    B.x = CANVAS_W / 2 + Math.sin(B.mt * rate) * (CANVAS_W / 2 - 108 - 14);
+    B.y = B.homeY + Math.sin(B.mt / 40) * 8;
+    if (B.flash > 0) B.flash--;
+    if (B.cool > 0) B.cool--;
+    if (B.beamFx > 0) B.beamFx--;
+    if (B.chainT > 0 && --B.chainT === 0) B.chain = 0; // the chain ran out
+    updateBossAttacks();
+}
+
+function checkBossPhase() {
+    const B = boss;
+    const p = bossPhase();
+    if (p === B.lastPhase) return;
+    B.lastPhase = p;
+    B.atk = null;
+    B.atkIn = 110;
+    alienBullets.length = 0; // a breather between phases
+    addPopup(CANVAS_W / 2, 215, p === 3 ? 'ENRAGED!' : 'PHASE ' + p, '#ff8a2a', { size: 30, life: 1.6, rise: 0.3, pop: true });
+    addShake(9);
+    haptic([50, 30, 50], true);
+    tone(180, 0.5, { type: 'sawtooth', vol: 0.28, slideTo: 90, key: 'phase', force: true });
+}
+
+function bossBallCollision(b) {
+    const B = boss;
+    if (!B || B.intro > 0 || B.dying > 0 || B.cool > 0) return;
+    for (const [x0, y0, x1, y1] of bossRects()) {
+        const cx = Math.max(x0, Math.min(b.x, x1));
+        const cy = Math.max(y0, Math.min(b.y, y1));
+        const dx = b.x - cx;
+        const dy = b.y - cy;
+        if (dx * dx + dy * dy >= b.r * b.r) continue;
+
+        B.cool = 8; // one contact = one hit
+        B.flash = 6;
+        const crit = inBossHatch(b.x, b.y);
+        const prevMult = B.chainT > 0 ? bossChainMult(B.chain) : 1;
+        B.chain = B.chainT > 0 ? B.chain + 1 : 1; // hitting again in time extends the chain
+        B.chainT = BOSS_CHAIN_FRAMES;
+        const chainMult = bossChainMult(B.chain);
+        let dmg = (fireTimer > 0 ? 3 : 1) * (crit ? 3 : 1) * chainMult;
+        if (explosiveReady) {
+            explosiveReady = false;
+            dmg += 5;
+            addBlast(b.x, b.y);
+            boom();
+            addShake(10);
+        }
+        B.hp -= dmg;
+        addScore(15 * dmg * (doubleTimer > 0 ? 2 : 1));
+        addPopup(b.x, b.y - 12, (crit ? 'CRITICAL! -' : '-') + dmg + (chainMult > 1 ? '  \u00d7' + chainMult : ''), crit ? '#FFD700' : '#ffffff',
+            { size: crit ? 22 : 16, pop: crit, life: 0.9 });
+        if (chainMult > prevMult) { // the chain just stepped up
+            addPopup(B.x, B.y - 62, 'CHAIN \u00d7' + chainMult + '!', '#ffb300', { size: 24, life: 1.1, rise: 0.5, pop: true });
+            tone(660 + 220 * chainMult, 0.12, { type: 'triangle', vol: 0.25, key: 'chain' });
+            addShake(4);
+            haptic([15, 20, 25], true);
+        }
+        spawnParticles(b.x, b.y, crit ? '#ffd23f' : '#c9a0ff', crit ? 14 : 6);
+        if (crit) {
+            tone(880, 0.1, { type: 'triangle', vol: 0.25, key: 'crit' });
+            tone(1320, 0.14, { type: 'triangle', vol: 0.25, delay: 0.06, force: true });
+        } else {
+            clink();
+        }
+        addShake(crit ? 6 : 3);
+        haptic(crit ? [20, 20, 40] : 20, crit);
+        if (fireTimer <= 0) { // a fire ball goes straight through; anything else bounces off
+            if (Math.abs(dx) > Math.abs(dy)) {
+                const dir = dx >= 0 ? 1 : -1;
+                b.vx = dir * Math.abs(b.vx);
+                b.x = dir > 0 ? x1 + b.r : x0 - b.r;
+            } else {
+                const dir = dy >= 0 ? 1 : -1;
+                b.vy = dir * Math.abs(b.vy);
+                b.y = dir > 0 ? y1 + b.r : y0 - b.r;
+            }
+        }
+        if (B.hp <= 0) killBoss();
+        else checkBossPhase();
+        return;
+    }
+}
+
+// A lost ball gives the boss a breather too (it never heals)
+function bossBreather() {
+    if (boss && boss.dying <= 0) {
+        boss.atk = null;
+        boss.atkIn = 150;
+        boss.beamFx = 0;
+        boss.chain = 0;
+        boss.chainT = 0;
+    }
+}
+
+function killBoss() {
+    const B = boss;
+    B.dying = 150;
+    B.atk = null;
+    B.beamFx = 0;
+    alienBullets.length = 0;
+    for (const a of aliens) { // its summoned aliens go down with the ship
+        spawnParticles(a.x, a.y, ALIEN_COLOR, 14);
+        addBlast(a.x, a.y);
+    }
+    aliens.length = 0;
+    addShake(12);
+    haptic([60, 40, 60, 40, 120], true);
+    tone(400, 0.6, { type: 'sawtooth', vol: 0.3, slideTo: 40, key: 'bossDie', force: true });
+    addPopup(CANVAS_W / 2, 250, 'MOTHERSHIP DESTROYED!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
+}
+
+function updateBossDeath() {
+    const B = boss;
+    B.dying--;
+    if (B.dying % 6 === 0) {
+        const ex = B.x + (Math.random() - 0.5) * 190;
+        const ey = B.y + (Math.random() - 0.5) * 70;
+        addBlast(ex, ey);
+        spawnParticles(ex, ey, Math.random() < 0.5 ? '#ff9a1f' : '#ffffff', 10);
+        addShake(5);
+        haptic(15);
+        beep(200 + Math.random() * 300, 'bossBoom');
+    }
+    if (B.dying <= 0) finishBoss();
+}
+
+function finishBoss() {
+    const points = 1500 * boss.n * (doubleTimer > 0 ? 2 : 1);
+    addScore(points);
+    runStats.bosses++;
+    lives = Math.min(lives + 1, 5);
+    boss = null;
+    addPopup(CANVAS_W / 2, 210, 'BOSS DEFEATED! +' + points, '#ffd23f', { size: 26, life: 2.4, rise: 0.2, pop: true });
+    addPopup(CANVAS_W / 2, 245, '+1 LIFE', '#33cc33', { size: 20, life: 2.4, rise: 0.2 });
+    completeLevel();
+}
+
+// --- Boss supply crates ---
+// A few gold crates hang in the arena during a boss fight, each holding a guaranteed powerup (its icon is on
+// the face, so you can choose). The ball breaks them, and so does any bolt that crosses one (the boss's or a
+// summoned alien's): either way the powerup drops for you to catch. Every fight has at least one damage
+// powerup (fire / explosive / guided) and one defensive one (wide / shield / sticky).
+let crates = [];
+const CRATE_COUNT = 4;
+let crateTimer = 0; // frames until the next replacement crate (0 = none pending); one comes back 10-18s after a break
+
+function dropPowerup(type, x, y) {
+    const t = POWERUP_TYPES.find(p => p.type === type);
+    powerups.push({ x: x, y: y, type: t.type, label: t.label, color: t.color, vy: 2.5 });
+}
+
+function spawnCrates() {
+    const pool = POWERUP_TYPES.filter(p => level >= (POWERUP_UNLOCK[p.type] || 1));
+    const pickFrom = names => {
+        const list = pool.filter(p => names.includes(p.type));
+        return list[Math.floor(Math.random() * list.length)];
+    };
+    const chosen = [pickFrom(['fire', 'explosive', 'guided']), pickFrom(['wide', 'shield', 'sticky'])];
+    while (chosen.length < CRATE_COUNT) {
+        const p = pool[Math.floor(Math.random() * pool.length)];
+        if (!chosen.includes(p)) chosen.push(p);
+    }
+    // Shuffle so the damage/defence crates aren't always in the same places
+    for (let i = chosen.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [chosen[i], chosen[j]] = [chosen[j], chosen[i]];
+    }
+    const slot = (CANVAS_W - 2 * 60) / CRATE_COUNT;
+    crates = chosen.map((def, i) => ({
+        x: 60 + slot * i + Math.random() * (slot - BRICK_W),
+        y: 255 + Math.random() * 70,
+        w: BRICK_W,
+        h: BRICK_H,
+        alive: true,
+        type: def.type,
+        label: def.label,
+        color: def.color,
+        age: 999 // (replacement crates pop in; the first ones are just there)
+    }));
+    crateTimer = 0;
+}
+
+// A spot for a replacement crate: random, clear of other crates and of the balls
+function freeCrateSpot() {
+    for (let attempt = 0; attempt < 30; attempt++) {
+        const x = 40 + Math.random() * (CANVAS_W - 80 - BRICK_W);
+        const y = 250 + Math.random() * 80;
+        const clear = crates.every(c => !c.alive || Math.abs(c.x - x) > BRICK_W + 12 || Math.abs(c.y - y) > BRICK_H + 12) &&
+            balls.every(b => Math.hypot(b.x - (x + BRICK_W / 2), b.y - (y + BRICK_H / 2)) > 50);
+        if (clear) return { x, y };
+    }
+    return null;
+}
+
+function respawnCrate() {
+    const spot = freeCrateSpot();
+    if (!spot) return false;
+    const taken = crates.filter(c => c.alive).map(c => c.type);
+    const options = POWERUP_TYPES.filter(p => level >= (POWERUP_UNLOCK[p.type] || 1) && !taken.includes(p.type));
+    let roll = Math.random() * options.reduce((sum, p) => sum + p.weight, 0);
+    let def = options[options.length - 1];
+    for (const p of options) {
+        roll -= p.weight;
+        if (roll < 0) {
+            def = p;
+            break;
+        }
+    }
+    crates = crates.filter(c => c.alive); // drop the broken ones from the list
+    crates.push({ x: spot.x, y: spot.y, w: BRICK_W, h: BRICK_H, alive: true, type: def.type, label: def.label, color: def.color, age: 0 });
+    const cx = spot.x + BRICK_W / 2;
+    const cy = spot.y + BRICK_H / 2;
+    spawnParticles(cx, cy, '#ffd23f', 10);
+    addPopup(cx, cy - 14, 'NEW CRATE', '#ffe58a', { size: 14, life: 1 });
+    tone(520, 0.12, { type: 'triangle', vol: 0.18, key: 'crateSpawn' });
+    tone(780, 0.14, { type: 'triangle', vol: 0.18, delay: 0.08, force: true });
+    return true;
+}
+
+function updateCrates() {
+    if (!boss || boss.intro > 0 || boss.dying > 0) return;
+    for (const c of crates) if (c.age !== undefined) c.age++; // drives the pop-in of new crates
+    if (crateTimer > 0 && --crateTimer === 0) {
+        if (crates.filter(c => c.alive).length < CRATE_COUNT) {
+            const ok = respawnCrate();
+            const stillMissing = crates.filter(c => c.alive).length < CRATE_COUNT;
+            crateTimer = !ok ? 90 : (stillMissing ? Math.round(60 * (10 + Math.random() * 8)) : 0); // no room: retry in 1.5s
+        }
+    }
+}
+
+const crateSprites = {};
+function crateSprite(cr) {
+    if (!crateSprites[cr.type]) {
+        crateSprites[cr.type] = makeSprite(BRICK_W, BRICK_H, g => {
+            g.drawImage(brickSprite({ color: '#c9971c', steel: false, tnt: false }), 0, 0); // a gold brick...
+            g.strokeStyle = 'rgba(255, 240, 170, 0.8)'; // ...with a crate frame
+            g.lineWidth = 1.5;
+            g.strokeRect(2, 2, BRICK_W - 4, BRICK_H - 4);
+            // The powerup's badge, so you can see what's inside
+            const cx = BRICK_W / 2;
+            const cy = BRICK_H / 2;
+            g.fillStyle = cr.color;
+            g.beginPath();
+            g.arc(cx, cy, 8, 0, Math.PI * 2);
+            g.fill();
+            g.strokeStyle = '#ffffff';
+            g.lineWidth = 1;
+            g.stroke();
+            g.fillStyle = '#ffffff';
+            if (cr.label) {
+                g.font = cr.label.length > 1 ? 'bold 9px sans-serif' : 'bold 11px sans-serif';
+                g.textAlign = 'center';
+                g.textBaseline = 'middle';
+                g.fillText(cr.label, cx, cy + 1);
+            } else { // shield icon
+                g.beginPath();
+                g.moveTo(cx, cy - 5);
+                g.lineTo(cx + 4, cy - 3);
+                g.lineTo(cx + 4, cy + 1);
+                g.quadraticCurveTo(cx + 3, cy + 4, cx, cy + 5.5);
+                g.quadraticCurveTo(cx - 3, cy + 4, cx - 4, cy + 1);
+                g.lineTo(cx - 4, cy - 3);
+                g.closePath();
+                g.fill();
+            }
+        });
+    }
+    return crateSprites[cr.type];
+}
+
+function drawCrates() {
+    for (const cr of crates) {
+        if (!cr.alive) continue;
+        const k = cr.age === undefined ? 1 : Math.min(1, cr.age / 18);
+        if (k >= 1) {
+            ctx.drawImage(crateSprite(cr), cr.x, cr.y);
+            continue;
+        }
+        // A new crate pops in: grows and fades up over ~0.3s
+        const sc = 0.3 + 0.7 * k;
+        ctx.save();
+        ctx.globalAlpha = k;
+        ctx.translate(cr.x + cr.w / 2, cr.y + cr.h / 2);
+        ctx.scale(sc, sc);
+        ctx.drawImage(crateSprite(cr), -cr.w / 2, -cr.h / 2);
+        ctx.restore();
+    }
+}
+
+function breakCrate(cr) {
+    cr.alive = false;
+    const cx = cr.x + cr.w / 2;
+    const cy = cr.y + cr.h / 2;
+    dropPowerup(cr.type, cx, cy + 6);
+    spawnParticles(cx, cy, '#ffd23f', 12);
+    addScore(25 * (doubleTimer > 0 ? 2 : 1));
+    addPopup(cx, cy - 12, 'POWERUP!', '#ffe58a', { size: 14, life: 0.9 });
+    beep(720, 'crate');
+    addShake(2);
+    haptic(15);
+    if (crateTimer <= 0) crateTimer = Math.round(60 * (10 + Math.random() * 8)); // a replacement arrives in 10-18s
+}
+
+// Ball vs crates: it breaks one and bounces (a fire ball goes straight through)
+function crateBallCollision(b) {
+    for (const cr of crates) {
+        if (!cr.alive) continue;
+        const cx = Math.max(cr.x, Math.min(b.x, cr.x + cr.w));
+        const cy = Math.max(cr.y, Math.min(b.y, cr.y + cr.h));
+        const dx = b.x - cx;
+        const dy = b.y - cy;
+        if (dx * dx + dy * dy >= b.r * b.r) continue;
+        breakCrate(cr);
+        if (fireTimer <= 0) {
+            if (Math.abs(dx) > Math.abs(dy)) {
+                const dir = dx >= 0 ? 1 : -1;
+                b.vx = dir * Math.abs(b.vx);
+                b.x = dir > 0 ? cr.x + cr.w + b.r : cr.x - b.r;
+            } else {
+                const dir = dy >= 0 ? 1 : -1;
+                b.vy = dir * Math.abs(b.vy);
+                b.y = dir > 0 ? cr.y + cr.h + b.r : cr.y - b.r;
+            }
+        }
+        return;
+    }
+}
+
+// -- Boss drawing --
+function paintBossSprite(g) {
+    // Hull
+    let gr = g.createLinearGradient(0, 38, 0, 98);
+    gr.addColorStop(0, '#9a9ab8');
+    gr.addColorStop(0.5, '#565673');
+    gr.addColorStop(1, '#25253a');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.ellipse(120, 68, 108, 30, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.ellipse(120, 66, 106, 28, 0, Math.PI * 1.05, Math.PI * 1.95);
+    g.stroke();
+    g.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+    g.lineWidth = 1;
+    for (let i = -3; i <= 3; i++) {
+        g.beginPath();
+        g.moveTo(120 + i * 28, 42);
+        g.lineTo(120 + i * 34, 96);
+        g.stroke();
+    }
+    // Glass dome with the pilot inside
+    gr = g.createRadialGradient(120, 44, 4, 120, 50, 46);
+    gr.addColorStop(0, 'rgba(200, 255, 255, 0.95)');
+    gr.addColorStop(1, 'rgba(60, 140, 210, 0.85)');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.ellipse(120, 52, 46, 40, 0, Math.PI, Math.PI * 2);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.ellipse(120, 52, 46, 40, 0, Math.PI, Math.PI * 2);
+    g.stroke();
+    g.drawImage(alienSprite(0, '#1f6b34'), 96, 28, 48, 36);
+
+    // Weak-point hatch on the belly (sprite centre is the boss origin + (120, 55)): an amber panel marked x3
+    gr = g.createLinearGradient(0, 74, 0, 96);
+    gr.addColorStop(0, '#ffe58a');
+    gr.addColorStop(1, '#e08a00');
+    g.fillStyle = gr;
+    roundRectOn(g, 88, 74, 64, 22, 6);
+    g.fill();
+    g.strokeStyle = '#3a2a00';
+    g.lineWidth = 2;
+    g.stroke();
+    g.fillStyle = '#3a2a00';
+    g.font = 'bold 15px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('\u00d73', 120, 86);
+}
+
+function roundRectOn(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+}
+
+let bossSprite = null;
+
+function drawBossTelegraph(B) {
+    const a = B.atk;
+    const y0 = B.y + 40;
+    ctx.save();
+    if (a.kind === 'fan') {
+        const count = bossPhase() >= 2 ? 4 : 3;
+        const base = Math.atan2(paddle.x + paddle.w / 2 - B.x, paddle.y - y0);
+        ctx.strokeStyle = 'rgba(255, 90, 90, 0.35)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        for (let i = 0; i < count; i++) {
+            const ang = base + (i - (count - 1) / 2) * 0.28;
+            ctx.moveTo(B.x, y0);
+            ctx.lineTo(B.x + Math.sin(ang) * (paddle.y - y0) / Math.cos(ang), paddle.y);
+        }
+        ctx.stroke();
+    } else if (a.kind === 'rain') {
+        ctx.fillStyle = 'rgba(255, 70, 70, ' + (0.1 + 0.08 * Math.sin(performance.now() / 60)) + ')';
+        for (const x of a.cols) ctx.fillRect(x - 5, 0, 10, paddle.y);
+    } else if (a.kind === 'beam' && B.beamFx <= 0) {
+        ctx.strokeStyle = 'rgba(255, 77, 216, ' + (a.t > a.dur - 30 ? 0.8 : 0.4) + ')'; // brighter once it has locked on
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 6]);
+        ctx.strokeRect(a.x - BEAM_HALF, B.y + 43, BEAM_HALF * 2, CANVAS_H - B.y - 43);
+    }
+    ctx.restore();
+}
+
+function drawBoss() {
+    const B = boss;
+    if (!B) return;
+    if (B.atk) drawBossTelegraph(B);
+    if (!bossSprite) bossSprite = makeSprite(240, 110, paintBossSprite);
+    const jitter = B.dying > 0 ? (Math.random() - 0.5) * 8 : 0;
+    const sx = B.x - 120 + jitter;
+    const sy = B.y - 55 + (B.dying > 0 ? (Math.random() - 0.5) * 8 : 0);
+    ctx.drawImage(bossSprite, sx, sy);
+
+    // Blinking rim lights
+    const beat = Math.floor(B.t / 8);
+    for (let i = 0; i < 9; i++) {
+        const th = Math.PI * (0.12 + i * 0.095);
+        ctx.fillStyle = (beat + i) % 2 === 0 ? '#ffd23f' : '#ff4d6a';
+        ctx.beginPath();
+        ctx.arc(B.x + jitter + Math.cos(th) * 96, B.y + 13 + Math.sin(th) * 26, 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // A soft pulse around the hatch draws the eye to the weak point
+    const core = bossCore();
+    ctx.strokeStyle = 'rgba(255, 210, 90, ' + (0.35 + 0.3 * Math.sin(B.t / 10)) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(core.x + jitter, core.y, 40 + 3 * Math.sin(B.t / 10), 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (B.flash > 0) { // damage flash
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = (B.flash / 6) * 0.7;
+        ctx.drawImage(bossSprite, sx, sy);
+        ctx.restore();
+    }
+
+    if (B.beamFx > 0) { // the mind-flip beam itself
+        ctx.save();
+        ctx.globalAlpha = B.beamFx / 18;
+        ctx.fillStyle = '#ff4dd8';
+        ctx.fillRect(B.beamX - BEAM_HALF, B.y + 43, BEAM_HALF * 2, CANVAS_H - B.y - 43);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(B.beamX - 8, B.y + 43, 16, CANVAS_H - B.y - 43);
+        ctx.restore();
+    }
+}
+
+function drawBossBar() {
+    const B = boss;
+    if (!B || B.dying > 0) return;
+    const w = 460;
+    const x = (CANVAS_W - w) / 2;
+    const y = 64; // below the event banner, which can appear over the top of the playfield
+    const h = 12;
+    const phase = bossPhase();
+    const roman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][B.n] || B.n;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    ctx.fillStyle = phase === 1 ? '#4de08c' : phase === 2 ? '#ff9a2e' : '#ff4d4d';
+    ctx.fillRect(x, y, w * Math.max(0, B.hp / B.maxHp), h);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; // phase notches
+    ctx.fillRect(x + w * 0.33 - 1, y, 2, h);
+    ctx.fillRect(x + w * 0.66 - 1, y, 2, h);
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('MOTHERSHIP ' + roman + '   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, CANVAS_W / 2, y - 6);
+    if (B.chainT > 0) {
+        const mult = bossChainMult(B.chain);
+        const next = bossChainMult(B.chain + 1);
+        const pw = 220;
+        const ph = 16;
+        const px = (CANVAS_W - pw) / 2;
+        const py = y + h + 9;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+        ctx.fillRect(px - 3, py - 3, pw + 6, ph + 6);
+        ctx.fillStyle = '#ffb300';
+        ctx.fillRect(px, py, pw * (B.chainT / BOSS_CHAIN_FRAMES), ph);
+        ctx.fillStyle = '#2a1c00';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((mult > 1 ? 'CHAIN \u00d7' + mult : 'HIT IT AGAIN!') + (next > mult ? '  \u2192 next \u00d7' + next : '  MAX'), CANVAS_W / 2, py + ph / 2 + 1);
+    }
+    ctx.restore();
+}
+
+// --- Ghost rows ("Tetris") levels ---
+// The bricks are ghosts: the ball flies straight through them, and each ghost it has passed through turns
+// solid once the ball has left it. Solid cells bounce the ball like walls and are never destroyed by it.
+// Instead, when every cell of a row is solid the row clears (like a Tetris line) and the rows above fall.
+// Clear every row to finish the level. Rows have random gaps so they complete at different times, and a
+// ghost the ball can no longer reach (walled in by solid cells) solidifies by itself, so a level can
+// always be finished.
+const TETRIS_COLORS = ['#00e5ff', '#ffd23f', '#b56bff', '#4de08c', '#ff5a5a', '#3d7bff', '#ff9a2e', '#e05cff'];
+let ghost = null;        // { rows, cells[c][r] = { state, dy } }; state 0 none, 1 ghost, 2 arming (ball inside), 3 solid
+let ghostFlashes = [];   // row-clear flashes: { y, t }
+let ghostIntroSeen = false;
+
+function buildGhostGrid(l) {
+    const rand = seededRandom(l * 6700417 + 11);
+    const rows = 6 + (l >= 12 ? 1 : 0) + (l >= 18 ? 1 : 0);
+    const cells = [];
+    for (let c = 0; c < BRICK_COLS; c++) {
+        cells[c] = [];
+        for (let r = 0; r < rows; r++) cells[c][r] = { state: 1, dy: 0 };
+    }
+    for (let r = 0; r < rows; r++) {
+        // 0-2 gaps per row, so rows have different shapes and finish at different times
+        const gaps = Math.floor(rand() * 3);
+        for (let g = 0; g < gaps; g++) {
+            const w = 1 + Math.floor(rand() * 3);
+            const c0 = Math.floor(rand() * (BRICK_COLS - w + 1));
+            for (let c = c0; c < c0 + w; c++) cells[c][r].state = 0;
+        }
+        // ...but never fewer than 5 cells in a row
+        for (let c = 0; c < BRICK_COLS && cells.filter(col => col[r].state > 0).length < 5; c++) cells[c][r].state = 1;
+    }
+    return { rows, cells };
+}
+
+function ghostCount() {
+    let n = 0;
+    for (const col of ghost.cells) for (const cell of col) if (cell.state > 0) n++;
+    return n;
+}
+
+function ghostCellX(c) {
+    return BRICK_OFFSET_LEFT + c * BRICK_W;
+}
+function ghostCellY(r) {
+    return BRICK_OFFSET_TOP + r * BRICK_H;
+}
+
+// Every ghost cell around (x, y) that the ball currently overlaps
+function ballOverlaps(b, c, r, margin = 0) {
+    const x = ghostCellX(c);
+    const y = ghostCellY(r);
+    const cx = Math.max(x, Math.min(b.x, x + BRICK_W));
+    const cy = Math.max(y, Math.min(b.y, y + BRICK_H));
+    const dx = b.x - cx;
+    const dy = b.y - cy;
+    const rr = b.r + margin;
+    return dx * dx + dy * dy < rr * rr;
+}
+
+// Cells the ball can never reach (all four neighbours solid, or walled off from outside) solidify
+function fillPockets() {
+    const R = ghost.rows;
+    const seen = [];
+    for (let c = 0; c < BRICK_COLS; c++) seen[c] = new Array(R).fill(false);
+    const stack = [];
+    const open = (c, r) => ghost.cells[c][r].state !== 3; // empty, ghost and arming cells can all be flown through
+    const push = (c, r) => {
+        if (c >= 0 && c < BRICK_COLS && r >= 0 && r < R && !seen[c][r] && open(c, r)) {
+            seen[c][r] = true;
+            stack.push([c, r]);
+        }
+    };
+    // The ball can get at the grid from above, below and from both sides
+    for (let c = 0; c < BRICK_COLS; c++) {
+        push(c, 0);
+        push(c, R - 1);
+    }
+    for (let r = 0; r < R; r++) {
+        push(0, r);
+        push(BRICK_COLS - 1, r);
+    }
+    while (stack.length) {
+        const [c, r] = stack.pop();
+        push(c + 1, r);
+        push(c - 1, r);
+        push(c, r + 1);
+        push(c, r - 1);
+    }
+    let changed = false;
+    for (let c = 0; c < BRICK_COLS; c++) {
+        for (let r = 0; r < R; r++) {
+            const cell = ghost.cells[c][r];
+            if ((cell.state === 1 || cell.state === 2) && !seen[c][r]) {
+                cell.state = 3;
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+// Rows whose every cell is solid
+function completeRows() {
+    const full = [];
+    for (let r = 0; r < ghost.rows; r++) {
+        let n = 0;
+        let solid = 0;
+        for (let c = 0; c < BRICK_COLS; c++) {
+            const st = ghost.cells[c][r].state;
+            if (st > 0) {
+                n++;
+                if (st === 3) solid++;
+            }
+        }
+        if (n > 0 && solid === n) full.push(r);
+    }
+    return full;
+}
+
+const GHOST_CLEAR_DELAY = 14; // frames a finished row waits, so rows finished by the same pass clear together
+
+function clearRows(full) {
+    const R = ghost.rows;
+    // Score and fanfare
+    const n = full.length;
+    let removed = 0;
+    for (const r of full) {
+        for (let c = 0; c < BRICK_COLS; c++) if (ghost.cells[c][r].state > 0) removed++;
+    }
+    const points = 100 * n * n * (doubleTimer > 0 ? 2 : 1);
+    addScore(points);
+    runStats.bricks += removed;
+    const label = ['', 'LINE!', 'DOUBLE!', 'TRIPLE!', 'TETRIS!'][Math.min(n, 4)];
+    const topY = ghostCellY(full[0]);
+    addPopup(CANVAS_W / 2, topY + 34, label + '  +' + points, ['', '#ffffff', '#ffd23f', '#ff9a2e', '#ff4d6a'][Math.min(n, 4)],
+        { size: 20 + 4 * Math.min(n, 4), life: 1.5, rise: 0.4, pop: true });
+    for (const r of full) {
+        ghostFlashes.push({ y: ghostCellY(r), t: 14 });
+        for (let c = 0; c < BRICK_COLS; c += 2) spawnParticles(ghostCellX(c) + BRICK_W / 2, ghostCellY(r) + BRICK_H / 2, TETRIS_COLORS[r % TETRIS_COLORS.length], 3);
+        spawnPowerup(ghostCellX(1 + Math.floor(Math.random() * (BRICK_COLS - 2))) + BRICK_W / 2, ghostCellY(r) + BRICK_H / 2); // a reward per cleared row
+    }
+    for (let i = 0; i < n; i++) tone(440 * Math.pow(2, i / 4), 0.14, { type: 'triangle', vol: 0.22, delay: i * 0.08, force: true });
+    addShake(4 + 3 * Math.min(n, 4));
+    haptic(n >= 3 ? [30, 30, 60] : [20, 20, 30], true);
+
+    // Remove the cleared rows; everything above falls to fill the gap (with a short falling animation)
+    for (let c = 0; c < BRICK_COLS; c++) {
+        const col = [];
+        const dys = [];
+        for (let r = 0; r < R; r++) {
+            if (full.includes(r)) continue;
+            col.push(ghost.cells[c][r]);
+            dys.push(full.filter(fr => fr > r).length * BRICK_H); // how far this cell falls
+        }
+        const top = R - col.length;
+        for (let r = 0; r < R; r++) {
+            if (r < top) {
+                ghost.cells[c][r] = { state: 0, dy: 0 };
+            } else {
+                const cell = col[r - top];
+                cell.dy = dys[r - top];
+                ghost.cells[c][r] = cell;
+            }
+        }
+    }
+    bricksLeft = ghostCount();
+    // A falling solid cell must not land inside the ball: those cells become "arming" until the ball leaves
+    for (let c = 0; c < BRICK_COLS; c++) {
+        for (let r = 0; r < R; r++) {
+            if (ghost.cells[c][r].state === 3 && balls.some(b => ballOverlaps(b, c, r, 1))) ghost.cells[c][r].state = 2;
+        }
+    }
+    fillPockets();
+    if (bricksLeft <= 0) completeLevel();
+}
+
+// A ball touches a ghost: it starts turning solid (finishes when the ball has left it)
+function activateGhost(c, r, b) {
+    ghost.cells[c][r].state = 2;
+    combo++;
+    runStats.maxCombo = Math.max(runStats.maxCombo, combo);
+    const mult = Math.min(combo, COMBO_MAX);
+    addScore(5 * mult * (doubleTimer > 0 ? 2 : 1));
+    beep(420 + 45 * (ghost.rows - r), 'ghost');
+    spawnParticles(ghostCellX(c) + BRICK_W / 2, ghostCellY(r) + BRICK_H / 2, TETRIS_COLORS[r % TETRIS_COLORS.length], 3);
+    if (combo >= 3 && combo <= COMBO_MAX) comboShout(combo, ghostCellX(c) + BRICK_W / 2, ghostCellY(r) + BRICK_H / 2);
+    if (Math.random() < 0.03) spawnPowerup(ghostCellX(c) + BRICK_W / 2, ghostCellY(r) + BRICK_H / 2);
+    if (explosiveReady) blastGhost(c, r);
+}
+
+// Explosive: instantly solidifies a 3x3 area (and gets used up)
+function blastGhost(c, r) {
+    explosiveReady = false;
+    for (let cc = c - 1; cc <= c + 1; cc++) {
+        for (let rr = r - 1; rr <= r + 1; rr++) {
+            if (cc >= 0 && cc < BRICK_COLS && rr >= 0 && rr < ghost.rows) {
+                const cell = ghost.cells[cc][rr];
+                if (cell.state === 1 || cell.state === 2) {
+                    // a cell with a ball inside turns solid once the ball has left, like any other
+                    cell.state = balls.some(b => ballOverlaps(b, cc, rr, 1)) ? 2 : 3;
+                }
+            }
+        }
+    }
+    addBlast(ghostCellX(c) + BRICK_W / 2, ghostCellY(r) + BRICK_H / 2);
+    boom();
+    addShake(8);
+    haptic(40, true);
+    addPopup(ghostCellX(c) + BRICK_W / 2, ghostCellY(r) - 8, 'SOLID!', '#ff9a2e', { size: 16, life: 0.9 });
+    fillPockets();
+}
+
+function ghostBallCollision(b) {
+    if (!ghost) return;
+    let bounced = false;
+    for (let c = 0; c < BRICK_COLS; c++) {
+        for (let r = 0; r < ghost.rows; r++) {
+            const cell = ghost.cells[c][r];
+            if (cell.state === 0 || !ballOverlaps(b, c, r)) continue;
+            if (cell.state === 1) {
+                activateGhost(c, r, b); // flies straight through
+                if (gameState !== 'playing' || !ghost) return; // an Explosive blast can finish the level
+            } else if (cell.state === 3 && !bounced && fireTimer <= 0) {
+                const x = ghostCellX(c);
+                const y = ghostCellY(r);
+                const cx = Math.max(x, Math.min(b.x, x + BRICK_W));
+                const cy = Math.max(y, Math.min(b.y, y + BRICK_H));
+                const dx = b.x - cx;
+                const dy = b.y - cy;
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    const dir = dx >= 0 ? 1 : -1;
+                    b.vx = dir * Math.abs(b.vx);
+                    b.x = dir > 0 ? x + BRICK_W + b.r : x - b.r;
+                } else {
+                    const dir = dy >= 0 ? 1 : -1;
+                    b.vy = dir * Math.abs(b.vy);
+                    b.y = dir > 0 ? y + BRICK_H + b.r : y - b.r;
+                }
+                beep(240, 'tink');
+                bounced = true;
+                // A ball bouncing straight up and down between two solid cells (no sideways speed) could be trapped
+                // in a one-cell slot forever: give it a little sideways push, keeping its speed
+                if (Math.abs(b.vx) < 0.6) {
+                    const sp = Math.hypot(b.vx, b.vy);
+                    b.vx = (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random() * 0.8);
+                    b.vy = (b.vy < 0 ? -1 : 1) * Math.sqrt(Math.max(1, sp * sp - b.vx * b.vx));
+                }
+                if (explosiveReady) {
+                    blastGhost(c, r);
+                    if (gameState !== 'playing' || !ghost) return;
+                }
+            }
+        }
+    }
+}
+
+function updateGhostGrid() {
+    if (!ghost) return;
+    // Watchdog: a ball that has been inside the grid for 5 seconds (cornered in a slot or a sealed pocket) is
+    // released below it, so a ghost level can never soft-lock
+    const gridTop = ghostCellY(0) - 12;
+    const gridBottom = ghostCellY(ghost.rows) + 12;
+    for (const b of balls) {
+        if (b.y > gridTop && b.y < gridBottom && !b.stuck) {
+            if (++b.gridT > 300) {
+                b.y = gridBottom + 14;
+                b.vy = Math.abs(b.vy) || currentSpeed();
+                b.gridT = 0;
+                addPopup(b.x, gridBottom + 30, 'FREED', '#aab4c8', { size: 12, life: 0.8 });
+            }
+        } else {
+            b.gridT = 0;
+        }
+    }
+    let changed = false;
+    for (let c = 0; c < BRICK_COLS; c++) {
+        for (let r = 0; r < ghost.rows; r++) {
+            const cell = ghost.cells[c][r];
+            if (cell.dy > 0) cell.dy = Math.max(0, cell.dy - 3);
+            if (cell.state === 2 && !balls.some(b => ballOverlaps(b, c, r, 1))) {
+                cell.state = 3; // the ball has passed through: now it is solid
+                changed = true;
+            }
+        }
+    }
+    if (changed) fillPockets();
+    for (let i = ghostFlashes.length - 1; i >= 0; i--) {
+        if (--ghostFlashes[i].t <= 0) ghostFlashes.splice(i, 1);
+    }
+    // A finished row waits a moment before it clears: a ball flying up a column finishes several rows in
+    // quick succession, and they should clear together (LINE! / DOUBLE! / TRIPLE! / TETRIS!)
+    if (completeRows().length) {
+        if (!ghost.clearIn) ghost.clearIn = GHOST_CLEAR_DELAY;
+        else if (--ghost.clearIn === 0) clearRows(completeRows());
+    } else {
+        ghost.clearIn = 0;
+    }
+}
+
+// The guided ball prefers shots that cross ghosts in rows that are nearly complete. Shots are planned with the
+// ball's real width (a thin line would happily "thread" gaps the ball actually clips), and it picks at random
+// among the near-best shots, so it can never repeat one hopeless shot forever.
+function bestAimGhost(x, y) {
+    const speed = currentSpeed();
+    const rowWeight = r => {
+        let n = 0;
+        let solid = 0;
+        for (let c = 0; c < BRICK_COLS; c++) {
+            const st = ghost.cells[c][r].state;
+            if (st > 0) n++;
+            if (st === 3) solid++;
+        }
+        return n ? 1 + 4 * (solid / n) * (solid / n) : 0;
+    };
+    // Would a ball centred here overlap a solid cell?
+    const blocked = (px, py) => {
+        const c0 = Math.floor((px - BRICK_OFFSET_LEFT) / BRICK_W);
+        const r0 = Math.floor((py - BRICK_OFFSET_TOP) / BRICK_H);
+        for (let c = c0 - 1; c <= c0 + 1; c++) {
+            for (let r = r0 - 1; r <= r0 + 1; r++) {
+                if (c < 0 || c >= BRICK_COLS || r < 0 || r >= ghost.rows || ghost.cells[c][r].state !== 3) continue;
+                const cx = ghostCellX(c);
+                const cy = ghostCellY(r);
+                const dx = px - Math.max(cx, Math.min(px, cx + BRICK_W));
+                const dy = py - Math.max(cy, Math.min(py, cy + BRICK_H));
+                if (dx * dx + dy * dy < (BALL_RADIUS + 1) * (BALL_RADIUS + 1)) return true;
+            }
+        }
+        return false;
+    };
+    const shots = [];
+    for (let deg = -70; deg <= 70; deg += 7) {
+        const a = (deg * Math.PI) / 180;
+        const dx0 = Math.sin(a);
+        const dy0 = -Math.cos(a);
+        let dx = dx0;
+        let px = x;
+        let py = y;
+        const seen = new Set();
+        let value = 0;
+        for (let i = 0; i < 170; i++) {
+            px += dx * 5;
+            py += dy0 * 5;
+            if (px < BALL_RADIUS) {
+                px = 2 * BALL_RADIUS - px;
+                dx = -dx;
+            } else if (px > CANVAS_W - BALL_RADIUS) {
+                px = 2 * (CANVAS_W - BALL_RADIUS) - px;
+                dx = -dx;
+            }
+            if (py < 0 || py > CANVAS_H) break;
+            if (blocked(px, py)) break; // a solid cell stops the shot
+            const c = Math.floor((px - BRICK_OFFSET_LEFT) / BRICK_W);
+            const r = Math.floor((py - BRICK_OFFSET_TOP) / BRICK_H);
+            if (c < 0 || c >= BRICK_COLS || r < 0 || r >= ghost.rows) continue;
+            if (ghost.cells[c][r].state === 1 && !seen.has(c * 100 + r)) {
+                seen.add(c * 100 + r);
+                value += rowWeight(r);
+            }
+        }
+        value *= 1 - Math.abs(deg) / 400;
+        if (value > 0) shots.push({ value, vx: dx0 * speed, vy: dy0 * speed });
+    }
+    if (!shots.length) return null;
+    const top = Math.max(...shots.map(sh => sh.value));
+    const good = shots.filter(sh => sh.value >= 0.75 * top);
+    const pick = good[Math.floor(Math.random() * good.length)];
+    return { vx: pick.vx, vy: pick.vy, ghost: true };
+}
+
+// -- drawing --
+function drawGhostGrid() {
+    if (!ghost) return;
+    const now = performance.now();
+    // Ghosts: faint, shimmering, with dashed outlines
+    ctx.save();
+    ctx.strokeStyle = 'rgba(200, 230, 255, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    for (let c = 0; c < BRICK_COLS; c++) {
+        for (let r = 0; r < ghost.rows; r++) {
+            const cell = ghost.cells[c][r];
+            if (cell.state !== 1) continue;
+            const x = ghostCellX(c);
+            const y = ghostCellY(r) - cell.dy;
+            ctx.globalAlpha = 0.27 + 0.09 * Math.sin(now / 350 + c * 0.7 + r * 0.9);
+            ctx.drawImage(brickSprite({ color: TETRIS_COLORS[r % TETRIS_COLORS.length], steel: false, tnt: false }), x, y);
+            ctx.rect(x + 0.5, y + 0.5, BRICK_W - 1, BRICK_H - 1);
+        }
+    }
+    ctx.globalAlpha = 0.45;
+    ctx.stroke();
+    ctx.restore();
+    // Arming (the ball is inside) and solid cells
+    for (let c = 0; c < BRICK_COLS; c++) {
+        for (let r = 0; r < ghost.rows; r++) {
+            const cell = ghost.cells[c][r];
+            if (cell.state < 2) continue;
+            const x = ghostCellX(c);
+            const y = ghostCellY(r) - cell.dy;
+            ctx.drawImage(brickSprite({ color: TETRIS_COLORS[r % TETRIS_COLORS.length], steel: false, tnt: false }), x, y);
+            if (cell.state === 2) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+                ctx.fillRect(x, y, BRICK_W, BRICK_H);
+            }
+        }
+    }
+    // Rows that are finished and about to clear pulse
+    if (ghost.clearIn > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.18 + 0.14 * Math.sin(now / 45)) + ')';
+        for (const r of completeRows()) ctx.fillRect(BRICK_OFFSET_LEFT, ghostCellY(r), BRICK_COLS * BRICK_W, BRICK_H);
+    }
+    // Row-clear flashes
+    for (const f of ghostFlashes) {
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (f.t / 14) * 0.85 + ')';
+        ctx.fillRect(BRICK_OFFSET_LEFT, f.y, BRICK_COLS * BRICK_W, BRICK_H);
+    }
+}
+
+// TNT bricks: how many is decided by planLevel(). Placed only where they have neighbours so the blast is
 // worth it (never in the top row), seeded per level like the steel clusters. Adjacent TNTs chain.
 const TNT_COLOR = '#7a1010';
 function placeTnt() {
     const rand = seededRandom(level * 104729);
-    const target = Math.min(1 + Math.floor(level / 2), 5);
+    const target = plan.tnt;
     let placed = 0;
     for (let attempt = 0; attempt < 80 && placed < target; attempt++) {
         const c = Math.floor(rand() * BRICK_COLS);
@@ -446,11 +1822,11 @@ function placeTnt() {
 // Sliding barriers: one from level 3, a counter-moving second from level 8; speed ramps and is capped
 function buildWalls() {
     const walls = [];
-    if (level >= 3) {
+    if (plan.walls >= 1) {
         const y = BRICK_OFFSET_TOP + BRICK_ROWS * BRICK_H + 35; // floats below the brick grid
         const speed = Math.min(2.2 + (level - 3) * 0.5, 6.5);
         walls.push({ x: CANVAS_W / 2 - 60, y: y, w: 120, h: 14, vx: speed });
-        if (level >= 8) {
+        if (plan.walls >= 2) {
             walls.push({ x: 60, y: y + 50, w: 90, h: 14, vx: -speed });
         }
     }
@@ -458,6 +1834,10 @@ function buildWalls() {
 }
 
 function spawnLevel() {
+    plan = planLevel(level);
+    boss = null;
+    crates = [];
+    crateTimer = 0;
     const layout = currentLayout();
     const isSteel = buildSteelMask(layout, STEEL_STYLES[(level - 1) % STEEL_STYLES.length]);
 
@@ -467,9 +1847,10 @@ function spawnLevel() {
             const brick = bricks[c][r];
             brick.x = (c * BRICK_W) + BRICK_OFFSET_LEFT;
             brick.y = (r * BRICK_H) + BRICK_OFFSET_TOP;
-            brick.alive = layout.alive(c, r);
+            brick.alive = !plan.boss && !plan.tetris && layout.alive(c, r); // boss arenas and ghost rows have no ordinary bricks
             brick.tnt = false;
             brick.crack = null;
+            brick.sprite = null;
             brick.flash = 0;
             if (brick.alive) bricksLeft++;
 
@@ -490,15 +1871,21 @@ function spawnLevel() {
         }
     }
     placeTnt();
+    ghost = plan.tetris ? buildGhostGrid(level) : null;
+    ghostFlashes = [];
+    if (ghost) bricksLeft = ghostCount();
     levelBricksTotal = bricksLeft;
-    resetAliens(); // no aliens carry over, and a fresh grace period before the first one
+    resetAliens(plan.aliens ? plan.aliens.grace : 999, 8); // no aliens carry over; a grace period before the first
+    initChaos();
+    if (plan.boss) spawnBoss();
+    introPending = true;
 
     movingWalls = buildWalls();
     buildBackground();
 }
 
 function makeBall(x, y, vx, vy) {
-    return { x, y, r: BALL_RADIUS, vx, vy, trail: [], stuck: false, stuckFor: 0, aim: null, aimIn: 0 };
+    return { x, y, r: BALL_RADIUS, vx, vy, trail: [], stuck: false, stuckFor: 0, aim: null, aimIn: 0, gridT: 0 };
 }
 
 // --- Guided ball: aim for maximum damage ---
@@ -555,6 +1942,14 @@ function castRay(x, y, dx, dy) {
         for (const w of movingWalls) {
             if (x > w.x - 4 && x < w.x + w.w + 4 && y > w.y - 4 && y < w.y + w.h + 4) return 'wall';
         }
+        for (const cr of crates) {
+            if (cr.alive && x >= cr.x && x <= cr.x + cr.w && y >= cr.y && y <= cr.y + cr.h) return { crate: true };
+        }
+        if (boss && boss.hp > 0 && boss.intro <= 0 && boss.dying <= 0) {
+            for (const [x0, y0, x1, y1] of bossRects()) {
+                if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return { boss: true, x, y };
+            }
+        }
         const c = Math.floor((x - BRICK_OFFSET_LEFT) / BRICK_W);
         const r = Math.floor((y - BRICK_OFFSET_TOP) / BRICK_H);
         if (c >= 0 && c < BRICK_COLS && r >= 0 && r < BRICK_ROWS && bricks[c][r].alive) return { c, r };
@@ -565,6 +1960,7 @@ function castRay(x, y, dx, dy) {
 // Sample the upward arc, score what each ray would hit, and return the best shot as
 // { vx, vy, c, r } at the current ball speed (null if nothing is hittable).
 function bestAim(x, y) {
+    if (ghost) return bestAimGhost(x, y);
     const speed = currentSpeed();
     let best = null;
     let bestValue = 0;
@@ -574,10 +1970,18 @@ function bestAim(x, y) {
         const dy = -Math.cos(a);
         const hit = castRay(x, y, dx, dy);
         if (!hit || hit === 'wall') continue;
-        const v = hitValue(hit.c, hit.r) * (1 - Math.abs(deg) / 400); // slight preference for straighter shots
+        let value;
+        if (hit.crate) {
+            value = 40; // worth a powerup, but less than hitting the boss
+        } else if (hit.boss) {
+            value = inBossHatch(hit.x, hit.y) ? 150 : 45; // the hatch is worth triple
+        } else {
+            value = hitValue(hit.c, hit.r);
+        }
+        const v = value * (1 - Math.abs(deg) / 400); // slight preference for straighter shots
         if (v > bestValue) {
             bestValue = v;
-            best = { vx: dx * speed, vy: dy * speed, c: hit.c, r: hit.r };
+            best = { vx: dx * speed, vy: dy * speed, c: hit.c, r: hit.r, boss: !!hit.boss, crate: !!hit.crate };
         }
     }
     return best;
@@ -653,21 +2057,26 @@ function releaseStuckBalls() {
 // Ball speed ramps up each level (capped), plus up to +1.2 within a level as its bricks are cleared
 function currentSpeed() {
     const base = Math.min(5 + (level - 1) * 0.4, 8);
-    const cleared = levelBricksTotal > 0 ? 1 - bricksLeft / levelBricksTotal : 0;
+    const progress = levelBricksTotal > 0 ? 1 - bricksLeft / levelBricksTotal : (boss ? 1 - boss.hp / boss.maxHp : 0);
+    const cleared = Math.max(0, Math.min(1, progress));
     return base + 1.2 * cleared;
 }
 
 // --- Ambience: level-tinted gradient backdrop with slow parallax stars ---
 let bgGradient = null;
-const stars = Array.from({ length: 70 }, () => ({
-    x: Math.random() * CANVAS_W,
-    y: Math.random() * CANVAS_H,
-    z: 0.2 + Math.random() * 0.8, // depth: nearer stars are bigger, brighter and move faster
-    tw: Math.random() * Math.PI * 2
-}));
+const STAR_LAYERS = 3;
+const stars = Array.from({ length: 70 }, () => {
+    const z = 0.2 + Math.random() * 0.8; // depth: nearer stars are bigger, brighter and move faster
+    return {
+        x: Math.random() * CANVAS_W,
+        y: Math.random() * CANVAS_H,
+        z: z,
+        layer: Math.min(STAR_LAYERS - 1, Math.floor(((z - 0.2) / 0.8) * STAR_LAYERS))
+    };
+});
 
 function buildBackground() {
-    const hue = (235 + (level - 1) * 28) % 360;
+    const hue = plan.boss ? 350 : (235 + (level - 1) * 28) % 360;
     bgGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
     bgGradient.addColorStop(0, 'hsl(' + hue + ', 55%, 5%)');
     bgGradient.addColorStop(1, 'hsl(' + ((hue + 30) % 360) + ', 60%, 17%)');
@@ -677,18 +2086,25 @@ function drawBackground() {
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     const parallax = paddle ? (paddle.x + paddle.w / 2 - CANVAS_W / 2) * 0.04 : 0;
+    // Stars in three depth layers: one path and one fill per layer (was one state change + fill per star),
+    // with a shared twinkle per layer
     ctx.fillStyle = '#cfd8ff';
-    for (const s of stars) {
-        s.y += 0.06 + s.z * 0.3;
-        if (s.y > CANVAS_H) {
-            s.y = 0;
-            s.x = Math.random() * CANVAS_W;
+    const twinkle = performance.now() / 700;
+    for (let layer = 0; layer < STAR_LAYERS; layer++) {
+        ctx.globalAlpha = (0.25 + 0.55 * (layer + 0.5) / STAR_LAYERS) * (0.7 + 0.3 * Math.sin(twinkle + layer * 2.1));
+        ctx.beginPath();
+        for (const s of stars) {
+            if (s.layer !== layer) continue;
+            s.y += (0.06 + s.z * 0.3) * timeScale; // the stars are a speedometer
+            if (s.y > CANVAS_H) {
+                s.y = 0;
+                s.x = Math.random() * CANVAS_W;
+            }
+            const x =(((s.x - parallax * s.z) % CANVAS_W) + CANVAS_W) % CANVAS_W;
+            const size = 0.7 + s.z * 1.5;
+            ctx.rect(x, s.y, size, size);
         }
-        s.tw += 0.03;
-        const x = (((s.x - parallax * s.z) % CANVAS_W) + CANVAS_W) % CANVAS_W;
-        ctx.globalAlpha = (0.25 + 0.55 * s.z) * (0.7 + 0.3 * Math.sin(s.tw));
-        const size = 0.7 + s.z * 1.5;
-        ctx.fillRect(x, s.y, size, size);
+        ctx.fill();
     }
     ctx.globalAlpha = 1;
 }
@@ -704,13 +2120,13 @@ function roundRectPath(x, y, w, h, r) {
     ctx.closePath();
 }
 
-function fillPoly(points, style) {
-    ctx.beginPath();
-    ctx.moveTo(points[0][0], points[0][1]);
-    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
-    ctx.closePath();
-    ctx.fillStyle = style;
-    ctx.fill();
+function fillPoly(g, points, style) {
+    g.beginPath();
+    g.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) g.lineTo(points[i][0], points[i][1]);
+    g.closePath();
+    g.fillStyle = style;
+    g.fill();
 }
 
 // --- Drawing Functions ---
@@ -743,9 +2159,7 @@ const BALL_LOOKS = {
 };
 
 // Lock-on reticle over the brick a guided ball is heading for
-function drawReticle(brick) {
-    const cx = brick.x + brick.w / 2;
-    const cy = brick.y + brick.h / 2;
+function drawReticleAt(cx, cy) {
     const spin = performance.now() / 500;
     const pulse = 13 + Math.sin(performance.now() / 120) * 2;
     ctx.save();
@@ -765,11 +2179,73 @@ function drawReticle(brick) {
     ctx.restore();
 }
 
+// Ball glow sprites per look (trail blob, halo, body), built once on first use. Nothing here creates a
+// gradient per frame: a 4-ball fire scene used to build ~70 gradients every frame, which is a lot of
+// garbage for a phone to collect.
+const ballSprites = {};
+function ballSpriteSet(name) {
+    if (ballSprites[name]) return ballSprites[name];
+    const look = BALL_LOOKS[name];
+    const r = BALL_RADIUS;
+
+    // Trail blob: full-alpha radial falloff, drawn scaled with globalAlpha
+    const blob = makeSprite(64, 64, g => {
+        const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+        gr.addColorStop(0, 'rgba(' + look.trailCore + ', 1)');
+        gr.addColorStop(1, 'rgba(' + look.trailEdge + ', 0)');
+        g.fillStyle = gr;
+        g.fillRect(0, 0, 64, 64);
+    });
+
+    // Halo behind the ball
+    const haloR = r * look.haloR;
+    const haloSize = Math.ceil(haloR * 2) + 2;
+    const halo = makeSprite(haloSize, haloSize, g => {
+        const c = haloSize / 2;
+        const gr = g.createRadialGradient(c, c, r * 0.6, c, c, haloR);
+        gr.addColorStop(0, 'rgba(' + look.halo + ', ' + look.haloA + ')');
+        gr.addColorStop(1, 'rgba(' + look.halo + ', 0)');
+        g.fillStyle = gr;
+        g.beginPath();
+        g.arc(c, c, haloR, 0, Math.PI * 2);
+        g.fill();
+    });
+
+    // The ball: a sphere with a highlight
+    const bodySize = r * 2 + 2;
+    const body = makeSprite(bodySize, bodySize, g => {
+        const c = bodySize / 2;
+        const gr = g.createRadialGradient(c - r * 0.35, c - r * 0.35, 1, c, c, r);
+        gr.addColorStop(0, '#ffffff');
+        gr.addColorStop(0.35, look.mid);
+        gr.addColorStop(1, look.edge);
+        g.fillStyle = gr;
+        g.beginPath();
+        g.arc(c, c, r, 0, Math.PI * 2);
+        g.fill();
+    });
+
+    ballSprites[name] = { blob, halo, body, haloSize, bodySize };
+    return ballSprites[name];
+}
+
 function drawBall() {
-    const look = BALL_LOOKS[fireTimer > 0 ? 'fire' : guidedTimer > 0 ? 'guided' : 'normal'];
+    const name = fireTimer > 0 ? 'fire' : guidedTimer > 0 ? 'guided' : 'normal';
+    const look = BALL_LOOKS[name];
+    const sp = ballSpriteSet(name);
     for (const b of balls) {
         if (b.stuck) drawStuckAim(b);
-        if (guidedTimer > 0 && b.aim && bricks[b.aim.c][b.aim.r].alive) drawReticle(bricks[b.aim.c][b.aim.r]);
+        if (guidedTimer > 0 && b.aim) {
+            if (b.aim.boss) {
+                if (boss && boss.hp > 0) {
+                    const core = bossCore();
+                    drawReticleAt(core.x, core.y);
+                }
+            } else if (b.aim.c !== undefined && bricks[b.aim.c][b.aim.r].alive) {
+                const t = bricks[b.aim.c][b.aim.r];
+                drawReticleAt(t.x + t.w / 2, t.y + t.h / 2);
+            }
+        }
         // Glowing trail: additive blending so overlapping ghosts brighten into a comet tail
         if (b.trail && b.trail.length) {
             ctx.save();
@@ -778,36 +2254,13 @@ function drawBall() {
                 const tr = b.trail[t];
                 const ratio = (t + 1) / b.trail.length;
                 const rad = b.r * (0.4 + look.trailGrow * ratio);
-                const g = ctx.createRadialGradient(tr.x, tr.y, 0, tr.x, tr.y, rad);
-                g.addColorStop(0, 'rgba(' + look.trailCore + ', ' + (look.trailA * ratio) + ')');
-                g.addColorStop(1, 'rgba(' + look.trailEdge + ', 0)');
-                ctx.fillStyle = g;
-                ctx.beginPath();
-                ctx.arc(tr.x, tr.y, rad, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.globalAlpha = look.trailA * ratio;
+                ctx.drawImage(sp.blob, tr.x - rad, tr.y - rad, rad * 2, rad * 2);
             }
             ctx.restore();
         }
-
-        // Main ball: soft halo (cheaper than shadowBlur) plus a sphere with a highlight
-        ctx.save();
-        const haloR = b.r * look.haloR;
-        const halo = ctx.createRadialGradient(b.x, b.y, b.r * 0.6, b.x, b.y, haloR);
-        halo.addColorStop(0, 'rgba(' + look.halo + ', ' + look.haloA + ')');
-        halo.addColorStop(1, 'rgba(' + look.halo + ', 0)');
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, haloR, 0, Math.PI * 2);
-        ctx.fill();
-        const g = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.35, 1, b.x, b.y, b.r);
-        g.addColorStop(0, '#ffffff');
-        g.addColorStop(0.35, look.mid);
-        g.addColorStop(1, look.edge);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+        ctx.drawImage(sp.halo, b.x - sp.haloSize / 2, b.y - sp.haloSize / 2);
+        ctx.drawImage(sp.body, b.x - sp.bodySize / 2, b.y - sp.bodySize / 2);
     }
 }
 
@@ -845,90 +2298,120 @@ function drawShield() {
     ctx.restore();
 }
 
-function drawCrack(brick) {
-    const k = brick.crack;
-    const x = brick.x;
-    const y = brick.y;
-    ctx.save();
-    // Dented, darkened spot where the ball struck
-    const dent = ctx.createRadialGradient(x + k.ox, y + k.oy, 0, x + k.ox, y + k.oy, 10);
+// --- Brick sprites ---
+// A brick's beveled look (fill, four bevel polygons, sheen, outline, steel border, TNT stripes and
+// label) is drawn once into a small offscreen canvas per look and reused with drawImage. Drawing ~10
+// paths per brick per frame added up on phones. A crack is baked into its own sprite when it happens.
+// Only the genuinely animated bits (TNT pulse, impact flash) are drawn live.
+function makeSprite(w, h, paint) {
+    const sprite = document.createElement('canvas');
+    sprite.width = w;
+    sprite.height = h;
+    paint(sprite.getContext('2d'));
+    return sprite;
+}
+
+function paintBrick(g, color, steel, tnt) {
+    const w = BRICK_W;
+    const h = BRICK_H;
+    const bev = 3; // bevel thickness
+    g.fillStyle = color;
+    g.fillRect(0, 0, w, h);
+    // Beveled edges: light from the top-left, shadow on the bottom-right
+    fillPoly(g, [[0, 0], [w, 0], [w - bev, bev], [bev, bev]], 'rgba(255, 255, 255, 0.38)');
+    fillPoly(g, [[0, 0], [bev, bev], [bev, h - bev], [0, h]], 'rgba(255, 255, 255, 0.2)');
+    fillPoly(g, [[0, h], [bev, h - bev], [w - bev, h - bev], [w, h]], 'rgba(0, 0, 0, 0.38)');
+    fillPoly(g, [[w, 0], [w, h], [w - bev, h - bev], [w - bev, bev]], 'rgba(0, 0, 0, 0.25)');
+    // Soft sheen on the upper half of the face
+    g.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    g.fillRect(bev, bev, w - 2 * bev, (h - 2 * bev) / 2);
+    g.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+    g.lineWidth = 1;
+    g.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+    if (steel) {
+        // Steel brick metallic border
+        g.strokeStyle = '#B0C4DE';
+        g.lineWidth = 1.5;
+        g.strokeRect(2, 2, w - 4, h - 4);
+    }
+    if (tnt) {
+        // Hazard stripes and a label so it reads as a bomb
+        for (let sx = 4; sx < w - 8; sx += 14) {
+            fillPoly(g, [[sx, h - bev], [sx + 6, h - bev], [sx + 10, bev], [sx + 4, bev]], 'rgba(255, 210, 0, 0.28)');
+        }
+        g.font = 'bold 12px sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillStyle = '#ffe14d';
+        g.fillText('TNT', w / 2, h / 2 + 1);
+    }
+}
+
+const brickSprites = {};
+function brickSprite(brick) {
+    const key = brick.tnt ? 'tnt' : brick.color + (brick.steel ? '|steel' : '');
+    if (!brickSprites[key]) {
+        brickSprites[key] = makeSprite(BRICK_W, BRICK_H, g => paintBrick(g, brick.tnt ? TNT_COLOR : brick.color, brick.steel, brick.tnt));
+    }
+    return brickSprites[key];
+}
+
+// A crack: a dented spot where the ball struck, then each fissure as a dark groove with a bright lip
+function paintCrack(g, crack) {
+    const dent = g.createRadialGradient(crack.ox, crack.oy, 0, crack.ox, crack.oy, 10);
     dent.addColorStop(0, 'rgba(15, 20, 25, 0.6)');
     dent.addColorStop(1, 'rgba(15, 20, 25, 0)');
-    ctx.fillStyle = dent;
-    ctx.fillRect(x, y, brick.w, brick.h);
+    g.fillStyle = dent;
+    g.fillRect(0, 0, BRICK_W, BRICK_H);
 
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    // A dark groove with a bright lip on top of it reads as a real fissure
+    g.lineJoin = 'round';
+    g.lineCap = 'round';
     const passes = [
         { off: 0.9, style: 'rgba(0, 0, 0, 0.7)', width: 2.6 },
         { off: 0, style: 'rgba(255, 255, 255, 0.92)', width: 1.2 }
     ];
     for (const pass of passes) {
-        ctx.strokeStyle = pass.style;
-        ctx.lineWidth = pass.width;
-        ctx.beginPath();
-        for (const line of k.lines) {
-            ctx.moveTo(x + line[0][0] + pass.off, y + line[0][1] + pass.off);
+        g.strokeStyle = pass.style;
+        g.lineWidth = pass.width;
+        g.beginPath();
+        for (const line of crack.lines) {
+            g.moveTo(line[0][0] + pass.off, line[0][1] + pass.off);
             for (let i = 1; i < line.length; i++) {
-                ctx.lineTo(x + line[i][0] + pass.off, y + line[i][1] + pass.off);
+                g.lineTo(line[i][0] + pass.off, line[i][1] + pass.off);
             }
         }
-        ctx.stroke();
+        g.stroke();
     }
-    ctx.restore();
+}
+
+// Called once when a steel brick cracks: bake the cracked look into that brick's own sprite
+function bakeCrack(brick) {
+    brick.sprite = makeSprite(BRICK_W, BRICK_H, g => {
+        g.drawImage(brickSprite(brick), 0, 0);
+        paintCrack(g, brick.crack);
+    });
 }
 
 function drawBricks() {
-    const bev = 3; // bevel thickness
+    const pulse = 'rgba(255, 90, 0, ' + (0.15 + 0.15 * Math.sin(performance.now() / 180)) + ')';
     for (let c = 0; c < BRICK_COLS; c++) {
         for (let r = 0; r < BRICK_ROWS; r++) {
             const brick = bricks[c][r];
             if (!brick.alive) continue;
             const { x, y, w, h } = brick;
+            ctx.drawImage(brick.sprite || brickSprite(brick), x, y);
 
-            ctx.fillStyle = brick.color;
-            ctx.fillRect(x, y, w, h);
-
-            // Beveled edges: light from the top-left, shadow on the bottom-right
-            fillPoly([[x, y], [x + w, y], [x + w - bev, y + bev], [x + bev, y + bev]], 'rgba(255, 255, 255, 0.38)');
-            fillPoly([[x, y], [x + bev, y + bev], [x + bev, y + h - bev], [x, y + h]], 'rgba(255, 255, 255, 0.2)');
-            fillPoly([[x, y + h], [x + bev, y + h - bev], [x + w - bev, y + h - bev], [x + w, y + h]], 'rgba(0, 0, 0, 0.38)');
-            fillPoly([[x + w, y], [x + w, y + h], [x + w - bev, y + h - bev], [x + w - bev, y + bev]], 'rgba(0, 0, 0, 0.25)');
-            // Soft sheen on the upper half of the face
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-            ctx.fillRect(x + bev, y + bev, w - 2 * bev, (h - 2 * bev) / 2);
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-
-            if (brick.steel) {
-                // Steel brick metallic border
-                ctx.strokeStyle = "#B0C4DE";
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
-
-                // If cracked (took 1 hit), draw its crack; a brief white flash sells the impact
-                if (brick.hitsLeft === 1 && brick.crack) drawCrack(brick);
-                if (brick.flash > 0) {
-                    ctx.fillStyle = 'rgba(255, 255, 255, ' + (brick.flash / 6) * 0.6 + ')';
-                    ctx.fillRect(x, y, w, h);
-                    brick.flash--;
-                }
-            } else if (brick.tnt) {
-                // TNT: hazard stripes, a pulsing glow, and a label so it reads as a bomb
-                ctx.fillStyle = 'rgba(255, 210, 0, 0.35)';
-                for (let sx = x + 4; sx < x + w - 8; sx += 14) {
-                    fillPoly([[sx, y + h - bev], [sx + 6, y + h - bev], [sx + 10, y + bev], [sx + 4, y + bev]], 'rgba(255, 210, 0, 0.28)');
-                }
-                ctx.fillStyle = 'rgba(255, 90, 0, ' + (0.15 + 0.15 * Math.sin(performance.now() / 180)) + ')';
-                ctx.fillRect(x + bev, y + bev, w - 2 * bev, h - 2 * bev);
-                ctx.font = 'bold 12px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#ffe14d';
-                ctx.fillText('TNT', x + w / 2, y + h / 2 + 1);
-                ctx.textBaseline = 'alphabetic';
+            if (brick.tnt) {
+                // Pulsing glow so TNT reads as live
+                ctx.fillStyle = pulse;
+                ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
+            }
+            // Brief white flash on impact (a steel brick cracking)
+            if (brick.flash > 0) {
+                ctx.fillStyle = 'rgba(255, 255, 255, ' + (brick.flash / 6) * 0.6 + ')';
+                ctx.fillRect(x, y, w, h);
+                brick.flash--;
             }
         }
     }
@@ -1002,7 +2485,7 @@ function updateComboMeter() {
 
 function updateHUD() {
     setText('score', 'Score: ' + score);
-    setText('lives', 'Lives: ' + '●'.repeat(lives));
+    setText('lives', 'Lives: ' + '●'.repeat(Math.max(0, lives)));
     setText('level', 'Level: ' + level);
     setText('best', 'Best: ' + bestScore);
     updateComboMeter();
@@ -1287,10 +2770,11 @@ function comboShout(mult, x, y) {
 }
 
 function spawnPowerup(x, y) {
-    // Weighted pick
-    let roll = Math.random() * POWERUP_TYPES.reduce((sum, p) => sum + p.weight, 0);
-    let t = POWERUP_TYPES[POWERUP_TYPES.length - 1];
-    for (const p of POWERUP_TYPES) {
+    // Weighted pick among the powerups unlocked by this level
+    const pool = POWERUP_TYPES.filter(p => level >= (POWERUP_UNLOCK[p.type] || 1));
+    let roll = Math.random() * pool.reduce((sum, p) => sum + p.weight, 0);
+    let t = pool[pool.length - 1];
+    for (const p of pool) {
         roll -= p.weight;
         if (roll < 0) {
             t = p;
@@ -1341,7 +2825,7 @@ function applyPowerup(type) {
 function updatePowerups() {
     for (let i = powerups.length - 1; i >= 0; i--) {
         const p = powerups[i];
-        p.y += p.vy;
+        p.y += p.vy * timeScale;
         // Catch test against the solid parts of the paddle
         if (paddleOverlap(p.x, p.y, 12)) {
             applyPowerup(p.type);
@@ -1443,13 +2927,13 @@ function paddleOverlap(px, py, r) {
     return false;
 }
 
-function punchHole(worldX) {
+function punchHole(worldX, seconds = HOLE_SECONDS) {
     const lx = Math.max(HOLE_W / 2, Math.min(paddle.w - HOLE_W / 2, worldX - paddle.x)); // hole stays inside the paddle
     const near = paddleHoles.find(h => Math.abs(h.x - lx) < HOLE_W * 0.6);
     if (near) {
-        near.life = HOLE_SECONDS; // hitting an existing hole just refreshes it
+        near.life = Math.max(near.life, seconds); // hitting an existing hole just refreshes it
     } else {
-        paddleHoles.push({ x: lx, w: HOLE_W, life: HOLE_SECONDS });
+        paddleHoles.push({ x: lx, w: HOLE_W, life: seconds });
         const maxHoles = Math.max(1, Math.floor(paddle.w / 45)); // a narrow paddle can't lose most of its width
         while (paddleHoles.length > maxHoles) paddleHoles.shift();
     }
@@ -1467,8 +2951,8 @@ function resetAliens(graceSeconds = 8, spreadSeconds = 8) {
     alienTimer = Math.round(60 * (graceSeconds + Math.random() * spreadSeconds));
 }
 
-function alienMax() {
-    return Math.min(1 + Math.floor((level - 1) / 5), 3);
+function alienMax(l = level) {
+    return Math.min(1 + Math.floor((l - 1) / 5), 3);
 }
 
 // Frames between arrivals: shorter on later levels, never under ~8s, randomised +-30%
@@ -1511,7 +2995,7 @@ function spawnAlien() {
         cool: 0,
         t: Math.floor(Math.random() * 100)
     });
-    addPopup(CANVAS_W / 2, 46, 'ALIEN INCOMING!', ALIEN_COLOR, { size: 24, life: 1.4, rise: 0.2, pop: true });
+    if (!boss) addPopup(CANVAS_W / 2, 46, 'ALIEN INCOMING!', ALIEN_COLOR, { size: 24, life: 1.4, rise: 0.2, pop: true }); // (a boss's summons need no banner over its health bar)
     tone(330, 0.15, { type: 'triangle', vol: 0.2, key: 'warn' });
     tone(440, 0.2, { type: 'triangle', vol: 0.2, delay: 0.15, force: true });
     haptic([15, 40, 15], true);
@@ -1548,7 +3032,7 @@ function updateAliens() {
     }
 
     // Random arrivals (not when the level is nearly cleared)
-    if (aliens.length < alienMax() && bricksLeft > 3 && --alienTimer <= 0) {
+    if (plan.aliens && aliens.length < plan.aliens.max && bricksLeft > 3 && --alienTimer <= 0) {
         spawnAlien();
         alienTimer = alienInterval();
     }
@@ -1556,7 +3040,7 @@ function updateAliens() {
     for (let i = aliens.length - 1; i >= 0; i--) {
         const a = aliens[i];
         a.t++;
-        a.x += a.vx;
+        a.x += a.vx * timeScale;
         a.y = a.baseY + Math.sin(a.t / 25) * 12;
         if (a.flash > 0) a.flash--;
         if (a.cool > 0) a.cool--;
@@ -1579,8 +3063,8 @@ function updateAliens() {
 
     for (let i = alienBullets.length - 1; i >= 0; i--) {
         const b = alienBullets[i];
-        b.x += b.vx;
-        b.y += b.vy;
+        b.x += b.vx * timeScale;
+        b.y += b.vy * timeScale;
         // A ball destroys bolts
         if (balls.some(ball => Math.hypot(ball.x - b.x, ball.y - b.y) < ball.r + 4)) {
             spawnParticles(b.x, b.y, ALIEN_COLOR, 6);
@@ -1588,9 +3072,17 @@ function updateAliens() {
             alienBullets.splice(i, 1);
             continue;
         }
+        // Any bolt crossing a supply crate breaks it (the boss shooting down its own supplies)
+        const hitCrate = crates.find(cr => cr.alive && b.x >= cr.x - 3 && b.x <= cr.x + cr.w + 3 && b.y >= cr.y - 3 && b.y <= cr.y + cr.h + 3);
+        if (hitCrate) {
+            breakCrate(hitCrate);
+            spawnParticles(b.x, b.y, ALIEN_COLOR, 6);
+            alienBullets.splice(i, 1);
+            continue;
+        }
         // Hits solid paddle (a bolt over an existing hole just passes through)
         if (b.y + 6 >= paddle.y && b.y - 6 <= paddle.y + paddle.h && paddleSegments().some(([s0, s1]) => b.x >= s0 && b.x <= s1)) {
-            punchHole(b.x);
+            punchHole(b.x, b.hole || HOLE_SECONDS);
             alienBullets.splice(i, 1);
             continue;
         }
@@ -1637,6 +3129,24 @@ function alienBallCollision(b) {
 }
 
 // -- Drawing --
+// Each animation frame x colour is drawn once into a small sprite (the sprite is 60+ cell fills)
+const alienSprites = {};
+function alienSprite(frame, color) {
+    const key = frame + color;
+    if (!alienSprites[key]) {
+        alienSprites[key] = makeSprite(11 * 3, 8 * 3, g => {
+            g.fillStyle = color;
+            const sprite = ALIEN_SPRITES[frame];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 11; c++) {
+                    if (sprite[r][c] === '1') g.fillRect(c * 3, r * 3, 3, 3);
+                }
+            }
+        });
+    }
+    return alienSprites[key];
+}
+
 function drawAliens() {
     for (const a of aliens) {
         const charging = a.entered && !a.leaving && a.fireIn <= 30;
@@ -1665,13 +3175,8 @@ function drawAliens() {
         ctx.fill();
         ctx.globalAlpha = 1;
 
-        ctx.fillStyle = a.flash > 0 ? '#ffffff' : (charging && Math.floor(a.t / 3) % 2 === 0 ? '#ff5a5a' : ALIEN_COLOR);
-        const sprite = ALIEN_SPRITES[Math.floor(a.t / 14) % 2];
-        for (let r = 0; r < 8; r++) {
-            for (let c = 0; c < 11; c++) {
-                if (sprite[r][c] === '1') ctx.fillRect(sx + c * cell, sy + r * cell, cell, cell);
-            }
-        }
+        const color = a.flash > 0 ? '#ffffff' : (charging && Math.floor(a.t / 3) % 2 === 0 ? '#ff5a5a' : ALIEN_COLOR);
+        ctx.drawImage(alienSprite(Math.floor(a.t / 14) % 2, color), sx, sy);
         // Remaining hit points for tougher aliens
         if (a.maxHp > 1) {
             for (let h = 0; h < a.maxHp; h++) {
@@ -1697,6 +3202,7 @@ function drawAlienBullets() {
     ctx.restore();
 }
 
+let paddleGradient = null;
 function drawPaddle() {
     ctx.save();
     for (const [a, b] of paddleSegments()) {
@@ -1705,10 +3211,12 @@ function drawPaddle() {
         roundRectPath(a - 3, paddle.y - 3, b - a + 6, paddle.h + 6, 8);
         ctx.fill();
         ctx.globalAlpha = 1;
-        const g = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
-        g.addColorStop(0, '#6fd6ff');
-        g.addColorStop(1, '#0070b0');
-        ctx.fillStyle = g;
+        if (!paddleGradient) { // the paddle's y never changes, so one gradient serves every frame
+            paddleGradient = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
+            paddleGradient.addColorStop(0, '#6fd6ff');
+            paddleGradient.addColorStop(1, '#0070b0');
+        }
+        ctx.fillStyle = paddleGradient;
         roundRectPath(a, paddle.y, b - a, paddle.h, 4);
         ctx.fill();
     }
@@ -1783,6 +3291,7 @@ function collisionDetection(b) {
                     if (brick.steel && brick.hitsLeft > 1 && !wasExplosive && !onFire) {
                         brick.hitsLeft--;
                         brick.crack = makeCrack(brick, b.x, b.y);
+                        bakeCrack(brick);
                         brick.flash = 6;
                         clink();
                         addShake(2);
@@ -1889,20 +3398,7 @@ function collisionDetection(b) {
                     
                     // Check for win condition
                     if (bricksLeft <= 0) {
-                        level++;
-                        gameState = 'won';
-                        powerups.length = 0;
-                        clearTimedEffects();
-                        combo = 0;
-                        spawnLevel();
-                        playWinJingle();
-                        addShake(6);
-                        haptic([30, 60, 30, 60, 80], true);
-                        // Reset ball on the paddle
-                        const sp = currentSpeed();
-                        balls = [makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, sp, -sp)];
-                        inputLockUntil = performance.now() + 700;
-                        showOverlay(getLaunchMessage(true), 'Continue', buildSummary(true));
+                        completeLevel();
                         return;
                     }
                 }
@@ -1916,7 +3412,7 @@ function collisionDetection(b) {
 function update() {
     // 0. Update sliding barrier / moving wall (level 3+)
     for (const wall of movingWalls) {
-        wall.x += wall.vx;
+        wall.x += wall.vx * timeScale;
         if (wall.x <= 0) {
             wall.x = 0;
             wall.vx *= -1;
@@ -1947,8 +3443,8 @@ function update() {
         }
 
         if (guidedTimer > 0) steerGuided(b);
-        b.x += b.vx;
-        b.y += b.vy;
+        b.x += b.vx * timeScale; // Time Warp: the world moves faster/slower, your paddle does not
+        b.y += b.vy * timeScale;
 
         // 2. Wall collisions
         if (b.x + b.r > CANVAS_W) {
@@ -2026,24 +3522,34 @@ function update() {
                         balls.push(makeBall(b.x, b.y, b.vx + f, b.vy));
                     }
                 }
-            } else if (b.y + b.r > CANVAS_H && shield) {
+            } else if (b.y + b.r > CANVAS_H && (shield || (boss && boss.dying > 0))) {
                 // Shield: one free miss. The ball bounces off the bottom edge and the shield breaks.
-                shield = false;
+                // (While a boss is blowing up you can't lose a life to it: the edge bounces for free.)
+                const free = !!(boss && boss.dying > 0);
+                if (!free) shield = false;
                 b.y = CANVAS_H - b.r;
                 b.vy = -Math.abs(b.vy);
                 for (let x = 0; x < CANVAS_W; x += 60) spawnParticles(x, CANVAS_H - 2, '#33ddff', 3);
-                addPopup(b.x, CANVAS_H - 40, 'Shield saved you!', '#33ddff', { life: 1.2 });
+                if (!free) addPopup(b.x, CANVAS_H - 40, 'Shield saved you!', '#33ddff', { life: 1.2 });
                 addShake(6);
                 haptic([20, 40, 20], true);
                 tone(300, 0.25, { type: 'sawtooth', vol: 0.2, slideTo: 900 });
             } else if (b.y + b.r > CANVAS_H) {
                 // Ball fell past the paddle
                 balls.splice(i, 1);
-                lives--;
+                if (gameState === 'lost') continue; // a second ball falling on the same frame as the last life
+                if (balls.length > 0) { // other balls are still in play: just lose this one (a life goes with the LAST ball)
+                    addShake(3);
+                    haptic(25);
+                    continue;
+                }
+                lives = Math.max(0, lives - 1);
                 combo = 0;
                 powerups.length = 0;
                 clearTimedEffects();
                 resetAliens(6, 6); // a lost ball clears the invaders and gives a short breather
+                endChaos(true);
+                bossBreather();
                 addShake(7);
                 haptic(70, true);
                 if (lives === 0) {
@@ -2051,7 +3557,7 @@ function update() {
                     playLoseJingle();
                     haptic(250, true);
                     inputLockUntil = performance.now() + 700;
-                    showOverlay('Game over — tap or press R to play again.', 'Play again', buildSummary(false));
+                    showOverlay('Game over\nTap or press R to play again', 'Play again', buildSummary(false));
                 } else if (balls.length === 0) {
                     // All balls lost: reset one ball on the paddle
                     balls.push(makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, currentSpeed(), -currentSpeed()));
@@ -2104,13 +3610,22 @@ function update() {
     // 2e. Alien invaders, their bolts, and paddle-hole repair
     updateAliens();
 
+    // 2f. Weird events and the boss
+    updateChaos();
+    updateBoss();
+    updateCrates();
+
     // 3. Brick collisions for each ball
     for (const b of balls) {
         if (gameState !== 'playing') break; // a level clear / game over mid-loop ends this frame's collisions
         if (b.stuck) continue;
         collisionDetection(b);
         if (gameState === 'playing') alienBallCollision(b);
+        if (gameState === 'playing') bossBallCollision(b);
+        if (gameState === 'playing') crateBallCollision(b);
+        if (gameState === 'playing') ghostBallCollision(b);
     }
+    if (gameState === 'playing') updateGhostGrid();
 }
 
 // Floating popups: drift upward and fade out; "pop" popups punch in from a larger scale
@@ -2141,6 +3656,22 @@ function drawPopups() {
     }
 }
 
+// Time Warp: a warm tint with speed streaks in turbo, a cool tint in slow-mo
+function drawTimeWarpFx() {
+    if (timeScale === 1) return;
+    ctx.save();
+    if (timeScale > 1) {
+        ctx.fillStyle = 'rgba(255, 110, 30, 0.10)';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+        for (let i = 0; i < 10; i++) ctx.fillRect(Math.random() * CANVAS_W, Math.random() * CANVAS_H, 50 + Math.random() * 90, 1.5);
+    } else {
+        ctx.fillStyle = 'rgba(70, 130, 255, 0.14)';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    }
+    ctx.restore();
+}
+
 function render() {
     // Backdrop stays put while the playfield shakes
     drawBackground();
@@ -2153,8 +3684,11 @@ function render() {
         shake = 0;
     }
     drawBricks();
+    drawGhostGrid();
+    drawCrates();
     drawMovingWalls();
     drawShield();
+    drawBoss();
     drawAliens();
     drawAlienBullets();
     drawBall();
@@ -2165,21 +3699,31 @@ function render() {
     drawPopups();
     ctx.restore();
 
+    drawTimeWarpFx();
     drawStatusChips();
+    drawBossBar();
+    if (PERF) drawPerf();
     updateHUD();
+    updateTouchpad();
 }
 
 // --- Rendering Loop (always runs; physics only while playing) ---
 let paddleVX = 0;
 let paddlePrevX = 0;
-function gameLoop() {
-    // Track paddle velocity per frame (used for the paddle "throw")
+// One 60 Hz simulation step
+function fixedStep() {
+    // Track paddle velocity per step (used for the paddle "throw")
     paddleVX = paddle.x - paddlePrevX;
     paddlePrevX = paddle.x;
     // Continuous paddle keyboard control (works before launch too)
     if (gameState === 'ready' || gameState === 'playing') {
-        if (keys.left) paddle.x = Math.max(0, paddle.x - 10);
-        if (keys.right) paddle.x = Math.min(CANVAS_W - paddle.w, paddle.x + 10);
+        if (followTarget !== null) { // touch follow mode: slide toward the finger at a capped speed
+            const d = followTarget - paddle.x;
+            paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + Math.max(-FOLLOW_MAX_STEP, Math.min(FOLLOW_MAX_STEP, d))));
+        }
+        const dir = mapMirror() ? -1 : 1; // reversed controls / a flipped view swap left and right
+        if (keys.left) paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x - 10 * dir));
+        if (keys.right) paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + 10 * dir));
     }
     // Before launch the ball rides on the paddle
     if (gameState === 'ready') {
@@ -2192,21 +3736,181 @@ function gameLoop() {
     if (gameState === 'playing') {
         update();
     }
-    render();
+}
+
+// Fixed timestep. All game speeds are per-step, so the simulation must advance at exactly 60 steps
+// per second no matter what the display does. Running one step per screen refresh made the game run
+// at double speed on 120 Hz screens and in slow motion whenever the refresh rate (variable-refresh
+// phones) or the frame rate (a busy device) dropped.
+const STEP_MS = 1000 / 60;
+const MAX_STEPS_PER_FRAME = 3; // if the device can't keep up, drop the backlog instead of spiralling
+let lastFrameTime = 0;
+let stepAccumulator = 0;
+function gameLoop(now) {
     requestAnimationFrame(gameLoop);
+    now = now || performance.now();
+    if (PERF) perfFrame(now);
+    if (!lastFrameTime) lastFrameTime = now;
+    let dt = Math.min(now - lastFrameTime, 100); // a long gap (tab switch) is not a backlog
+    lastFrameTime = now;
+    // Frame times jitter around 16.7 ms on a 60 Hz display: snap those to exactly one step
+    if (Math.abs(dt - STEP_MS) < 2) dt = STEP_MS;
+    stepAccumulator += dt; // (Time Warp scales movement per step instead, so it is smooth and the paddle stays responsive)
+
+    let steps = 0;
+    while (stepAccumulator >= STEP_MS && steps < MAX_STEPS_PER_FRAME) {
+        fixedStep();
+        stepAccumulator -= STEP_MS;
+        steps++;
+    }
+    if (steps === MAX_STEPS_PER_FRAME) stepAccumulator = 0;
+    // Render once per 60 Hz tick too: on a 90/120 Hz screen the in-between refreshes are skipped, which
+    // keeps the particle/popup/shake animations (advanced in render) at the same speed as the simulation
+    if (steps > 0) {
+        const t0 = PERF ? performance.now() : 0;
+        render();
+        if (PERF) perfRender(steps, performance.now() - t0);
+    }
+}
+
+// --- ?perf readout ---
+const perf = { last: 0, intervals: [], renderMs: 0, worstRender: 0, maxSteps: 0, dropped: 0 };
+function perfFrame(now) {
+    if (perf.last) {
+        perf.intervals.push(now - perf.last);
+        if (perf.intervals.length > 120) perf.intervals.shift();
+    }
+    perf.last = now;
+}
+function perfRender(steps, ms) {
+    perf.renderMs = perf.renderMs ? perf.renderMs * 0.9 + ms * 0.1 : ms;
+    perf.worstRender = Math.max(ms, perf.worstRender * 0.99);
+    perf.maxSteps = Math.max(steps, perf.maxSteps * 0.995);
+    if (steps >= MAX_STEPS_PER_FRAME) perf.dropped++;
+}
+function drawPerf() {
+    const iv = perf.intervals;
+    if (!iv.length) return;
+    const sorted = [...iv].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const worst = sorted[sorted.length - 1];
+    const lines = [
+        'display ' + Math.round(1000 / median) + ' Hz   worst frame ' + Math.round(worst) + ' ms   render ' + perf.renderMs.toFixed(1) + ' ms (max ' + perf.worstRender.toFixed(1) + ')',
+        'catch-up steps ' + perf.maxSteps.toFixed(1) + '   dropped ' + perf.dropped + '   balls ' + balls.length + '  particles ' + particles.length +
+            '  popups ' + popups.length + '  aliens ' + aliens.length + '  bolts ' + alienBullets.length + '  voices ' + activeVoices
+    ];
+    ctx.save();
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(CANVAS_W - 560, 4, 556, 36);
+    ctx.fillStyle = '#9dffb0';
+    ctx.fillText(lines[0], CANVAS_W - 10, 19);
+    ctx.fillText(lines[1], CANVAS_W - 10, 34);
+    ctx.restore();
 }
 
 // --- Event Handlers ---
 const keys = {};
-// Displayed pixels -> canvas coordinate space
+// --- Touch controls ---
+// Two modes, switched with the button in the HUD and remembered:
+//   FOLLOW (default): the paddle follows your finger's horizontal position from ANYWHERE on the screen.
+//     Rest your thumb below or beside the game instead of on top of the paddle, and after lifting just
+//     touch again anywhere: there is nothing to find. The screen's full width maps to the full paddle
+//     range (with a small inset so the edges are reachable), and the paddle slides toward the target at
+//     a capped speed instead of teleporting.
+//   DRAG: relative drag from wherever the finger lands (works from anywhere too).
+let touchMode = 'follow';
+let followTarget = null;      // paddle.x that follow mode is sliding toward
+const FOLLOW_MAX_STEP = 55;   // canvas px per 60 Hz step
+let stageEl = null;
+let touchpadDot = null;
+let touchpadPct = -1;
+
+function followPaddleTarget(clientX) {
+    const inset = 0.04;
+    const norm = Math.max(0, Math.min(1, (clientX / window.innerWidth - inset) / (1 - 2 * inset)));
+    let centre = norm * CANVAS_W;
+    if (mapMirror()) centre = CANVAS_W - centre;
+    return Math.max(0, Math.min(CANVAS_W - paddle.w, centre - paddle.w / 2));
+}
+
+// Touches on buttons or the overlay belong to them, not to the paddle
+function isControlTarget(target) {
+    return !!(target && target.closest && target.closest('button, #overlay, a'));
+}
+
+// Displayed pixels -> canvas coordinate space, mirrored when the view is flipped or controls are reversed
 function canvasX(clientX) {
-    const rect = canvas.getBoundingClientRect();
+    if (!stageEl) stageEl = document.getElementById('stage');
+    const rect = stageEl.getBoundingClientRect(); // the stage never gets the flip transform the canvas does
     if (rect.width <= 0) return 0;
-    return (clientX - rect.left) * (canvas.width / rect.width);
+    const x = (clientX - rect.left) * (canvas.width / rect.width);
+    return mapMirror() ? CANVAS_W - x : x;
+}
+
+function updateTouchUi() {
+    const touch = isTouchDevice();
+    document.body.classList.toggle('touch', touch);
+    const btn = document.getElementById('touch-btn');
+    if (btn) {
+        btn.style.display = touch ? 'inline-block' : 'none';
+        btn.textContent = touchMode === 'follow' ? '👆 Follow' : '↔ Drag';
+        btn.title = touchMode === 'follow'
+            ? 'Paddle follows your finger from anywhere. Tap to switch to relative drag.'
+            : 'Drag anywhere to nudge the paddle. Tap to switch to follow.';
+    }
+    const label = document.getElementById('touchpad-label');
+    if (label) {
+        label.textContent = touchMode === 'follow'
+            ? 'Slide your thumb anywhere: the paddle follows'
+            : 'Drag anywhere to move the paddle';
+    }
+}
+
+function setTouchMode(mode) {
+    touchMode = mode;
+    followTarget = null;
+    try {
+        localStorage.setItem('breakout-touch-mode', mode);
+    } catch (e) {
+        // Storage unavailable; the choice lasts for this session
+    }
+    updateTouchUi();
+}
+
+function initTouchUi() {
+    try {
+        if (localStorage.getItem('breakout-touch-mode') === 'drag') touchMode = 'drag';
+    } catch (e) {
+        // Storage unavailable
+    }
+    updateTouchUi();
+    const btn = document.getElementById('touch-btn');
+    if (btn) btn.addEventListener('click', () => setTouchMode(touchMode === 'follow' ? 'drag' : 'follow'));
+    // Switching apps or tabs pauses the game rather than dropping the ball
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && gameState === 'playing') togglePause();
+    });
+}
+
+// The thumb pad's dot shows where your finger maps to on the playfield
+function updateTouchpad() {
+    if (!document.body.classList.contains('touch')) return;
+    if (!touchpadDot) touchpadDot = document.getElementById('touchpad-dot');
+    if (!touchpadDot) return;
+    let frac = (paddle.x + paddle.w / 2) / CANVAS_W;
+    if (mapMirror()) frac = 1 - frac;
+    const pct = Math.round(frac * 100);
+    if (pct !== touchpadPct) {
+        touchpadPct = pct;
+        touchpadDot.style.left = pct + '%';
+    }
 }
 
 function setPaddleX(x) {
     if (gameState !== 'ready' && gameState !== 'playing') return;
+    followTarget = null; // a direct move (mouse, relative drag) overrides any follow slide
     paddle.x = Math.max(0, Math.min(x, CANVAS_W - paddle.w));
 }
 
@@ -2225,21 +3929,29 @@ let isTap = false;
 let tapStartX = 0;
 let tapStartY = 0;
 let dragPointerId = null; // the touch/pen pointer currently dragging the paddle
-let dragOffset = 0;       // paddle.x minus the finger's canvas x at touch-down
+let dragOffset = 0;       // paddle.x minus the finger's canvas x at touch-down (drag mode)
+let lastDragClientX = null; // where the dragging finger currently is
 
 function handlePointerDown(e) {
-    if (e.pointerType !== 'mouse') {
+    if (e.pointerType === 'mouse') {
+        if (e.target !== canvas) return; // a mouse only steers over the game itself
+        movePaddleTo(e.clientX);
+    } else {
         if (dragPointerId !== null) return; // ignore extra fingers
+        if (isControlTarget(e.target)) return;
         touchDetected = true;
         dragPointerId = e.pointerId;
-        dragOffset = paddle.x - canvasX(e.clientX);
-        try {
-            canvas.setPointerCapture(e.pointerId);
-        } catch (err) {
-            // Capture unsupported; the drag still works while the finger stays on the canvas
+        lastDragClientX = e.clientX;
+        if (touchMode === 'follow') {
+            followTarget = followPaddleTarget(e.clientX);
+        } else {
+            dragOffset = paddle.x - canvasX(e.clientX);
         }
-    } else {
-        movePaddleTo(e.clientX);
+        try {
+            e.target.setPointerCapture(e.pointerId);
+        } catch (err) {
+            // Capture unsupported; touch pointers are captured implicitly anyway
+        }
     }
     isTap = true;
     tapStartX = e.clientX;
@@ -2247,11 +3959,17 @@ function handlePointerDown(e) {
 }
 
 function handlePointerMove(e) {
-    if (e.pointerType !== 'mouse') {
-        if (e.pointerId !== dragPointerId) return;
-        setPaddleX(canvasX(e.clientX) + dragOffset);
-    } else {
+    if (e.pointerType === 'mouse') {
+        if (e.target !== canvas) return;
         movePaddleTo(e.clientX);
+    } else {
+        if (e.pointerId !== dragPointerId) return;
+        lastDragClientX = e.clientX;
+        if (touchMode === 'follow') {
+            followTarget = followPaddleTarget(e.clientX);
+        } else {
+            setPaddleX(canvasX(e.clientX) + dragOffset);
+        }
     }
     // Increased tolerance to 25px so natural fingertip touch on mobile doesn't cancel tap
     if (isTap && Math.hypot(e.clientX - tapStartX, e.clientY - tapStartY) > 25) {
@@ -2285,15 +4003,6 @@ function handlePointerUp(e) {
         } else if (gameState === 'paused') {
             togglePause();
             lastTapAt = 0;
-        } else if (gameState === 'playing') {
-            // While playing, double tap toggles pause
-            const now = performance.now();
-            if (now - lastTapAt < 350) {
-                togglePause();
-                lastTapAt = 0;
-            } else {
-                lastTapAt = now;
-            }
         }
     }
     isTap = false;
@@ -2304,7 +4013,7 @@ function togglePause() {
     if (gameState === 'playing') {
         gameState = 'paused';
         if (pauseBtn) pauseBtn.textContent = '▶ Resume';
-        showOverlay('Paused — tap or press P to resume.', 'Resume');
+        showOverlay('Paused\nTap or press P to resume', 'Resume');
     } else if (gameState === 'paused') {
         gameState = 'playing';
         if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
@@ -2347,8 +4056,10 @@ function handleKeyDown(e) {
     // Paddle movement (arrows): track held keys; applied each frame in gameLoop
     if (e.key === 'ArrowLeft') {
         keys.left = true;
+        followTarget = null;
     } else if (e.key === 'ArrowRight') {
         keys.right = true;
+        followTarget = null;
     }
 }
 
@@ -2366,8 +4077,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initGame();
     
     // Attach event listeners
-    canvas.addEventListener('pointerdown', handlePointerDown);
-    canvas.addEventListener('pointermove', handlePointerMove);
+    // Window-level so a finger can steer from anywhere on the screen (a mouse still only steers over the canvas)
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
     // Browsers start audio suspended until a gesture; unlock it on the first tap/click/key
     window.addEventListener('pointerdown', ensureAudio);
     window.addEventListener('keydown', ensureAudio);
@@ -2422,12 +4134,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.addEventListener('touchstart', () => {
         touchDetected = true;
+        updateTouchUi();
         const msg = document.getElementById('overlay-message');
         if (gameState === 'ready' && msg && msg.textContent.includes('SPACE')) {
-            msg.textContent = getLaunchMessage(false);
+            setOverlayMessage(getLaunchMessage(false));
         }
     }, { once: true, passive: true });
     
+    initTouchUi();
+
     // Start the always-running render loop
     requestAnimationFrame(gameLoop);
 });
