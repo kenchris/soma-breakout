@@ -1976,9 +1976,9 @@ function buildWalls() {
     if (plan.walls >= 1) {
         const y = BRICK_OFFSET_TOP + BRICK_ROWS * BRICK_H + 35; // floats below the brick grid
         const speed = Math.min(2.2 + (level - 3) * 0.5, 6.5);
-        walls.push({ x: CANVAS_W / 2 - 60, y: y, w: 120, h: 14, vx: speed });
+        walls.push({ x: CANVAS_W / 2 - 60, y: y, w: 120, h: 14, vx: speed, hits: 0 });
         if (plan.walls >= 2) {
-            walls.push({ x: 60, y: y + 50, w: 90, h: 14, vx: -speed });
+            walls.push({ x: 60, y: y + 50, w: 90, h: 14, vx: -speed, hits: 0 });
         }
     }
     return walls;
@@ -2037,7 +2037,62 @@ function spawnLevel() {
 }
 
 function makeBall(x, y, vx, vy) {
-    return { x, y, r: BALL_RADIUS, vx, vy, trail: [], stuck: false, stuckFor: 0, aim: null, aimIn: 0, gridT: 0 };
+    return {
+        x, y, r: BALL_RADIUS, vx, vy, trail: [], stuck: false, stuckFor: 0, aim: null, aimIn: 0, gridT: 0,
+        onWallRef: null, // which moving wall (if any) the ball is currently resting against
+        rallyLast: null, rallyStreak: 0, rallyDistinct: null, rallyT: 0, rallyAllShown: false // ping-pong rally
+    };
+}
+
+// --- Ping-pong rallies ---
+// Bouncing the ball off DIFFERENT solid surfaces (the paddle and any moving walls) back and forth in quick
+// succession is a real rally: alternate fast enough and it's called out, with a growing score bonus. Using
+// every surface currently in play in one streak (only possible from level 8, with two moving walls) is the
+// big version.
+const RALLY_WINDOW_FRAMES = 150; // ~2.5s between alternating touches to keep the rally alive
+const RALLY_THRESHOLD = 4;       // touches needed (two full paddle<->wall round trips) before it calls out
+const RALLY_MAX_SHOUT = 7;       // the popup stops growing past this streak; the bonus keeps scaling
+
+function registerRallyTouch(b, surface) {
+    const continuing = b.rallyLast !== null && b.rallyLast !== surface && b.rallyT <= RALLY_WINDOW_FRAMES;
+    if (continuing) {
+        b.rallyStreak++;
+        b.rallyDistinct.add(surface);
+    } else {
+        b.rallyStreak = 1;
+        b.rallyDistinct = new Set([surface]);
+        b.rallyAllShown = false;
+    }
+    b.rallyLast = surface;
+    b.rallyT = 0;
+    if (b.rallyStreak < RALLY_THRESHOLD) return;
+
+    const surfaceCount = 1 + movingWalls.length; // the paddle plus every wall currently in play
+    const allSurfaces = surfaceCount > 1 && b.rallyDistinct.size >= surfaceCount;
+    const scoreMult = doubleTimer > 0 ? 2 : 1;
+    const shoutStreak = Math.min(b.rallyStreak, RALLY_MAX_SHOUT);
+    const bonus = 30 * shoutStreak * scoreMult;
+
+    if (allSurfaces && !b.rallyAllShown) {
+        // First time this particular rally has touched every surface in play: the big version
+        b.rallyAllShown = true;
+        const allBonus = 250 * scoreMult;
+        addScore(bonus + allBonus);
+        addPopup(b.x, b.y - 24, 'ALL SURFACES! PING PONG!! +' + (bonus + allBonus), '#ffd23f',
+            { size: 26, life: 1.6, rise: 0.6, pop: true });
+        addShake(11);
+        haptic([25, 25, 25, 25, 70], true);
+        tone(700, 0.12, { type: 'triangle', vol: 0.25, key: 'pingpong', force: true });
+        tone(1050, 0.16, { type: 'triangle', vol: 0.25, delay: 0.1, force: true });
+    } else {
+        addScore(bonus);
+        const word = b.rallyStreak === RALLY_THRESHOLD ? 'PING PONG!' : (b.rallyStreak % 2 === 0 ? 'PONG!' : 'PING!');
+        addPopup(b.x, b.y - 20, word + ' +' + bonus, '#7be8ff',
+            { size: 16 + Math.min(shoutStreak - RALLY_THRESHOLD, 4) * 2, life: 1.1, rise: 0.5, pop: true });
+        addShake(3 + shoutStreak * 0.6);
+        haptic([14, 14, 18], true);
+        tone(b.rallyStreak % 2 === 0 ? 520 : 700, 0.09, { type: 'triangle', vol: 0.2, key: 'pingpong' });
+    }
 }
 
 // --- Guided ball: aim for maximum damage ---
@@ -3650,6 +3705,8 @@ function update() {
             continue;
         }
 
+        if (b.rallyT <= RALLY_WINDOW_FRAMES) b.rallyT++; // a rally that's timed out just stays timed out
+
         // Update ball trail (store previous positions)
         if (!b.trail) b.trail = [];
         b.trail.push({ x: b.x, y: b.y });
@@ -3676,7 +3733,7 @@ function update() {
         }
 
         // 2a. Moving wall collision (circle vs AABB)
-        let touchingWall = false;
+        let touchingWall = null;
         for (const wall of movingWalls) {
             const cx = Math.max(wall.x, Math.min(b.x, wall.x + wall.w));
             const cy = Math.max(wall.y, Math.min(b.y, wall.y + wall.h));
@@ -3695,15 +3752,22 @@ function update() {
                     b.vy = dir * Math.abs(b.vy);
                     b.y = dir > 0 ? wall.y + wall.h + b.r : wall.y - b.r;
                 }
-                // Effects only when contact begins; a wall carrying the ball stays "in contact"
-                if (!b.onWall) {
+                // Effects only on new contact; a wall carrying the ball, or already-touched-this-frame,
+                // stays "in contact" (tracks WHICH wall so two walls close together are told apart)
+                if (b.onWallRef !== wall) {
                     beep(580, 'wall');
                     spawnParticles(b.x, b.y, '#00ffff', 5);
+                    registerRallyTouch(b, wall);
+                    wall.hits++;
+                    // The first hit just bounces; from the second hit on, a wall can drop a powerup too
+                    if (wall.hits > 1 && Math.random() < POWERUP_CHANCE) {
+                        spawnPowerup(b.x, b.y);
+                    }
                 }
-                touchingWall = true;
+                touchingWall = wall;
             }
         }
-        b.onWall = touchingWall;
+        b.onWallRef = touchingWall;
 
         // 2b. Paddle bounce: circle vs AABB test, only while moving down
         if (b.vy > 0) {
@@ -3717,6 +3781,7 @@ function update() {
                 b.aimIn = 0;
                 beep(660, 'paddle');
                 combo = 0;
+                registerRallyTouch(b, 'paddle');
                 if (stickyCatches > 0) {
                     // Sticky paddle: catch the ball instead of bouncing it
                     stickyCatches--;
