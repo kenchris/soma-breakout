@@ -133,14 +133,14 @@ const CHEAT_CHANCE_FLOOR = 0.1; // they never get rarer than this, however high 
 const CHEAT_COLOR = '#e8b400'; // gold, distinct from TNT's red/yellow so the two are never confused
 // First level each powerup can drop on (anything not listed is there from level 1)
 
-const POWERUP_UNLOCK = { multi: 2, explosive: 2, double: 2, sticky: 3, shield: 3, fire: 4, guided: 6 };
+const POWERUP_UNLOCK = { multi: 2, explosive: 2, double: 2, sticky: 3, shield: 3, fire: 4, guided: 6, split: 5 };
 // Short "what's new" hints, shown when the level starts
 
 const LEVEL_INTROS = {
     2: ['NEW: TNT bricks chain-explode', 'NEW drops: Multi-ball, Explosive, 2× Score'],
     3: ['NEW: sliding walls', 'NEW: aliens shoot holes in your paddle: shoot them down!', 'NEW drops: Sticky, Shield'],
     4: ['NEW: weird events: the world may flip or change speed', 'NEW drop: Fire ball'],
-    5: ['BOSS FIGHT', 'Hit the amber \u00d73 hatch on its belly for triple damage', 'Gold crates hold powerups (new ones keep appearing): break them, or catch what the boss shoots loose', 'Hit it again within 5 seconds to chain: \u00d72, then \u00d73 damage'],
+    5: ['BOSS FIGHT', 'Hit the amber \u00d73 hatch on its belly for triple damage', 'Gold crates hold powerups (new ones keep appearing): break them, or catch what the boss shoots loose', 'Hit it again within 5 seconds to chain: \u00d72, then \u00d73 damage', 'NEW drop: Split Paddle \u2014 splits in two; one half mirrors your movement'],
     6: ['NEW: your controls may reverse', 'NEW drop: Guided ball'],
     8: ['NEW: the whole screen may flip']
 };
@@ -225,7 +225,8 @@ const POWERUP_TYPES = [
     { type: 'shield', label: null, color: '#22bbdd', text: 'Shield!', weight: 1.5 }, // label null: drawn as a shield icon
     { type: 'fire', label: 'F', color: '#ff6a00', text: 'Fire Ball!', weight: 1.5 },
     { type: 'sticky', label: 'G', color: '#7cb518', text: 'Sticky Paddle!', weight: 2 },
-    { type: 'guided', label: 'A', color: '#a06cff', text: 'Guided Ball!', weight: 1.5 }
+    { type: 'guided', label: 'A', color: '#a06cff', text: 'Guided Ball!', weight: 1.5 },
+    { type: 'split', label: '⇄', color: '#14e6b4', text: 'Split Paddle!', weight: 1.5 }
 ];
 
 const GUIDED_SECONDS = 8;
@@ -239,6 +240,12 @@ const STICKY_CATCHES = 3;
 const SHIELD_MAX = 5; // shields compound: each catch banks one more free miss, up to this cap
 
 const STICKY_MAX_FRAMES = 180; // a stuck ball auto-releases after 3s so it can never soft-lock the game
+
+// Split Paddle: your paddle becomes two half-width halves — one follows your input exactly like normal,
+// the other mirrors it around the centre of the screen, so it always moves the opposite way. Great with
+// Multi-ball: two independent catchers, moving in opposite directions from one input.
+const SPLIT_SECONDS = 10;
+const SPLIT_HALF_RATIO = 0.55; // each half's width, as a fraction of the normal single paddle's width
 
 const HOLE_W = 28;        // wider than the 16px ball, so a ball over a hole really falls through
 

@@ -16,7 +16,7 @@ function registerRallyTouch(b, surface) {
     b.rallyT = 0;
     if (b.rallyStreak < RALLY_THRESHOLD) return;
 
-    const surfaceCount = 1 + movingWalls.length; // the paddle plus every wall currently in play
+    const surfaceCount = (splitTimer > 0 ? 2 : 1) + movingWalls.length; // the paddle (or both Split halves) plus every wall currently in play
     const allSurfaces = surfaceCount > 1 && b.rallyDistinct.size >= surfaceCount;
     const scoreMult = doubleTimer > 0 ? 2 : 1;
     const shoutStreak = Math.min(b.rallyStreak, RALLY_MAX_SHOUT);

@@ -70,6 +70,7 @@ function clearTimedEffects() {
     slowTimer = 0;
     wideTimer = 0;
     narrowTimer = 0;
+    splitTimer = 0;
     doubleTimer = 0;
     fireTimer = 0;
     guidedTimer = 0;

@@ -21,16 +21,38 @@ function paddleSegments() {
     return segs;
 }
 
-// Circle vs the solid parts of the paddle (identical to a plain paddle rectangle when it has no holes)
+// Split Paddle's second half: a plain reflection of the real (input-driven) paddle around the centre of
+// the screen, recomputed fresh every frame from paddle.x — so it needs no input plumbing of its own and
+// is exactly as wide. Its own velocity is the negative of paddleVX, since it's a mirror image in motion
+// too, not just in position.
+function mirrorPaddleRect() {
+    if (splitTimer <= 0) return null;
+    return { x: CANVAS_W - paddle.w - paddle.x, y: paddle.y, w: paddle.w, h: paddle.h };
+}
 
-function paddleOverlap(px, py, r) {
+// Circle vs the solid parts of the paddle (identical to a plain paddle rectangle when it has no holes),
+// and, while Split Paddle is active, its mirrored half too. Returns whichever rect it touched — carrying
+// that rect's own x/w/vx so the bounce can steer off the half actually hit, not always the input paddle —
+// or null.
+
+function paddleHit(px, py, r) {
     const cy = Math.max(paddle.y, Math.min(py, paddle.y + paddle.h));
     for (const [a, b] of paddleSegments()) {
         const dx = px - Math.max(a, Math.min(px, b));
         const dy = py - cy;
-        if (dx * dx + dy * dy < r * r) return true;
+        if (dx * dx + dy * dy < r * r) return { x: paddle.x, y: paddle.y, w: paddle.w, vx: paddleVX, mirror: false };
     }
-    return false;
+    const m = mirrorPaddleRect();
+    if (m) {
+        const dx = px - Math.max(m.x, Math.min(px, m.x + m.w));
+        const dy = py - cy;
+        if (dx * dx + dy * dy < r * r) return { x: m.x, y: m.y, w: m.w, vx: -paddleVX, mirror: true };
+    }
+    return null;
+}
+
+function paddleOverlap(px, py, r) {
+    return !!paddleHit(px, py, r);
 }
 
 
@@ -49,6 +71,16 @@ function punchHole(worldX, seconds = HOLE_SECONDS) {
     haptic([25, 20, 35], true);
     tone(700, 0.18, { type: 'sawtooth', vol: 0.22, slideTo: 120, key: 'zap' });
     addPopup(paddle.x + paddle.w / 2, paddle.y - 22, 'HIT!', '#ff6b6b', { life: 0.8 });
+}
+
+// A bolt hitting the Split Paddle mirror half: same impact, but the mirror is a plain reflection, not a
+// tracked entity of its own, so there's no hole to punch — it just blocks the shot.
+function blockMirrorBolt(worldX) {
+    spawnParticles(worldX, paddle.y + paddle.h / 2, '#ff9a3c', 14);
+    addShake(4);
+    haptic([25, 20, 35], true);
+    tone(700, 0.18, { type: 'sawtooth', vol: 0.22, slideTo: 120, key: 'zap' });
+    addPopup(worldX, paddle.y - 22, 'BLOCKED!', '#7fe9ff', { life: 0.8 });
 }
 
 // -- Aliens --
@@ -217,8 +249,15 @@ function updateAliens() {
             continue;
         }
         // Hits solid paddle (a bolt over an existing hole just passes through)
-        if (b.y + 6 >= paddle.y && b.y - 6 <= paddle.y + paddle.h && paddleSegments().some(([s0, s1]) => b.x >= s0 && b.x <= s1)) {
+        const atPaddleHeight = b.y + 6 >= paddle.y && b.y - 6 <= paddle.y + paddle.h;
+        if (atPaddleHeight && paddleSegments().some(([s0, s1]) => b.x >= s0 && b.x <= s1)) {
             punchHole(b.x, b.hole || HOLE_SECONDS);
+            alienBullets.splice(i, 1);
+            continue;
+        }
+        const m = mirrorPaddleRect();
+        if (atPaddleHeight && m && b.x >= m.x && b.x <= m.x + m.w) {
+            blockMirrorBolt(b.x);
             alienBullets.splice(i, 1);
             continue;
         }

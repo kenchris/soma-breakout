@@ -174,6 +174,7 @@ function drawStatusChips() {
     if (slowTimer > 0) chips.push({ text: 'SLOW ' + Math.ceil(slowTimer), color: '#cc33cc' });
     if (wideTimer > 0) chips.push({ text: 'WIDE ' + Math.ceil(wideTimer), color: '#ff9900' });
     if (narrowTimer > 0) chips.push({ text: 'SHRUNK ' + Math.ceil(narrowTimer), color: SNAKE_POISON_COLOR });
+    if (splitTimer > 0) chips.push({ text: 'SPLIT ' + Math.ceil(splitTimer), color: '#14e6b4' });
     if (doubleTimer > 0) chips.push({ text: '2× SCORE ' + Math.ceil(doubleTimer), color: '#e6b800' });
     if (fireTimer > 0) chips.push({ text: 'FIRE ' + Math.ceil(fireTimer), color: '#ff6a00' });
     if (guidedTimer > 0) chips.push({ text: 'GUIDED ' + Math.ceil(guidedTimer), color: '#a06cff' });
@@ -208,22 +209,26 @@ function drawStatusChips() {
 // --- HUD (DOM) ---
 // Only touch the DOM when a value changes; this runs every frame.
 
+function drawPaddleSlab(x, y, w, h) {
+    ctx.globalAlpha = 0.25; // glow underlay
+    ctx.fillStyle = '#0095DD';
+    roundRectPath(x - 3, y - 3, w + 6, h + 6, 8);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (!paddleGradient) { // the paddle's y never changes, so one gradient serves every frame
+        paddleGradient = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
+        paddleGradient.addColorStop(0, '#6fd6ff');
+        paddleGradient.addColorStop(1, '#0070b0');
+    }
+    ctx.fillStyle = paddleGradient;
+    roundRectPath(x, y, w, h, 4);
+    ctx.fill();
+}
+
 function drawPaddle() {
     ctx.save();
     for (const [a, b] of paddleSegments()) {
-        ctx.globalAlpha = 0.25; // glow underlay
-        ctx.fillStyle = '#0095DD';
-        roundRectPath(a - 3, paddle.y - 3, b - a + 6, paddle.h + 6, 8);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        if (!paddleGradient) { // the paddle's y never changes, so one gradient serves every frame
-            paddleGradient = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
-            paddleGradient.addColorStop(0, '#6fd6ff');
-            paddleGradient.addColorStop(1, '#0070b0');
-        }
-        ctx.fillStyle = paddleGradient;
-        roundRectPath(a, paddle.y, b - a, paddle.h, 4);
-        ctx.fill();
+        drawPaddleSlab(a, paddle.y, b - a, paddle.h);
     }
     // Molten notches on the torn edges of each hole; they blink cyan just before the hole repairs
     for (const h of paddleHoles) {
@@ -237,6 +242,9 @@ function drawPaddle() {
             ctx.fillRect(x1, paddle.y + 1 + i * 4, len, 2);
         }
     }
+    // Split Paddle's mirrored half — a plain reflection, so it's always whole (no holes of its own)
+    const m = mirrorPaddleRect();
+    if (m) drawPaddleSlab(m.x, m.y, m.w, m.h);
     ctx.restore();
 }
 
@@ -520,17 +528,21 @@ function update() {
 
         // 2b. Paddle bounce: circle vs AABB test, only while moving down
         if (b.vy > 0) {
-            // Solid parts only: a ball over an alien-shot hole falls straight through
-            if (paddleOverlap(b.x, b.y, b.r)) {
-                // Snap the ball to the top of the paddle
+            // Solid parts only: a ball over an alien-shot hole falls straight through. While Split Paddle
+            // is active this also checks the mirrored half, and steers off whichever one was actually hit.
+            const hit = paddleHit(b.x, b.y, b.r);
+            if (hit) {
+                // Snap the ball to the top of the paddle (both halves share the same y)
                 b.y = paddle.y - b.r;
                 // Classic paddle bounce logic (steer)
-                [b.vx, b.vy] = launchVelocity(b, paddleVX);
+                [b.vx, b.vy] = launchVelocity(b, hit.vx, hit);
                 b.aim = null;
                 b.aimIn = 0;
                 beep(660, 'paddle');
                 combo = 0;
-                registerRallyTouch(b, 'paddle');
+                // The mirror counts as its own rally surface — bouncing between your two Split Paddle
+                // halves builds a ping-pong streak just like bouncing off a wall does.
+                registerRallyTouch(b, hit.mirror ? 'paddleMirror' : 'paddle');
                 if (stickyCatches > 0) {
                     // Sticky paddle: catch the ball instead of bouncing it
                     stickyCatches--;
@@ -621,6 +633,13 @@ function update() {
     if (narrowTimer > 0) {
         narrowTimer -= 1 / 60;
         if (narrowTimer <= 0) {
+            paddle.w = PADDLE_W;
+            paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+        }
+    }
+    if (splitTimer > 0) {
+        splitTimer -= 1 / 60;
+        if (splitTimer <= 0) {
             paddle.w = PADDLE_W;
             paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
         }

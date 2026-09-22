@@ -254,7 +254,8 @@ function applyPoison(debuff, scale = 1) {
         startChaos('timeWarp');
         chaos.total = chaos.left = Math.round(chaos.total * scale);
     } else { // shrink
-        wideTimer = 0; // shrink and wide fight over paddle.w; whichever was just caught wins
+        wideTimer = 0; // shrink, wide and split all fight over paddle.w; whichever was just caught wins
+        splitTimer = 0;
         narrowTimer = SNAKE_POISON_SHRINK_SECONDS * scale;
         const ratio = paddle.w / PADDLE_W;
         if (ratio > 0.55) {

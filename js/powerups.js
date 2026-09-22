@@ -29,7 +29,8 @@ function applyPowerup(type) {
     } else if (type === 'slow') {
         slowTimer = 6;
     } else if (type === 'wide') {
-        narrowTimer = 0; // wide and the snake's shrink venom fight over paddle.w; whichever was just caught wins
+        narrowTimer = 0; // wide, narrow and split all fight over paddle.w; whichever was just caught wins
+        splitTimer = 0;
         wideTimer = 8;
         // W stacks: each W widens the paddle further (1.4x -> 1.7x -> 2.0x, capped)
         const ratio = paddle.w / PADDLE_W;
@@ -38,6 +39,13 @@ function applyPowerup(type) {
         if (next) paddle.w = Math.round(PADDLE_W * next);
         paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
         paddleHoles.length = 0; // the new, wider paddle is welded whole
+    } else if (type === 'split') {
+        wideTimer = 0;
+        narrowTimer = 0;
+        splitTimer = SPLIT_SECONDS;
+        paddle.w = Math.round(PADDLE_W * SPLIT_HALF_RATIO);
+        paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+        paddleHoles.length = 0;
     } else if (type === 'explosive') {
         // Next brick hit detonates a 3x3 area around that brick
         explosiveReady = true;

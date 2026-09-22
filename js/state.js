@@ -121,6 +121,8 @@ let wideTimer = 0;
 
 let narrowTimer = 0;       // seconds of shrunk paddle left (the snake's "shrink" venom — see snakeBoss.js)
 
+let splitTimer = 0;        // seconds of Split Paddle left — see mirrorPaddleRect() in aliens.js
+
 let doubleTimer = 0;       // seconds of 2x score left
 
 let fireTimer = 0;         // seconds of fire ball left: pierces every brick, never bounces off them

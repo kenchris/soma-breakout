@@ -99,14 +99,16 @@ function bestAim(x, y) {
     return best;
 }
 
-// Where a ball leaving the paddle at b goes: the best shot while Guided, else normal paddle steering
+// Where a ball leaving the paddle at b goes: the best shot while Guided, else normal paddle steering.
+// rect is which paddle half it actually bounced off (see paddleHit in aliens.js) — defaults to the input
+// paddle for callers that don't have one (a sticky release always rides that one; see releaseBall below).
 
-function launchVelocity(b, throwVX) {
+function launchVelocity(b, throwVX, rect) {
     if (guidedTimer > 0) {
         const aim = bestAim(b.x, b.y);
         if (aim) return [aim.vx, aim.vy];
     }
-    return paddleDeflection(b.x, throwVX);
+    return paddleDeflection(b.x, throwVX, rect);
 }
 
 // In flight: every so often re-pick the best shot, and curve toward it at a limited turn rate
@@ -130,8 +132,9 @@ function steerGuided(b) {
 // Velocity for a ball leaving the paddle at x: steered by where it hits the paddle, plus a little of
 // the paddle's own sideways motion (the "throw"). Used by bounces, sticky releases and the aim preview.
 
-function paddleDeflection(x, throwVX) {
-    const hitRatio = Math.max(-1, Math.min(1, (x - (paddle.x + paddle.w / 2)) / (paddle.w / 2)));
+function paddleDeflection(x, throwVX, rect) {
+    const r = rect || paddle;
+    const hitRatio = Math.max(-1, Math.min(1, (x - (r.x + r.w / 2)) / (r.w / 2)));
     const speed = currentSpeed();
     let vx = hitRatio * speed * 0.866;
     let vy = -Math.sqrt(speed * speed - vx * vx);
