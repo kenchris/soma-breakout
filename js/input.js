@@ -72,6 +72,7 @@ function toggleLock() {
 function setPaddleX(x) {
     if (gameState !== 'ready' && gameState !== 'playing') return;
     followTarget = null; // a direct move (mouse, relative drag) overrides any follow slide
+    paddleTargetX = x; // pre-clamp: see the paddle "throw" velocity fixup in fixedStep (main.js)
     paddle.x = Math.max(0, Math.min(x, CANVAS_W - paddle.w));
 }
 

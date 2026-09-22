@@ -165,6 +165,10 @@ let paddleGradient = null;
 let paddleVX = 0;
 
 let paddlePrevX = 0;
+
+let paddleTargetX = 0;     // last input target BEFORE the screen-edge clamp (see setPaddleX in input.js)
+
+let paddleTargetPrevX = 0; // lets a paddle "throw" keep its real swipe speed even while pinned at an edge
 // One 60 Hz simulation step
 
 let lastFrameTime = 0;

@@ -730,19 +730,36 @@ function render() {
 
 // --- Rendering Loop (always runs; physics only while playing) ---
 
+// A mouse/touch-drag paddle snaps straight to the cursor, so it's never rate-limited by anything here —
+// but the keyboard's per-step move IS a fixed distance, and the ball's own speed climbs with level and
+// with Time Warp's Turbo. Scaling the keyboard step the same way keeps it able to out-run the ball at
+// level 20 (or during Turbo) the way it comfortably could at level 1, instead of the ball quietly becoming
+// faster than the paddle can ever move and turning the level uncatchable no matter how well you play.
+function keyboardStepSpeed() {
+    return 10 * (currentSpeed() / 5) * timeScale;
+}
+
 function fixedStep() {
-    // Track paddle velocity per step (used for the paddle "throw")
-    paddleVX = paddle.x - paddlePrevX;
+    // Track the paddle "throw" velocity per step. Normally this is just paddle.x's own delta, but a fast
+    // swipe pushed further into a screen edge than the paddle can follow leaves paddle.x unable to move
+    // any further even though the swipe itself hasn't stopped — paddleTargetX (the pre-clamp target; see
+    // setPaddleX in input.js) still reflects that real motion, so use its delta instead in that case, or
+    // the "slingshot" throw effect quietly dies the instant it's pinned at an edge.
+    paddleVX = (paddleTargetX !== paddle.x) ? paddleTargetX - paddleTargetPrevX : paddle.x - paddlePrevX;
     paddlePrevX = paddle.x;
+    paddleTargetPrevX = paddleTargetX;
     // Continuous paddle keyboard control (works before launch too)
     if (gameState === 'ready' || gameState === 'playing') {
         if (followTarget !== null) { // touch follow mode: slide toward the finger at a capped speed
             const d = followTarget - paddle.x;
             paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + Math.max(-FOLLOW_MAX_STEP, Math.min(FOLLOW_MAX_STEP, d))));
+            paddleTargetX = paddle.x;
         }
         const dir = mapMirror() ? -1 : 1; // reversed controls / a flipped view swap left and right
-        if (keys.left) paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x - 10 * dir));
-        if (keys.right) paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + 10 * dir));
+        const step = keyboardStepSpeed();
+        if (keys.left) paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x - step * dir));
+        if (keys.right) paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + step * dir));
+        if (keys.left || keys.right) paddleTargetX = paddle.x;
     }
     // Before launch the ball rides on the paddle
     if (gameState === 'ready') {
