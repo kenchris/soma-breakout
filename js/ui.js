@@ -97,6 +97,8 @@ function toggleCheatCodeEntry() {
 }
 
 // Reads the code input, decodes it (see codeToLevel in level.js), and starts a fresh run at that level.
+// A code typed in this way (e.g. one a friend shared) is recorded into foundCodes exactly like one you
+// caught yourself, so it joins the panel below the canvas and you don't have to retype it to get back.
 function startAtLevelCode() {
     const input = document.getElementById('level-code-input');
     if (!input) return;
@@ -109,7 +111,14 @@ function startAtLevelCode() {
         return;
     }
     input.value = '';
+    const isNew = !foundCodes[n];
+    const code = levelToCode(n); // the canonical code for n, not necessarily what was typed (see codeToLevel)
+    if (isNew) {
+        foundCodes[n] = code;
+        saveFoundCodes();
+    }
     resetGame(n);
+    if (isNew) renderFoundCodesPanel(code);
 }
 
 function saveFoundCodes() {
@@ -123,8 +132,18 @@ function saveFoundCodes() {
 // Called when a cheat-code capsule is caught (or, if it was the level's last brick, awarded directly —
 // see collisionDetection in main.js). Records the code, makes a fuss about it, and adds it to the panel
 // below the canvas, where it stays for good — there's no rush to write it down.
+//
+// A level you've already cracked can still roll a cheat brick on a later replay (the game restarts from
+// level 1 every run, so nothing is permanently excluded just because you found it once) — that capsule
+// pays out in score instead of repeating the fanfare for a code you already have.
 function revealLevelCode() {
-    if (foundCodes[level]) return; // already have this one; nothing new to announce
+    if (foundCodes[level]) {
+        const bonus = 200 * (doubleTimer > 0 ? 2 : 1);
+        addScore(bonus);
+        addPopup(CANVAS_W / 2, CANVAS_H * 0.4, 'CODE ALREADY KNOWN +' + bonus, '#ffe58a', { size: 22, life: 1.6, rise: 0.3, pop: true });
+        beep(720, 'codeKnown');
+        return;
+    }
     const code = levelToCode(level);
     foundCodes[level] = code;
     saveFoundCodes();

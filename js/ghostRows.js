@@ -30,7 +30,7 @@ function buildGhostGrid(l) {
         // ...but never fewer than 5 cells in a row
         for (let c = 0; c < BRICK_COLS && cells.filter(col => col[r].state > 0).length < 5; c++) cells[c][r].state = 1;
     }
-    return { rows, cells };
+    return { rows, cells, cheatDone: false }; // cheatDone: see the cheat-code roll in clearRows()
 }
 
 
@@ -140,6 +140,21 @@ function clearRows(full) {
     const topY = ghostCellY(full[0]);
     addPopup(CANVAS_W / 2, topY + 34, label + '  +' + points, ['', '#ffffff', '#ffd23f', '#ff9a2e', '#ff4d6a'][Math.min(n, 4)],
         { size: 20 + 4 * Math.min(n, 4), life: 1.5, rise: 0.4, pop: true });
+    // A ghost level has no gold brick to place a cheat-code drop in, so each row clear gets its own shot
+    // at one instead — at the normal per-level chance divided across every row the level has, so the odds
+    // of seeing one at all stay comparable to a normal level's, just spread across however many rows
+    // happen to clear. At most one per level (cheatDone), same as a gold brick.
+    let cheatRow = null;
+    if (plan.cheatEligible && !ghost.cheatDone) {
+        const perRowChance = cheatChance(level) / ghost.rows;
+        for (const r of full) {
+            if (Math.random() < perRowChance) {
+                ghost.cheatDone = true;
+                cheatRow = r;
+                break;
+            }
+        }
+    }
     for (const r of full) {
         ghostFlashes.push({ y: ghostCellY(r), t: 14 });
         for (let c = 0; c < BRICK_COLS; c += 2) spawnParticles(ghostCellX(c) + BRICK_W / 2, ghostCellY(r) + BRICK_H / 2, TETRIS_COLORS[r % TETRIS_COLORS.length], 3);
@@ -170,6 +185,15 @@ function clearRows(full) {
         }
     }
     bricksLeft = ghostCount();
+    if (cheatRow !== null) {
+        const cx = ghostCellX(1 + Math.floor(Math.random() * (BRICK_COLS - 2))) + BRICK_W / 2;
+        const cy = ghostCellY(cheatRow) + BRICK_H / 2;
+        // This clear may have just finished the level: the capsule would never get a chance to fall
+        // before completeLevel() clears it below, so award the code directly instead (same as a gold
+        // brick caught as the level's last brick — see collisionDetection in main.js).
+        if (bricksLeft <= 0) revealLevelCode();
+        else spawnCheatCapsule(cx, cy);
+    }
     // A falling solid cell must not land inside the ball: those cells become "arming" until the ball leaves
     for (let c = 0; c < BRICK_COLS; c++) {
         for (let r = 0; r < R; r++) {

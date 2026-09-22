@@ -218,9 +218,24 @@ function cheatChance(l) {
     return CHEAT_CHANCE_FLOOR + (CHEAT_CHANCE_START - CHEAT_CHANCE_FLOOR) * decay;
 }
 
+// A boss fight's own shot at a cheat-code capsule, since it has no gold brick to place one in: a single
+// roll at the same per-level chance a normal level's brick would have, made once, right as the boss enters
+// its last stretch (the mothership's ENRAGED phase 3, the snake dropping to its last few segments — see
+// checkBossPhase in boss.js and the collision handler in snakeBoss.js). boss.cheatRolled keeps it to that
+// one shot regardless of how many more hits land after that point.
+function maybeDropBossCheatCapsule(x, y) {
+    if (!plan.cheatEligible || boss.cheatRolled) return;
+    boss.cheatRolled = true;
+    if (Math.random() < cheatChance(level)) spawnCheatCapsule(x, y);
+}
+
 function planLevel(l) {
     const rand = seededRandom(l * 15485863 + 7);
-    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null, cheat: false };
+    // Whether this level is old enough to ever have a cheat-code drop at all. The roll itself (and how
+    // it's delivered: a gold brick, a ghost row clearing, or a boss nearing defeat) happens at runtime,
+    // deliberately NOT seeded like the rest of this plan, so replaying — or reloading the same ?level=N —
+    // can go either way each time; see placeCheatBrick, clearRows and maybeDropBossCheatCapsule.
+    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null, cheatEligible: l >= UNLOCK.cheat };
     if (p.boss) return p; // a boss arena has no bricks, walls or random visitors: the boss brings its own
 
     if (l >= UNLOCK.tnt) {
@@ -237,16 +252,12 @@ function planLevel(l) {
     if (l >= UNLOCK.chaos && (l === UNLOCK.chaos || rand() < Math.min(0.55, 0.3 + 0.04 * (l - UNLOCK.chaos)))) {
         p.chaos = { events: 1 + (l >= 9 && rand() < 0.5 ? 1 : 0) };
     }
-    // Whether this level COULD have a cheat-code brick at all — a pure function of the level number, like
-    // everything else here. Whether one is actually PLACED also depends on whether you've already found
-    // this level's code, which is runtime state, not level-shape: see placeCheatBrick() in spawnLevel().
-    p.cheat = l >= UNLOCK.cheat && rand() < cheatChance(l);
-    // Ghost rows replace the bricks, so no TNT, sliding walls, or cheat brick on those levels
+    // Ghost rows replace the bricks, so no TNT or sliding walls — but cheatEligible stays: see clearRows()
+    // in ghostRows.js for how a ghost level delivers one instead of a gold brick (a roll per row cleared).
     if (isGhostLevel(l)) {
         p.tetris = true;
         p.tnt = 0;
         p.walls = 0;
-        p.cheat = false;
     }
     return p;
 }
@@ -318,10 +329,15 @@ function placeTnt() {
     }
 }
 
-// A cheat-code brick: at most one per level, and only if this level's code isn't already found (no point
-// placing a second one). No neighbour requirement like TNT has — it doesn't chain, so any live cell works.
+// A cheat-code brick: at most one per level. Eligibility (boss/ghost-row levels never get one) comes from
+// the level's shape, but the chance itself is rolled fresh right here, every time the level is entered —
+// not baked into the deterministic plan — so reloading the same ?level=N can go either way, same as a
+// natural replay. It's also NOT gated on whether you've already found this level's code: the game restarts
+// from level 1 every run, so that would permanently sterilize any level you'd ever cracked before —
+// catching an already-known one just pays out in score instead (see revealLevelCode). No neighbour
+// requirement like TNT has — it doesn't chain, so any live cell works.
 function placeCheatBrick() {
-    if (!plan.cheat || foundCodes[level]) return;
+    if (!plan.cheatEligible || Math.random() >= cheatChance(level)) return;
     const rand = seededRandom(level * 293503 + 11);
     for (let attempt = 0; attempt < 40; attempt++) {
         const c = Math.floor(rand() * BRICK_COLS);

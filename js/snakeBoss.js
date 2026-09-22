@@ -79,7 +79,7 @@ function spawnSnakeBoss() {
         segments, dir, history: [], startLength: segments.length,
         moveT: 0, moveEvery: Math.max(8, 16 - n),
         sinceHit: 0, regrowT: SNAKE_REGROW_INTERVAL_FRAMES,
-        obstacles: [], flashT: 0, cool: 0
+        obstacles: [], flashT: 0, cool: 0, cheatRolled: false
     };
     snakeObstacleTimer = 0;
     snakeSpitTimer = SNAKE_SPIT_GRACE_FRAMES;
@@ -389,6 +389,12 @@ function snakeBallCollision(b) {
         const effectiveIndex = Math.max(i, minSurvivors);
         const cut = B.segments.length - effectiveIndex; // how much of it this hit actually chops off
         B.segments.length = effectiveIndex;
+        // Down to its last few segments: the snake's own shot at a cheat-code capsule (mirrors the
+        // mothership's ENRAGED phase 3 — see maybeDropBossCheatCapsule), a single roll regardless of how
+        // many more hits land after this point.
+        if (B.segments.length > 0 && B.segments.length <= SNAKE_ASSIST_SEGMENTS) {
+            maybeDropBossCheatCapsule(x + SNAKE_CELL / 2, y + SNAKE_CELL / 2);
+        }
         B.sinceHit = 0;
         B.regrowT = SNAKE_REGROW_INTERVAL_FRAMES;
         B.flashT = 6;

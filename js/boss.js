@@ -32,7 +32,7 @@ function spawnBoss() {
     boss = {
         kind: 'mothership', n, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 130, t: 0, mt: 0, intro: 100,
         atk: null, atkIn: 150, lastAtk: null, minionIn: 60 * 12, flash: 0, cool: 0,
-        dying: 0, beamFx: 0, beamX: 0, lastPhase: 1, chain: 0, chainT: 0
+        dying: 0, beamFx: 0, beamX: 0, lastPhase: 1, chain: 0, chainT: 0, cheatRolled: false
     };
     spawnCrates();
 }
@@ -211,6 +211,8 @@ function checkBossPhase() {
     addShake(9);
     haptic([50, 30, 50], true);
     tone(180, 0.5, { type: 'sawtooth', vol: 0.28, slideTo: 90, key: 'phase', force: true });
+    // Entering the last stretch: the boss's own shot at a cheat-code capsule (see maybeDropBossCheatCapsule)
+    if (p === 3) maybeDropBossCheatCapsule(B.x, B.y + 20);
 }
 
 
