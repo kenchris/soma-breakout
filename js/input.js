@@ -261,6 +261,33 @@ document.addEventListener('DOMContentLoaded', () => {
         fsBtn.addEventListener('click', toggleFullscreen);
     }
 
+    // Cheat code: toggle/go both need stopPropagation, same reason the overlay-button does — otherwise
+    // the click bubbles up to #overlay's own "tap anywhere to launch/continue/restart" listener.
+    const codeToggleBtn = document.getElementById('cheat-code-toggle');
+    if (codeToggleBtn) {
+        codeToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleCheatCodeEntry();
+        });
+    }
+    const codeGoBtn = document.getElementById('level-code-go');
+    if (codeGoBtn) {
+        codeGoBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startAtLevelCode();
+        });
+    }
+    const codeInput = document.getElementById('level-code-input');
+    if (codeInput) {
+        codeInput.addEventListener('click', (e) => e.stopPropagation());
+        codeInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+        codeInput.addEventListener('input', () => codeInput.classList.remove('shake'));
+        codeInput.addEventListener('keydown', (e) => {
+            e.stopPropagation(); // don't let R/P/M/F/L/Space/arrows reach the game while typing a code
+            if (e.key === 'Enter') startAtLevelCode();
+        });
+    }
+
     document.addEventListener('fullscreenchange', () => {
         updateFullscreenBtn();
         if (document.fullscreenElement) {

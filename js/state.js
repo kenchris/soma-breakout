@@ -18,6 +18,8 @@ let touchDetected = false;
 
 let bestScore = 0;      // persisted high score
 
+let foundCodes = {};    // persisted: { [level]: code } — earned by catching a cheat-code capsule, see ui.js
+
 let bestAtStart = 0;    // best when this run began, to detect beating it
 
 let newBestShown = false;

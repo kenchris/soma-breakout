@@ -70,7 +70,10 @@ const ROW_STYLES = [
 ];
 
 
-const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7 };
+const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7, cheat: 2 };
+const CHEAT_CHANCE_START = 0.4; // chance of a cheat-code brick right when they unlock
+const CHEAT_CHANCE_FLOOR = 0.1; // they never get rarer than this, however high the level
+const CHEAT_COLOR = '#e8b400'; // gold, distinct from TNT's red/yellow so the two are never confused
 // First level each powerup can drop on (anything not listed is there from level 1)
 
 const POWERUP_UNLOCK = { multi: 2, explosive: 2, double: 2, sticky: 3, shield: 3, fire: 4, guided: 6 };

@@ -15,6 +15,51 @@ function getStartingLevel() {
     return 1;
 }
 
+// --- Level codes ---
+// The code a player sees and shares is deliberately NOT the level number itself (that would just be
+// "type 6 to get level 6" — trivially guessable, and consecutive levels would look obviously related).
+// Instead it's a fixed, reversible scramble: multiply the level by a constant that shares no common
+// factor with the code space, XOR the result, then show it in base 36. Same level -> same code, always,
+// but neighbouring levels produce codes with nothing visibly in common, so nobody can guess their way to
+// a level they haven't reached. (The plain ?level=N URL param still works exactly as before, undocumented
+// in the UI — that one's for debugging, this is the thing meant to be shared.)
+const LEVEL_CODE_CHARS = 4;
+const LEVEL_CODE_BASE = 36;
+const LEVEL_CODE_SPACE = Math.pow(LEVEL_CODE_BASE, LEVEL_CODE_CHARS); // 1,679,616 - every 4-char code decodes to something
+const LEVEL_CODE_CAP = 999; // codes fold into this many playable levels, same ceiling startAtLevelCode used to clamp to
+const LEVEL_CODE_MULT = 1048573;  // odd, and its digits don't sum to a multiple of 3 -> coprime with 36^4 = 2^8 x 3^8
+const LEVEL_CODE_XOR = 0x5A5A5;   // extra mixing so no residual multiplicative pattern shows through
+
+// Extended Euclidean algorithm: the modular inverse of a, mod m (exists because they're coprime by construction above)
+function modInverse(a, m) {
+    let oldR = a, r = m;
+    let oldS = 1, s = 0;
+    while (r !== 0) {
+        const q = Math.floor(oldR / r);
+        [oldR, r] = [r, oldR - q * r];
+        [oldS, s] = [s, oldS - q * s];
+    }
+    return ((oldS % m) + m) % m;
+}
+const LEVEL_CODE_MULT_INV = modInverse(LEVEL_CODE_MULT, LEVEL_CODE_SPACE);
+
+function levelToCode(lvl) {
+    const x = (((lvl - 1) * LEVEL_CODE_MULT) % LEVEL_CODE_SPACE) ^ LEVEL_CODE_XOR;
+    return (x >>> 0).toString(LEVEL_CODE_BASE).toUpperCase().padStart(LEVEL_CODE_CHARS, '0');
+}
+
+// Returns a level number for ANY well-formed code (never throws, never out of range) so a mistyped guess
+// just lands on some other playable level instead of erroring out; returns null only for junk input.
+function codeToLevel(code) {
+    const clean = String(code).trim().toUpperCase();
+    if (!/^[0-9A-Z]{1,6}$/.test(clean)) return null;
+    const parsed = parseInt(clean, LEVEL_CODE_BASE);
+    if (isNaN(parsed)) return null;
+    const x = (parsed ^ LEVEL_CODE_XOR) >>> 0;
+    const raw = (x * LEVEL_CODE_MULT_INV) % LEVEL_CODE_SPACE;
+    return (raw % LEVEL_CODE_CAP) + 1;
+}
+
 
 function initGame() {
     // FIX: Correctly target the canvas element ID 'canvas' as per index.html
@@ -32,6 +77,14 @@ function initGame() {
     } catch (e) {
         bestScore = 0; // Storage unavailable; best is session-only
     }
+
+    try {
+        const saved = JSON.parse(localStorage.getItem('breakout-found-codes'));
+        foundCodes = (saved && typeof saved === 'object') ? saved : {};
+    } catch (e) {
+        foundCodes = {}; // Storage unavailable or corrupt; codes found this session just won't persist
+    }
+    renderFoundCodesPanel(); // show whatever was already found in earlier sessions right away
 
     // Initialize game state with optional URL level parameter
     resetGame(getStartingLevel());
@@ -158,9 +211,16 @@ function isBossLevel(l = level) {
 // Ghost rows: introduced on level 7, then on about 3 levels in 10, never two in a row and never on a boss level.
 // (Its own random stream, so it doesn't change what the other features do on any level.)
 
+// Cheat-code bricks get rarer with level: CHEAT_CHANCE_START right when they unlock, decaying toward
+// CHEAT_CHANCE_FLOOR (never below it, however high the level climbs) so there's always at least some chance.
+function cheatChance(l) {
+    const decay = Math.pow(0.97, l - UNLOCK.cheat);
+    return CHEAT_CHANCE_FLOOR + (CHEAT_CHANCE_START - CHEAT_CHANCE_FLOOR) * decay;
+}
+
 function planLevel(l) {
     const rand = seededRandom(l * 15485863 + 7);
-    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null };
+    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null, cheat: false };
     if (p.boss) return p; // a boss arena has no bricks, walls or random visitors: the boss brings its own
 
     if (l >= UNLOCK.tnt) {
@@ -177,11 +237,16 @@ function planLevel(l) {
     if (l >= UNLOCK.chaos && (l === UNLOCK.chaos || rand() < Math.min(0.55, 0.3 + 0.04 * (l - UNLOCK.chaos)))) {
         p.chaos = { events: 1 + (l >= 9 && rand() < 0.5 ? 1 : 0) };
     }
-    // Ghost rows replace the bricks, so no TNT or sliding walls on those levels
+    // Whether this level COULD have a cheat-code brick at all — a pure function of the level number, like
+    // everything else here. Whether one is actually PLACED also depends on whether you've already found
+    // this level's code, which is runtime state, not level-shape: see placeCheatBrick() in spawnLevel().
+    p.cheat = l >= UNLOCK.cheat && rand() < cheatChance(l);
+    // Ghost rows replace the bricks, so no TNT, sliding walls, or cheat brick on those levels
     if (isGhostLevel(l)) {
         p.tetris = true;
         p.tnt = 0;
         p.walls = 0;
+        p.cheat = false;
     }
     return p;
 }
@@ -253,6 +318,22 @@ function placeTnt() {
     }
 }
 
+// A cheat-code brick: at most one per level, and only if this level's code isn't already found (no point
+// placing a second one). No neighbour requirement like TNT has — it doesn't chain, so any live cell works.
+function placeCheatBrick() {
+    if (!plan.cheat || foundCodes[level]) return;
+    const rand = seededRandom(level * 293503 + 11);
+    for (let attempt = 0; attempt < 40; attempt++) {
+        const c = Math.floor(rand() * BRICK_COLS);
+        const r = Math.floor(rand() * BRICK_ROWS);
+        const cell = bricks[c][r];
+        if (!cell.alive || cell.steel || cell.tnt) continue;
+        cell.cheat = true;
+        cell.color = CHEAT_COLOR;
+        break;
+    }
+}
+
 // Sliding barriers: one from level 3, a counter-moving second from level 8; speed ramps and is capped
 
 function buildWalls() {
@@ -286,6 +367,7 @@ function spawnLevel() {
             brick.y = (r * BRICK_H) + BRICK_OFFSET_TOP;
             brick.alive = !plan.boss && !plan.tetris && layout.alive(c, r); // boss arenas and ghost rows have no ordinary bricks
             brick.tnt = false;
+            brick.cheat = false;
             brick.crack = null;
             brick.sprite = null;
             brick.flash = 0;
@@ -308,6 +390,7 @@ function spawnLevel() {
         }
     }
     placeTnt();
+    placeCheatBrick();
     ghost = plan.tetris ? buildGhostGrid(level) : null;
     ghostFlashes = [];
     if (ghost) bricksLeft = ghostCount();

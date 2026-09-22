@@ -52,7 +52,116 @@ function showOverlay(message, buttonText = 'Launch', summary = null) {
         btn.style.display = 'inline-block';
     }
     renderSummary(summary);
+    updateCheatCodeUi();
     if (overlay) overlay.style.display = 'block';
+}
+
+// --- Level codes ---
+// A code is just the level number: plain enough to read aloud or text to a friend, and getStartingLevel()
+// already understands ?level=N, so re-entering one is a normal fresh run starting there. Shown whenever
+// the overlay is up outside of Paused (mid-pause isn't really a moment to go share or jump levels).
+// --- Cheat codes ---
+// Your own current level's code is no longer just handed to you here — that made it trivial. Now the only
+// way to get one is to catch a cheat-code capsule dropped by the rare gold "?" brick in a level (see
+// spawnCheatCapsule/revealLevelCode). This overlay area just holds the "Enter Cheat Code" toggle, so
+// someone can type in a code a friend found, and stays collapsed the rest of the time.
+function updateCheatCodeUi() {
+    const area = document.getElementById('cheat-code-area');
+    if (!area) return;
+    const show = gameState !== 'paused';
+    area.style.display = show ? 'flex' : 'none'; // the whole area (button + entry row), not just the button
+    if (!show) collapseCheatCodeEntry();
+}
+
+function collapseCheatCodeEntry() {
+    const entry = document.getElementById('level-code-entry');
+    const toggleBtn = document.getElementById('cheat-code-toggle');
+    if (entry) entry.style.display = 'none';
+    if (toggleBtn) toggleBtn.textContent = 'Enter Cheat Code';
+}
+
+function toggleCheatCodeEntry() {
+    const entry = document.getElementById('level-code-entry');
+    const toggleBtn = document.getElementById('cheat-code-toggle');
+    if (!entry || !toggleBtn) return;
+    const opening = entry.style.display !== 'flex';
+    if (opening) {
+        entry.style.display = 'flex';
+        toggleBtn.textContent = 'Hide';
+        const input = document.getElementById('level-code-input');
+        if (input) input.focus();
+    } else {
+        collapseCheatCodeEntry();
+    }
+}
+
+// Reads the code input, decodes it (see codeToLevel in level.js), and starts a fresh run at that level.
+function startAtLevelCode() {
+    const input = document.getElementById('level-code-input');
+    if (!input) return;
+    const n = codeToLevel(input.value);
+    if (n === null) {
+        input.classList.remove('shake');
+        void input.offsetWidth; // restart the CSS animation even if it's already mid-shake
+        input.classList.add('shake');
+        input.focus();
+        return;
+    }
+    input.value = '';
+    resetGame(n);
+}
+
+function saveFoundCodes() {
+    try {
+        localStorage.setItem('breakout-found-codes', JSON.stringify(foundCodes));
+    } catch (e) {
+        // Storage unavailable; the code found this run just won't persist
+    }
+}
+
+// Called when a cheat-code capsule is caught (or, if it was the level's last brick, awarded directly —
+// see collisionDetection in main.js). Records the code, makes a fuss about it, and adds it to the panel
+// below the canvas, where it stays for good — there's no rush to write it down.
+function revealLevelCode() {
+    if (foundCodes[level]) return; // already have this one; nothing new to announce
+    const code = levelToCode(level);
+    foundCodes[level] = code;
+    saveFoundCodes();
+    renderFoundCodesPanel(code);
+    addPopup(CANVAS_W / 2, CANVAS_H * 0.4, 'CODE FOUND: ' + code + '!', '#ffe58a', { size: 26, life: 2, rise: 0.3, pop: true });
+    addShake(6);
+    haptic([20, 20, 20, 20, 60], true);
+    tone(660, 0.1, { type: 'triangle', vol: 0.22, key: 'codeFound', force: true });
+    tone(990, 0.14, { type: 'triangle', vol: 0.22, delay: 0.09, force: true });
+    tone(1320, 0.2, { type: 'triangle', vol: 0.22, delay: 0.18, force: true });
+}
+
+// Rebuilds the found-codes strip below the canvas from scratch, sorted by level. Each chip loads that
+// level directly when clicked — you already earned it, no need to type it back in. `justFound`, if given,
+// gets a brief pop-in highlight so a fresh find is obvious among any others already there.
+function renderFoundCodesPanel(justFound) {
+    const panel = document.getElementById('found-codes');
+    const list = document.getElementById('found-codes-list');
+    const empty = document.getElementById('found-codes-empty');
+    if (!panel || !list) return;
+    const levels = Object.keys(foundCodes).map(Number).sort((a, b) => a - b);
+    list.textContent = '';
+    if (empty) empty.style.display = levels.length ? 'none' : 'block';
+    for (const lvl of levels) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'found-code-chip';
+        if (foundCodes[lvl] === justFound && lvl === level) chip.classList.add('just-found');
+        chip.title = 'Load level ' + lvl;
+        const num = document.createElement('span');
+        num.className = 'found-code-lvl';
+        num.textContent = 'Lv' + lvl;
+        const code = document.createElement('b');
+        code.textContent = foundCodes[lvl];
+        chip.append(num, code);
+        chip.addEventListener('click', () => resetGame(lvl));
+        list.appendChild(chip);
+    }
 }
 
 

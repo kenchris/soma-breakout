@@ -165,6 +165,54 @@
             from { transform: translateX(-50%) scale(1); }
             to { transform: translateX(-50%) scale(1.04); }
         }
+        /* Codes found in-game (by catching a cheat-code capsule — see revealLevelCode() in ui.js), listed
+           below the canvas where they stay for good. Clicking one loads that level directly. */
+        #found-codes {
+            width: 100%;
+            max-width: 900px;
+            margin-top: 10px;
+            box-sizing: border-box;
+            padding: 8px 14px;
+            border: 1px dashed rgba(232, 180, 0, 0.4);
+            border-radius: 10px;
+            background: rgba(232, 180, 0, 0.05);
+            text-align: center;
+            user-select: none;
+        }
+        #found-codes-empty {
+            font-size: 0.8em;
+            color: #8a8560;
+            line-height: 1.4;
+        }
+        #found-codes-empty b { color: #e8b400; }
+        #found-codes-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+        }
+        .found-code-chip {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(232, 180, 0, 0.5);
+            border-radius: 8px;
+            padding: 4px 10px;
+            color: #e8b400;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .found-code-chip:hover { background: rgba(232, 180, 0, 0.18); transform: scale(1.04); }
+        .found-code-chip:active { transform: scale(0.97); }
+        .found-code-lvl { font-size: 0.7em; color: #b3ad86; }
+        .found-code-chip b { font-family: 'Courier New', monospace; font-size: 0.95em; letter-spacing: 0.06em; }
+        .found-code-chip.just-found { animation: codeChipPopIn 0.5s ease-out; }
+        @keyframes codeChipPopIn {
+            0% { transform: scale(0.3); background: rgba(232, 180, 0, 0.7); }
+            60% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
         /* Thumb pad (touch devices, portrait): a visible place to rest your thumb, off the playfield.
            The dot shows where your finger maps to; touches work anywhere, not just here. */
         #touchpad {
@@ -257,7 +305,9 @@
             width: min(92%, 440px);
             box-sizing: border-box;
             max-height: 96%;
-            overflow: hidden;
+            overflow-y: auto; /* content that doesn't fit (e.g. a full stat grid plus the level-code row on a
+                                  short screen) scrolls inside the box instead of being silently clipped */
+            overflow-x: hidden;
             background-color: rgba(8, 10, 24, 0.92);
             border: 1px solid rgba(0, 188, 212, 0.45);
             padding: 14px 16px 16px;
@@ -332,6 +382,73 @@
         #overlay-button:active {
             transform: scale(0.98);
         }
+        /* Cheat codes: entering one (typed, or found in-game — see #found-codes below the canvas) is
+           tucked behind a single toggle button so it doesn't clutter the overlay when not in use. */
+        #cheat-code-area {
+            display: none; /* shown by updateCheatCodeUi() outside of Paused */
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        #cheat-code-toggle {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #aab4c8;
+            border-radius: 6px;
+            padding: 5px 14px;
+            font-size: 0.78em;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        #cheat-code-toggle:hover { background: rgba(255, 255, 255, 0.08); border-color: #00bcd4; }
+        #level-code-entry {
+            display: none; /* toggled by toggleCheatCodeEntry() */
+            justify-content: center;
+            gap: 6px;
+            cursor: default; /* this row is real UI, not a "tap anywhere to launch" surface */
+        }
+        #level-code-input {
+            width: 108px;
+            box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 6px;
+            padding: 5px 8px;
+            color: #ffffff;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            font-weight: bold;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            text-align: center;
+            cursor: text;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+        #level-code-input::placeholder { color: #7a839a; }
+        #level-code-input:focus { outline: none; border-color: #00e5ff; }
+        #level-code-input.shake { border-color: #ff5a5a; animation: codeShake 0.35s; }
+        @keyframes codeShake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-5px); }
+            40% { transform: translateX(5px); }
+            60% { transform: translateX(-4px); }
+            80% { transform: translateX(4px); }
+        }
+        #level-code-go {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid #00bcd4;
+            color: #ffffff;
+            border-radius: 6px;
+            padding: 3px 12px;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #level-code-go:hover { background: rgba(0, 188, 212, 0.3); }
         /* Responsive overrides go LAST so they beat the base rules above (they used to sit above the overlay
            rules and silently lost, which left the desktop-sized dialog on phones). */
         @media (max-width: 600px) {
@@ -342,6 +459,9 @@
             #overlay-stats { margin-top: 8px; gap: 5px; }
             #overlay-stats .stat { padding: 4px 2px; }
             #overlay-button { margin-top: 10px; padding: 7px 24px; }
+            #cheat-code-area { margin-top: 8px; padding-top: 7px; }
+            #level-code-input { width: 92px; padding: 4px 6px; }
+            #found-codes { font-size: 0.85em; }
         }
         @media (pointer: coarse) {
             .hud-btn { min-height: 40px; padding: 6px 12px; } /* finger-sized tap targets */
@@ -354,7 +474,9 @@
             #overlay-stats { margin: 6px 0 0; }
             #overlay-stats .stat { padding: 4px 2px; }
             #overlay-button { margin-top: 8px; padding: 6px 24px; }
-            #controls { display: none; } /* landscape phone: every pixel goes to the playfield */
+            #cheat-code-area { margin-top: 6px; padding-top: 5px; }
+            #level-code-input { width: 84px; padding: 3px 5px; }
+            #controls, #found-codes { display: none; } /* landscape phone: every pixel goes to the playfield */
             body.touch #touchpad { display: none; } /* the whole screen is the pad */
             #canvas, body.touch #canvas {
                 max-height: calc(100vh - 90px);
@@ -391,7 +513,18 @@
                 <div id="overlay-flag">&#9733; New high score! &#9733;</div>
                 <div id="overlay-stats"></div>
                 <button id="overlay-button">Launch</button>
+                <div id="cheat-code-area">
+                    <button id="cheat-code-toggle" type="button">Enter Cheat Code</button>
+                    <div id="level-code-entry">
+                        <input id="level-code-input" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" pattern="[0-9A-Za-z]*" maxlength="6" placeholder="e.g. 4F2A" aria-label="Enter a cheat code" />
+                        <button id="level-code-go" type="button">Go</button>
+                    </div>
+                </div>
             </div>
+        </div>
+        <div id="found-codes">
+            <div id="found-codes-empty">Break a golden <b>?</b> brick and catch what falls out to find a cheat code &mdash; it'll show up here.</div>
+            <div id="found-codes-list"></div>
         </div>
         <div id="touchpad" aria-hidden="true">
             <span id="touchpad-label">Slide your thumb anywhere: the paddle follows</span>

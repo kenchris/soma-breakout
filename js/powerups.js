@@ -57,13 +57,25 @@ function applyPowerup(type) {
 }
 
 
+// The cheat-code capsule: dropped only by a cheat-code brick (see collisionDetection in main.js), not part
+// of the normal random powerup pool. Falls a little slower than a normal powerup, since missing it means
+// losing the code for good — it deserves a fair shot at being caught.
+function spawnCheatCapsule(x, y) {
+    powerups.push({ x, y, type: 'cheatcode', label: null, color: CHEAT_COLOR, vy: 1.7 });
+}
+
 function updatePowerups() {
     for (let i = powerups.length - 1; i >= 0; i--) {
         const p = powerups[i];
         p.y += p.vy * timeScale;
-        // Catch test against the solid parts of the paddle
-        if (paddleOverlap(p.x, p.y, 12)) {
-            applyPowerup(p.type);
+        // Catch test against the solid parts of the paddle (the capsule gets a slightly bigger catch
+        // radius than normal powerups — missing it is a real loss, so it isn't pixel-perfect to grab)
+        if (paddleOverlap(p.x, p.y, p.type === 'cheatcode' ? 18 : 12)) {
+            if (p.type === 'cheatcode') {
+                revealLevelCode();
+            } else {
+                applyPowerup(p.type);
+            }
             spawnParticles(p.x, p.y, p.color);
             beep();
             haptic(15);
@@ -71,6 +83,10 @@ function updatePowerups() {
             continue;
         }
         if (p.y > CANVAS_H) {
+            if (p.type === 'cheatcode') {
+                addPopup(p.x, CANVAS_H - 30, 'Code missed!', '#ff8a8a', { life: 1.2 });
+                tone(220, 0.3, { type: 'sawtooth', vol: 0.18, slideTo: 80, key: 'codeMiss' });
+            }
             powerups.splice(i, 1);
         }
     }
@@ -81,6 +97,26 @@ function drawPowerups() {
     ctx.save();
     ctx.textAlign = 'center';
     for (const p of powerups) {
+        if (p.type === 'cheatcode') {
+            // Bigger, golden, and pulsing — unmistakably not an ordinary powerup
+            const pulse = 1 + 0.12 * Math.sin(performance.now() / 130);
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 22 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff3c4';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.fillStyle = '#fff3c4';
+            ctx.font = 'bold 17px sans-serif';
+            ctx.fillText('?', p.x, p.y + 6);
+            continue;
+        }
         ctx.fillStyle = p.color;
         ctx.globalAlpha = 0.3; // halo
         ctx.beginPath();

@@ -231,7 +231,7 @@ function makeSprite(w, h, paint) {
 }
 
 
-function paintBrick(g, color, steel, tnt) {
+function paintBrick(g, color, steel, tnt, cheat) {
     const w = BRICK_W;
     const h = BRICK_H;
     const bev = 3; // bevel thickness
@@ -266,13 +266,42 @@ function paintBrick(g, color, steel, tnt) {
         g.fillStyle = '#ffe14d';
         g.fillText('TNT', w / 2, h / 2 + 1);
     }
+    if (cheat) {
+        // A gold border and a "?" — deliberately nothing like TNT's look, so the two are never mixed up
+        g.strokeStyle = '#fff3c4';
+        g.lineWidth = 1.5;
+        g.strokeRect(2, 2, w - 4, h - 4);
+        // A few small sparkle marks so it reads as "special" even at a glance
+        const sparkle = (sx, sy, size) => {
+            g.beginPath();
+            g.moveTo(sx, sy - size);
+            g.lineTo(sx + size * 0.3, sy - size * 0.3);
+            g.lineTo(sx + size, sy);
+            g.lineTo(sx + size * 0.3, sy + size * 0.3);
+            g.lineTo(sx, sy + size);
+            g.lineTo(sx - size * 0.3, sy + size * 0.3);
+            g.lineTo(sx - size, sy);
+            g.lineTo(sx - size * 0.3, sy - size * 0.3);
+            g.closePath();
+            g.fill();
+        };
+        g.fillStyle = 'rgba(255, 243, 196, 0.85)';
+        sparkle(9, 5, 3);
+        sparkle(w - 9, h - 5, 3);
+        g.font = 'bold 13px sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillStyle = '#fff3c4';
+        g.fillText('?', w / 2, h / 2 + 1);
+    }
 }
 
 
 function brickSprite(brick) {
-    const key = brick.tnt ? 'tnt' : brick.color + (brick.steel ? '|steel' : '');
+    const key = brick.tnt ? 'tnt' : brick.cheat ? 'cheat' : brick.color + (brick.steel ? '|steel' : '');
     if (!brickSprites[key]) {
-        brickSprites[key] = makeSprite(BRICK_W, BRICK_H, g => paintBrick(g, brick.tnt ? TNT_COLOR : brick.color, brick.steel, brick.tnt));
+        const color = brick.tnt ? TNT_COLOR : brick.cheat ? CHEAT_COLOR : brick.color;
+        brickSprites[key] = makeSprite(BRICK_W, BRICK_H, g => paintBrick(g, color, brick.steel, brick.tnt, brick.cheat));
     }
     return brickSprites[key];
 }

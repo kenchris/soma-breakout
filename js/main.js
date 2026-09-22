@@ -139,6 +139,7 @@ function drawShield() {
 
 function drawBricks() {
     const pulse = 'rgba(255, 90, 0, ' + (0.15 + 0.15 * Math.sin(performance.now() / 180)) + ')';
+    const cheatPulse = 'rgba(255, 220, 120, ' + (0.2 + 0.2 * Math.sin(performance.now() / 260)) + ')';
     for (let c = 0; c < BRICK_COLS; c++) {
         for (let r = 0; r < BRICK_ROWS; r++) {
             const brick = bricks[c][r];
@@ -149,6 +150,11 @@ function drawBricks() {
             if (brick.tnt) {
                 // Pulsing glow so TNT reads as live
                 ctx.fillStyle = pulse;
+                ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
+            }
+            if (brick.cheat) {
+                // A slower, gentler golden shimmer — inviting rather than hazardous
+                ctx.fillStyle = cheatPulse;
                 ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
             }
             // Brief white flash on impact (a steel brick cracking)
@@ -323,9 +329,11 @@ function collisionDetection(b) {
                     const scoreMult = doubleTimer > 0 ? 2 : 1;
                     let totalEarned = 0;
                     let destroyed = 0;
+                    let cheatBrickAt = null; // centre of a cheat-code brick caught in this hit, if any
                     for (const [tc, tr] of targets) {
                         const t = bricks[tc][tr];
                         if (!t.alive) continue;
+                        if (t.cheat) cheatBrickAt = { x: t.x + t.w / 2, y: t.y + t.h / 2 };
                         t.alive = false;
                         destroyed++;
                         totalEarned += t.points * mult * scoreMult;
@@ -391,11 +399,20 @@ function collisionDetection(b) {
                         beep();
                     }
                     
-                    // Chance for a powerup to drop from the destroyed brick
-                    if (Math.random() < POWERUP_CHANCE) {
+                    // A cheat-code brick guarantees its own capsule instead of the normal powerup roll —
+                    // one special, unmistakable drop rather than competing with the ordinary ones
+                    if (cheatBrickAt) {
+                        if (bricksLeft <= 0) {
+                            // This was the level's last brick: the capsule would never get a chance to fall
+                            // before completeLevel() clears it, so award the code directly instead
+                            revealLevelCode();
+                        } else {
+                            spawnCheatCapsule(cheatBrickAt.x, cheatBrickAt.y);
+                        }
+                    } else if (Math.random() < POWERUP_CHANCE) {
                         spawnPowerup(brick.x + brick.w / 2, brick.y + brick.h / 2);
                     }
-                    
+
                     // Check for win condition
                     if (bricksLeft <= 0) {
                         completeLevel();
