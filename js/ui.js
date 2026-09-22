@@ -319,7 +319,8 @@ function updateFullscreenBtn() {
     const btn = document.getElementById('fullscreen-btn');
     if (!btn) return;
     const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    btn.textContent = isFS ? '⛶ Exit' : '⛶ Fullscreen';
+    btn.classList.toggle('active', isFS);
+    btn.title = isFS ? 'Exit fullscreen (F)' : 'Fullscreen & Lock Landscape (F)';
 }
 
 
@@ -370,10 +371,11 @@ function updateComboMeter() {
 
 
 function updateHUD() {
-    setText('score', 'Score: ' + score);
-    setText('lives', 'Lives: ' + '●'.repeat(Math.max(0, lives)));
-    setText('level', 'Level: ' + level);
-    setText('best', 'Best: ' + bestScore);
+    setText('score', score);
+    setText('level', level);
+    setText('best', bestScore);
+    const heartsEl = document.getElementById('hud-lives');
+    if (heartsEl) heartsEl.querySelectorAll('svg').forEach((el, i) => el.classList.toggle('on', i < Math.max(0, lives)));
     updateComboMeter();
 }
 
@@ -384,11 +386,11 @@ function updateTouchUi() {
     document.body.classList.toggle('touch', touch);
     const btn = document.getElementById('touch-btn');
     if (btn) {
-        btn.style.display = touch ? 'inline-block' : 'none';
-        btn.textContent = touchMode === 'follow' ? '👆 Follow' : '↔ Drag';
+        btn.style.display = touch ? 'inline-flex' : 'none';
+        btn.classList.toggle('active', touchMode !== 'follow');
         btn.title = touchMode === 'follow'
-            ? 'Paddle follows your finger from anywhere. Tap to switch to relative drag.'
-            : 'Drag anywhere to nudge the paddle. Tap to switch to follow.';
+            ? 'Follow mode: paddle follows your finger from anywhere. Tap to switch to relative drag.'
+            : 'Drag mode: drag anywhere to nudge the paddle. Tap to switch to follow.';
     }
     const label = document.getElementById('touchpad-label');
     if (label) {
@@ -411,8 +413,7 @@ function updateLockUi() {
     const btn = document.getElementById('lock-btn');
     if (!btn) return;
     const supported = !!(canvas && canvas.requestPointerLock);
-    btn.style.display = supported && !isTouchDevice() ? 'inline-block' : 'none';
-    btn.textContent = pointerLocked ? '🔒 Locked' : '🔓 Lock';
+    btn.style.display = supported && !isTouchDevice() ? 'inline-flex' : 'none';
     btn.classList.toggle('active', pointerLocked);
     btn.title = pointerLocked
         ? 'Mouse is locked to the game (Esc to release, or click here) (L)'
@@ -467,11 +468,11 @@ function togglePause() {
     const pauseBtn = document.getElementById('pause-btn');
     if (gameState === 'playing') {
         gameState = 'paused';
-        if (pauseBtn) pauseBtn.textContent = '▶ Resume';
+        if (pauseBtn) { pauseBtn.classList.add('active'); pauseBtn.title = 'Resume (P)'; }
         showOverlay('Paused\nTap or press P to resume', 'Resume');
     } else if (gameState === 'paused') {
         gameState = 'playing';
-        if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
+        if (pauseBtn) { pauseBtn.classList.remove('active'); pauseBtn.title = 'Pause (P)'; }
         hideOverlay();
     }
 }

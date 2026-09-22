@@ -6,7 +6,7 @@ function toggleMute() {
     isMuted = !isMuted;
     const btn = document.getElementById('mute-btn');
     if (btn) {
-        btn.textContent = isMuted ? '🔇 Muted' : '🔊 Sound';
+        btn.classList.toggle('active', isMuted);
         btn.title = isMuted ? 'Unmute sound and vibration (M)' : 'Mute sound and vibration (M)';
     }
 }

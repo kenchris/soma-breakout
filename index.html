@@ -29,7 +29,12 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start; /* was "center": on a tall/narrow phone the landscape 3:2 canvas
+                only ever grows to the viewport's WIDTH, leaving far more height spare than that centres —
+                anchoring to the top uses the screen instead of parking the game in the middle of a gap */
+            padding: 12px 0 0; /* top only — the canvas itself should reach both edges on a narrow phone;
+                see #hud's own padding below for why its chips don't also end up flush against them */
+            box-sizing: border-box;
         }
         #game-container {
             position: relative;
@@ -39,14 +44,67 @@
         }
         #hud {
             display: flex;
-            justify-content: space-around;
+            justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            row-gap: 8px;
+            column-gap: 16px;
             width: 100%;
             max-width: 900px;
             margin-bottom: 10px;
+            padding: 0 10px; /* the canvas below goes edge-to-edge on a narrow phone; this keeps the HUD's
+                own chips/buttons off that same edge without moving the canvas in to match */
+            box-sizing: border-box;
             font-size: 1.5em;
             user-select: none;
         }
+        /* Score/Best/Level/Lives/Combo, as one cluster on the left — a fixed gap between them so they stay
+           legible regardless of how much room the button group on the right ends up taking (space-around
+           across all six top-level items left almost no slack for it to work with once the buttons and
+           combo meter were both in the mix, so on desktop everything read as one squashed run of text). */
+        #hud-stats {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            row-gap: 6px;
+            column-gap: 8px;
+        }
+        /* Score/Best/Level as small icon+number pills (Tabler icons: tabler.io/icons) instead of "Label:
+           value" text — shorter, reads at a glance, and never needs to wrap mid-label on a narrow screen. */
+        .stat-chip {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(0, 188, 212, 0.35);
+            border-radius: 999px;
+            padding: 5px 12px 5px 9px;
+            /* A chip with a number's text line-box (~28px at this font size) is naturally taller than the
+               icon-only lives chip (~19px), which otherwise shrink-wraps noticeably shorter than its
+               neighbours — pin every chip to the same height regardless of what it holds. */
+            min-height: 28px;
+            box-sizing: content-box;
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
+        }
+        .stat-chip svg { width: 17px; height: 17px; flex: none; stroke: currentColor; }
+        .stat-chip.score svg { color: #FFD700; }
+        .stat-chip.best svg { color: #ff9a2e; }
+        .stat-chip.level svg { color: #6fd6ff; }
+        .stat-chip.lives { gap: 3px; padding: 5px 11px; }
+        /* A heart's own outline leaves more empty space inside its 24x24 grid than a star/trophy/flag's
+           does, so at the same box size it reads as visibly smaller — sized and stroked a bit heavier here
+           to actually match their weight, not just their bounding box. */
+        .stat-chip.lives svg {
+            width: 19px;
+            height: 19px;
+            color: #ff5d7a;
+            fill: none;
+            stroke-width: 2.4;
+            opacity: 0.35;
+            transition: opacity 0.2s, fill 0.2s;
+        }
+        .stat-chip.lives svg.on { opacity: 1; fill: #ff5d7a; }
         #hud-actions {
             display: flex;
             gap: 8px;
@@ -56,7 +114,7 @@
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid #00bcd4;
             color: #ffffff;
-            border-radius: 6px;
+            border-radius: 8px;
             padding: 4px 10px;
             font-size: 0.7em;
             cursor: pointer;
@@ -69,6 +127,22 @@
         .hud-btn:hover {
             background: rgba(0, 188, 212, 0.3);
         }
+        /* Icon-only action buttons (Lock/Sound/Pause/Fullscreen/touch mode): each holds two Tabler icons —
+           .ico-a for the default state, .ico-b for the active one (locked, muted, paused, fullscreen-on) —
+           and .active (already toggled by each button's own JS) swaps which one shows. The icon shown is
+           always the current STATE, except Pause, which — like any media player — shows the action a click
+           performs (a pause glyph while playing, a play glyph while paused), not the state it's in. */
+        .icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            line-height: 0;
+        }
+        .icon-btn svg { width: 20px; height: 20px; stroke: currentColor; flex: none; }
+        .icon-btn .ico-b { display: none; }
+        .icon-btn.active .ico-a { display: none; }
+        .icon-btn.active .ico-b { display: block; }
         #combo {
             display: flex;
             align-items: center;
@@ -463,6 +537,7 @@
            rules and silently lost, which left the desktop-sized dialog on phones). */
         @media (max-width: 600px) {
             #hud { font-size: 0.9em; flex-wrap: wrap; gap: 6px; }
+            #hud-stats { column-gap: 10px; row-gap: 2px; }
             #controls { font-size: 0.75em; }
             #overlay { padding: 10px 10px 12px; }
             #overlay-message .ov-title { font-size: 1.2em; }
@@ -499,20 +574,54 @@
 
     <div id="game-container">
         <div id="hud">
-            <div id="score">Score: 0</div>
-            <div id="lives">Lives: &#9679;&#9679;&#9679;</div>
-            <div id="level">Level: 1</div>
-            <div id="best">Best: 0</div>
-            <div id="combo" title="Combo multiplier: chain bricks without touching the paddle">
-                <span id="combo-label">&times;1</span>
-                <span id="combo-pips"><i></i><i></i><i></i><i></i><i></i></span>
+            <div id="hud-stats">
+                <div class="stat-chip score" title="Score">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873l-6.158 -3.245" /></svg>
+                    <span id="score">0</span>
+                </div>
+                <div class="stat-chip best" title="Best score">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21l8 0" /><path d="M12 17l0 4" /><path d="M7 4l10 0" /><path d="M17 4v8a5 5 0 0 1 -10 0v-8" /><path d="M3 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M17 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /></svg>
+                    <span id="best">0</span>
+                </div>
+                <div class="stat-chip level" title="Level">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14h14l-4.5 -4.5l4.5 -4.5h-14v16" /></svg>
+                    <span id="level">1</span>
+                </div>
+                <div class="stat-chip lives" id="hud-lives" title="Lives">
+                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
+                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
+                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
+                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
+                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
+                </div>
+                <div id="combo" class="stat-chip combo" title="Combo multiplier: chain bricks without touching the paddle">
+                    <span id="combo-label">&times;1</span>
+                    <span id="combo-pips"><i></i><i></i><i></i><i></i><i></i></span>
+                </div>
             </div>
             <div id="hud-actions">
-                <button id="touch-btn" class="hud-btn" style="display: none;">&#128070; Follow</button>
-                <button id="lock-btn" class="hud-btn" style="display: none;" title="Lock the mouse for unlimited-range relative control (L)">&#128275; Lock</button>
-                <button id="mute-btn" class="hud-btn" title="Mute sound and vibration (M)">🔊 Sound</button>
-                <button id="pause-btn" class="hud-btn" title="Pause / Resume (P)">⏸ Pause</button>
-                <button id="fullscreen-btn" class="hud-btn" title="Fullscreen & Lock Landscape (F)">⛶ Fullscreen</button>
+                <!-- Icons: Tabler (tabler.io/icons, MIT). Each button holds both of its states' icons; CSS
+                     shows one at a time via .active (see .icon-btn in <style> above). -->
+                <button id="touch-btn" class="hud-btn icon-btn" style="display: none;" title="Follow mode: the paddle follows your finger">
+                    <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13v-8.5a1.5 1.5 0 0 1 3 0v7.5" /><path d="M11 11.5v-2a1.5 1.5 0 1 1 3 0v2.5" /><path d="M14 10.5a1.5 1.5 0 0 1 3 0v1.5" /><path d="M17 11.5a1.5 1.5 0 0 1 3 0v4.5a6 6 0 0 1 -6 6h-2h.208a6 6 0 0 1 -5.012 -2.7a69.74 69.74 0 0 1 -.196 -.3c-.312 -.479 -1.407 -2.388 -3.286 -5.728a1.5 1.5 0 0 1 .536 -2.022a1.867 1.867 0 0 1 2.28 .28l1.47 1.47" /></svg>
+                    <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9l3 3l-3 3" /><path d="M15 12h6" /><path d="M6 9l-3 3l3 3" /><path d="M3 12h6" /></svg>
+                </button>
+                <button id="lock-btn" class="hud-btn icon-btn" style="display: none;" title="Lock the mouse for unlimited-range relative control (L)">
+                    <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -6" /><path d="M11 16a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 11v-5a4 4 0 0 1 8 0" /></svg>
+                    <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6" /><path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0" /><path d="M8 11v-4a4 4 0 1 1 8 0v4" /></svg>
+                </button>
+                <button id="mute-btn" class="hud-btn icon-btn" title="Mute sound and vibration (M)">
+                    <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8a5 5 0 0 1 0 8" /><path d="M17.7 5a9 9 0 0 1 0 14" /><path d="M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5" /></svg>
+                    <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8a5 5 0 0 1 1.912 4.934m-1.377 2.602a5 5 0 0 1 -.535 .464" /><path d="M17.7 5a9 9 0 0 1 2.362 11.086m-1.676 2.299a9 9 0 0 1 -.686 .615" /><path d="M9.069 5.054l.431 -.554a.8 .8 0 0 1 1.5 .5v2m0 4v8a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l1.294 -1.664" /><path d="M3 3l18 18" /></svg>
+                </button>
+                <button id="pause-btn" class="hud-btn icon-btn" title="Pause (P)">
+                    <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /><path d="M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /></svg>
+                    <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13 -8l-13 -8" /></svg>
+                </button>
+                <button id="fullscreen-btn" class="hud-btn icon-btn" title="Fullscreen & Lock Landscape (F)">
+                    <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8v-2a2 2 0 0 1 2 -2h2" /><path d="M4 16v2a2 2 0 0 0 2 2h2" /><path d="M16 4h2a2 2 0 0 1 2 2v2" /><path d="M16 20h2a2 2 0 0 0 2 -2v-2" /></svg>
+                    <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19v-2a2 2 0 0 1 2 -2h2" /><path d="M15 5v2a2 2 0 0 0 2 2h2" /><path d="M5 15h2a2 2 0 0 1 2 2v2" /><path d="M5 9h2a2 2 0 0 0 2 -2v-2" /></svg>
+                </button>
             </div>
         </div>
         <div id="stage">

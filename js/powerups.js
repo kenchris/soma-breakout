@@ -117,6 +117,7 @@ function updatePowerups() {
 function drawPowerups() {
     ctx.save();
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     for (const p of powerups) {
         if (p.type === 'cheatcode') {
             // Bigger, golden, and pulsing — unmistakably not an ordinary powerup
@@ -135,7 +136,7 @@ function drawPowerups() {
             ctx.stroke();
             ctx.fillStyle = '#fff3c4';
             ctx.font = 'bold 17px sans-serif';
-            ctx.fillText('?', p.x, p.y + 6);
+            ctx.fillText('?', p.x, p.y);
             continue;
         }
         if (p.type === 'poison') {
@@ -157,7 +158,7 @@ function drawPowerups() {
             ctx.stroke();
             ctx.fillStyle = '#1a0a2e';
             ctx.font = 'bold 12px sans-serif';
-            ctx.fillText('☠', p.x, p.y + 4);
+            ctx.fillText('☠', p.x, p.y);
             continue;
         }
         ctx.fillStyle = p.color;
@@ -173,7 +174,7 @@ function drawPowerups() {
         if (p.label) {
             const wide = p.label.length > 1;
             ctx.font = wide ? 'bold 11px sans-serif' : 'bold 14px sans-serif';
-            ctx.fillText(p.label, p.x, p.y + (wide ? 4 : 5));
+            ctx.fillText(p.label, p.x, p.y);
         } else {
             // Shield icon
             ctx.beginPath();
