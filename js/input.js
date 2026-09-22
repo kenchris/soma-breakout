@@ -48,6 +48,21 @@ function releaseLock() {
 }
 
 
+// Drops the OS-level lock for an overlay (paused/won/lost/ready) without touching the player's
+// pointerLockWanted preference, so the cursor is back to normal for clicking Continue/Resume/etc. and the
+// very next click on the canvas re-acquires it automatically. Without this, a locked player who wants to
+// click an overlay button has no visible cursor to click with, and their only way out is Esc — which then
+// reappears wherever the OS decides to put it, snapping the paddle there the instant they move the mouse.
+function suspendLock() {
+    if (!pointerLocked) return;
+    try {
+        if (document.exitPointerLock) document.exitPointerLock();
+    } catch (e) {
+        // Ignore
+    }
+}
+
+
 function toggleLock() {
     if (pointerLocked || pointerLockWanted) releaseLock();
     else requestLock();

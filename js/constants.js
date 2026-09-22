@@ -92,7 +92,11 @@ const SNAKE_OBSTACLE_RESPAWN_SPREAD = 1.5;  // stale gap in the grid just makes 
 const SNAKE_OBSTACLE_GHOST_SHARE = 0.3;     // this fraction of obstacles are harmless see-through decoys
 const SNAKE_WALL_W = 120;                   // a moving paddle-like wall floating between the arena and the
 const SNAKE_WALL_H = 14;                    // player's paddle — a second surface to rally the ball off of,
-const SNAKE_WALL_Y = SNAKE_TOP + SNAKE_ROWS * SNAKE_CELL + 36; // matching the sliding walls of level 3+
+const SNAKE_WALL_Y = SNAKE_TOP + SNAKE_ROWS * SNAKE_CELL + 20; // sits close under the grid, leaving most of
+                                                                 // the gap as paddle reaction room below it —
+                                                                 // it used to split that room evenly (~46px
+                                                                 // to the paddle), which was tight enough to
+                                                                 // lose a ball to a bad bounce right off spawn
 const SNAKE_WALL_BASE_SPEED = 3.4;          // a bit brisker than the ordinary walls' opening speed, and
 const SNAKE_WALL_SPEED_PER_N = 0.5;         // ramps with each repeat encounter, capped so it stays returnable
 const SNAKE_WALL_MAX_SPEED = 7.5;
@@ -102,6 +106,28 @@ const SNAKE_MAX_CUT_FRACTION = 0.3;         // a single hit can never remove mor
                                              // is always finishable in one hit regardless
 const SNAKE_ASSIST_SEGMENTS = 3;    // at or below this many segments left, it's a small fast target —
 const SNAKE_ASSIST_CHANCE = 0.55;   // drops get more frequent and lean toward Multi-ball & Shield to help land the finish
+
+// -- Snake venom: the boss's own attack. It periodically lobs a poisoned capsule from its head on a
+// side-to-side weave (echoing its own movement) instead of a normal straight drop — the curve alone tells
+// you it's not a real powerup before you even register the color. Catching one, or grazing an "armed"
+// ghost decoy, applies a short debuff instead of a bonus. --
+const SNAKE_POISON_COLOR = '#a64dff';       // toxic purple — the unmistakable "don't catch this" tell
+const SNAKE_POISON_GLOW = '#7dff5c';        // sickly green accent for the drip/glow around it
+const SNAKE_SPIT_INTERVAL_MIN = 6;          // seconds between spits before the n-based ramp
+const SNAKE_SPIT_INTERVAL_SPREAD = 3;
+const SNAKE_SPIT_INTERVAL_PER_N = 0.35;
+const SNAKE_SPIT_INTERVAL_FLOOR = 3;
+const SNAKE_SPIT_GRACE_FRAMES = 60 * 4;     // no spit for the first few seconds of a fresh encounter
+const SNAKE_SPIT_CURVE_AMPLITUDE = 50;      // px of side-to-side sway as the capsule falls
+const SNAKE_SPIT_CURVE_FREQ = 0.045;
+const SNAKE_SPIT_VY = 2.1;                  // a bit slower than a normal powerup — reads as lobbed, not dropped
+const SNAKE_POISON_DEBUFFS = ['mirror', 'fast', 'shrink'];
+const SNAKE_POISON_SHRINK_SECONDS = 7;
+const SNAKE_GHOST_ARM_CHANCE = 0.009;       // per ghost obstacle, per frame
+const SNAKE_GHOST_ARM_FRAMES = 210;         // ~3.5s window — long enough for normal ball traffic near a
+                                             // decoy to plausibly clip it, not just a blink-and-miss-it flash
+const SNAKE_GHOST_POISON_SCALE = 0.5;       // an armed-decoy graze is unlucky, not deliberate — half the spit's duration
+
 const CHEAT_CHANCE_START = 0.4; // chance of a cheat-code brick right when they unlock
 const CHEAT_CHANCE_FLOOR = 0.1; // they never get rarer than this, however high the level
 const CHEAT_COLOR = '#e8b400'; // gold, distinct from TNT's red/yellow so the two are never confused

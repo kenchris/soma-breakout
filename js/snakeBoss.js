@@ -7,7 +7,11 @@
 // so sustained pressure matters, not just one good shot. A scatter of obstacle bricks blocks the way and
 // respawns at random spots after a while, like the mothership's supply crates but as a hazard rather than
 // a reward; some are translucent decoys the ball passes straight through, worth avoiding wasting a shot on.
+// It fights back too: it periodically spits a poisoned capsule at you (see the venom section below) and
+// hisses on its own clock, so the arena has presence even between hits.
 let snakeObstacleTimer = 0;
+let snakeSpitTimer = 0;
+let snakeHissTimer = 0;
 
 function snakeCellX(c) {
     return SNAKE_LEFT + c * SNAKE_CELL;
@@ -78,6 +82,8 @@ function spawnSnakeBoss() {
         obstacles: [], flashT: 0, cool: 0
     };
     snakeObstacleTimer = 0;
+    snakeSpitTimer = SNAKE_SPIT_GRACE_FRAMES;
+    snakeHissTimer = Math.round(60 * (2 + Math.random() * 2));
     snakeFillObstacles();
     spawnSnakeWall(n);
 }
@@ -87,7 +93,14 @@ function spawnSnakeBoss() {
 // level.js), just spawned here since boss arenas otherwise get none of their own.
 function spawnSnakeWall(n) {
     const speed = Math.min(SNAKE_WALL_BASE_SPEED + n * SNAKE_WALL_SPEED_PER_N, SNAKE_WALL_MAX_SPEED);
-    movingWalls.push({ x: CANVAS_W / 2 - SNAKE_WALL_W / 2, y: SNAKE_WALL_Y, w: SNAKE_WALL_W, h: SNAKE_WALL_H, vx: speed, hits: 0 });
+    // Starts out near one edge, not centred: the paddle also spawns centred, and this wall sits close
+    // enough above it that starting the two lined up put the very first launch on a near-guaranteed
+    // collision course, with barely a beat to react before the rebound came straight back down on top of
+    // where the paddle hadn't moved from yet. Starting off to a side keeps the opening launch clear.
+    const startLeft = Math.random() < 0.5;
+    const x = startLeft ? 20 : CANVAS_W - SNAKE_WALL_W - 20;
+    const vx = startLeft ? speed : -speed;
+    movingWalls.push({ x, y: SNAKE_WALL_Y, w: SNAKE_WALL_W, h: SNAKE_WALL_H, vx, hits: 0 });
 }
 
 // -- Obstacles: normal ones block the ball and the snake alike; ghost ones are harmless decoys --
@@ -126,7 +139,20 @@ function snakeFillObstacles() {
 
 function snakeUpdateObstacles() {
     const B = boss;
-    for (const o of B.obstacles) if (o.alive) o.age++;
+    for (const o of B.obstacles) {
+        if (!o.alive) continue;
+        o.age++;
+        // A ghost decoy is normally just cosmetic — but rarely, one arms itself for a short window (see
+        // the pulsing red tell in drawSnakeObstacles) and actually hurts if the ball grazes it in time.
+        if (o.ghost) {
+            if (o.armed) {
+                if (--o.armT <= 0) o.armed = false;
+            } else if (Math.random() < SNAKE_GHOST_ARM_CHANCE) {
+                o.armed = true;
+                o.armT = SNAKE_GHOST_ARM_FRAMES;
+            }
+        }
+    }
     B.obstacles = B.obstacles.filter(o => o.alive || o.age < 20); // keep a broken one around briefly for its fade
     const alive = B.obstacles.filter(o => o.alive).length;
     if (alive < snakeObstacleCount()) {
@@ -163,6 +189,82 @@ function snakeMaybeDropPowerup(x, y) {
         powerups.push({ x, y, type: def.type, label: def.label, color: def.color, vy: 2.5 });
     } else if (Math.random() < POWERUP_CHANCE) {
         spawnPowerup(x, y);
+    }
+}
+
+// -- Venom: the boss's own attack --
+// A periodic poisoned capsule lobbed from the head on a side-to-side weave (see the curve in
+// updatePowerups), so it reads as an attack, not a drop, before you even see its toxic color. Catching
+// one — or grazing an armed ghost decoy — applies a short debuff instead of a bonus.
+const SNAKE_POISON_LABELS = { mirror: 'MIRRORED!', fast: 'VENOM RUSH!', shrink: 'SHRUNK!' };
+
+function randomPoisonDebuff() {
+    return SNAKE_POISON_DEBUFFS[Math.floor(Math.random() * SNAKE_POISON_DEBUFFS.length)];
+}
+
+function snakeSpitInterval(n) {
+    return Math.round(60 * Math.max(SNAKE_SPIT_INTERVAL_FLOOR,
+        SNAKE_SPIT_INTERVAL_MIN - n * SNAKE_SPIT_INTERVAL_PER_N + Math.random() * SNAKE_SPIT_INTERVAL_SPREAD));
+}
+
+function snakeSpit() {
+    const B = boss;
+    if (!B.segments.length) return;
+    const head = snakeSegCenter(B.segments[0]);
+    powerups.push({
+        x: head.x, y: head.y, baseX: head.x, age: 0,
+        type: 'poison', debuff: randomPoisonDebuff(), color: SNAKE_POISON_COLOR, vy: SNAKE_SPIT_VY
+    });
+    spawnParticles(head.x, head.y, SNAKE_POISON_COLOR, 10);
+    tone(180, 0.25, { type: 'sawtooth', vol: 0.22, slideTo: 320, key: 'snakeSpit', force: true });
+    haptic(20);
+}
+
+function snakeUpdateSpit() {
+    if (--snakeSpitTimer > 0) return;
+    snakeSpitTimer = snakeSpitInterval(boss.n);
+    snakeSpit();
+}
+
+// A quiet rattling hiss on its own clock, independent of any hit — so the fight has ambient presence
+// even in the lull between exchanges, the way a rattlesnake's warning would.
+function snakeHiss() {
+    const base = 65 + Math.random() * 25;
+    for (let i = 0; i < 3; i++) {
+        tone(base + i * 16, 0.06, { type: 'sawtooth', vol: 0.09, delay: i * 0.05, force: true });
+    }
+}
+
+function snakeUpdateHiss() {
+    if (--snakeHissTimer > 0) return;
+    snakeHissTimer = Math.round(60 * (2.5 + Math.random() * 3));
+    snakeHiss();
+}
+
+// debuff: 'mirror' | 'fast' | 'shrink'. scale shortens the duration (an armed-decoy graze is unlucky, not
+// deliberate, so it stings less than actually catching a spit).
+function applyPoison(debuff, scale = 1) {
+    addPopup(paddle.x + paddle.w / 2, paddle.y - 10, 'POISONED: ' + SNAKE_POISON_LABELS[debuff], SNAKE_POISON_COLOR,
+        { life: 1.3, size: 15, tag: 'powerup' });
+    if (debuff === 'mirror') {
+        startChaos('fullFlip');
+        chaos.total = chaos.left = Math.round(chaos.total * scale);
+    } else if (debuff === 'fast') {
+        chaos.scale = TIME_WARP.turbo;
+        startChaos('timeWarp');
+        chaos.total = chaos.left = Math.round(chaos.total * scale);
+    } else { // shrink
+        wideTimer = 0; // shrink and wide fight over paddle.w; whichever was just caught wins
+        narrowTimer = SNAKE_POISON_SHRINK_SECONDS * scale;
+        const ratio = paddle.w / PADDLE_W;
+        if (ratio > 0.55) {
+            paddle.w = Math.round(PADDLE_W * 0.55);
+            paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+            paddleHoles.length = 0;
+        }
+        addShake(6);
+        tone(160, 0.3, { type: 'sawtooth', vol: 0.22, slideTo: 60, key: 'poisonShrink', force: true });
+        haptic([20, 20, 30], true);
     }
 }
 
@@ -222,6 +324,8 @@ function updateSnakeBoss() {
     if (B.flashT > 0) B.flashT--;
     if (B.cool > 0) B.cool--;
     snakeUpdateObstacles();
+    snakeUpdateSpit();
+    snakeUpdateHiss();
     const willGrow = snakeUpdateRegrow();
     if (--B.moveT <= 0) {
         B.moveT = B.moveEvery;
@@ -244,7 +348,15 @@ function snakeBallCollision(b) {
         const cy = Math.max(y, Math.min(b.y, y + SNAKE_CELL));
         const dx = b.x - cx, dy = b.y - cy;
         if (dx * dx + dy * dy >= b.r * b.r) continue;
-        if (o.ghost) continue; // no effect at all: a decoy, not an obstacle
+        if (o.ghost) {
+            if (o.armed) {
+                o.armed = false;
+                applyPoison(randomPoisonDebuff(), SNAKE_GHOST_POISON_SCALE);
+                spawnParticles(x + SNAKE_CELL / 2, y + SNAKE_CELL / 2, SNAKE_POISON_COLOR, 8);
+                addShake(4);
+            }
+            continue; // still passes straight through either way — it's never a physical obstacle
+        }
         snakeBreakObstacle(o);
         if (fireTimer <= 0) {
             if (Math.abs(dx) > Math.abs(dy)) {
@@ -387,11 +499,21 @@ function drawSnakeObstacles() {
         const x = snakeCellX(o.c), y = snakeCellY(o.r);
         if (o.ghost) {
             ctx.save();
-            ctx.globalAlpha = 0.3 + 0.1 * Math.sin(performance.now() / 300 + o.c);
-            ctx.setLineDash([3, 3]);
-            ctx.strokeStyle = '#9fd8ff';
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(x + 2, y + 2, SNAKE_CELL - 4, SNAKE_CELL - 4);
+            if (o.armed) {
+                // Armed: a fast, ugly pulse in the same toxic palette as the venom spit — unmistakably
+                // different from the lazy cyan dash of an ordinary, harmless decoy.
+                ctx.globalAlpha = 0.55 + 0.35 * Math.sin(performance.now() / 60);
+                ctx.setLineDash([]);
+                ctx.strokeStyle = SNAKE_POISON_COLOR;
+                ctx.lineWidth = 2.5;
+                ctx.strokeRect(x + 1.5, y + 1.5, SNAKE_CELL - 3, SNAKE_CELL - 3);
+            } else {
+                ctx.globalAlpha = 0.3 + 0.1 * Math.sin(performance.now() / 300 + o.c);
+                ctx.setLineDash([3, 3]);
+                ctx.strokeStyle = '#9fd8ff';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x + 2, y + 2, SNAKE_CELL - 4, SNAKE_CELL - 4);
+            }
             ctx.restore();
         } else {
             const k = Math.min(1, o.age / 10);

@@ -29,6 +29,7 @@ function applyPowerup(type) {
     } else if (type === 'slow') {
         slowTimer = 6;
     } else if (type === 'wide') {
+        narrowTimer = 0; // wide and the snake's shrink venom fight over paddle.w; whichever was just caught wins
         wideTimer = 8;
         // W stacks: each W widens the paddle further (1.4x -> 1.7x -> 2.0x, capped)
         const ratio = paddle.w / PADDLE_W;
@@ -67,17 +68,29 @@ function spawnCheatCapsule(x, y) {
 function updatePowerups() {
     for (let i = powerups.length - 1; i >= 0; i--) {
         const p = powerups[i];
+        if (p.type === 'poison') {
+            // The snake's venom spit weaves side to side as it falls — the curve alone marks it as an
+            // attack, not a drop, before the toxic color even registers.
+            p.age += timeScale;
+            p.x = p.baseX + Math.sin(p.age * SNAKE_SPIT_CURVE_FREQ) * SNAKE_SPIT_CURVE_AMPLITUDE;
+        }
         p.y += p.vy * timeScale;
         // Catch test against the solid parts of the paddle (the capsule gets a slightly bigger catch
         // radius than normal powerups — missing it is a real loss, so it isn't pixel-perfect to grab)
         if (paddleOverlap(p.x, p.y, p.type === 'cheatcode' ? 18 : 12)) {
             if (p.type === 'cheatcode') {
                 revealLevelCode();
+            } else if (p.type === 'poison') {
+                applyPoison(p.debuff);
             } else {
                 applyPowerup(p.type);
             }
             spawnParticles(p.x, p.y, p.color);
-            beep();
+            if (p.type === 'poison') {
+                tone(200, 0.3, { type: 'sawtooth', vol: 0.2, slideTo: 70, key: 'poisonCatch', force: true });
+            } else {
+                beep();
+            }
             haptic(15);
             powerups.splice(i, 1);
             continue;
@@ -115,6 +128,28 @@ function drawPowerups() {
             ctx.fillStyle = '#fff3c4';
             ctx.font = 'bold 17px sans-serif';
             ctx.fillText('?', p.x, p.y + 6);
+            continue;
+        }
+        if (p.type === 'poison') {
+            // Toxic and dripping, pulsing faster and uglier than any real powerup's halo — unmistakably
+            // not a catch you want.
+            const pulse = 1 + 0.18 * Math.sin(performance.now() / 90);
+            ctx.fillStyle = SNAKE_POISON_GLOW;
+            ctx.globalAlpha = 0.28;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 16 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = SNAKE_POISON_GLOW;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.fillStyle = '#1a0a2e';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillText('☠', p.x, p.y + 4);
             continue;
         }
         ctx.fillStyle = p.color;

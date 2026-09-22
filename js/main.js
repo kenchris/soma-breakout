@@ -173,6 +173,7 @@ function drawStatusChips() {
     const chips = [];
     if (slowTimer > 0) chips.push({ text: 'SLOW ' + Math.ceil(slowTimer), color: '#cc33cc' });
     if (wideTimer > 0) chips.push({ text: 'WIDE ' + Math.ceil(wideTimer), color: '#ff9900' });
+    if (narrowTimer > 0) chips.push({ text: 'SHRUNK ' + Math.ceil(narrowTimer), color: SNAKE_POISON_COLOR });
     if (doubleTimer > 0) chips.push({ text: '2× SCORE ' + Math.ceil(doubleTimer), color: '#e6b800' });
     if (fireTimer > 0) chips.push({ text: 'FIRE ' + Math.ceil(fireTimer), color: '#ff6a00' });
     if (guidedTimer > 0) chips.push({ text: 'GUIDED ' + Math.ceil(guidedTimer), color: '#a06cff' });
@@ -613,6 +614,13 @@ function update() {
     if (wideTimer > 0) {
         wideTimer -= 1 / 60;
         if (wideTimer <= 0) {
+            paddle.w = PADDLE_W;
+            paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+        }
+    }
+    if (narrowTimer > 0) {
+        narrowTimer -= 1 / 60;
+        if (narrowTimer <= 0) {
             paddle.w = PADDLE_W;
             paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
         }

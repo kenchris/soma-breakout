@@ -43,6 +43,7 @@ function setOverlayMessage(text) {
 // summary (optional): { newBest, rows: [[label, value], ...] } rendered as stat tiles
 
 function showOverlay(message, buttonText = 'Launch', summary = null) {
+    suspendLock(); // an overlay means the mouse needs to click something — give the cursor back
     const overlay = document.getElementById('overlay');
     const msg = document.getElementById('overlay-message');
     const btn = document.getElementById('overlay-button');
@@ -382,8 +383,10 @@ function updateTouchUi() {
 // --- Pointer Lock (mouse only, desktop) ---
 // Grabs the OS mouse cursor: the browser reports only relative movement (movementX) instead of an absolute
 // position, so the paddle is never limited by screen edges or window size, and moving the mouse fast keeps
-// working even past the edge of the monitor. Opt-in (a friend asked for it) since it hides the cursor and
-// takes over the mouse, which not everyone wants.
+// working even past the edge of the monitor. On by default for mouse players (see pointerLockWanted in
+// state.js) — without it, an ordinary fast mouse move overshoots the canvas and the paddle just stops
+// tracking until the cursor comes back. The Lock button/L key still lets anyone turn it back off; a click
+// on the canvas re-requests it (the browser requires a fresh gesture each time), including right after Esc.
 
 function updateLockUi() {
     const btn = document.getElementById('lock-btn');

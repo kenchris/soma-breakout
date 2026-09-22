@@ -119,6 +119,8 @@ let slowTimer = 0;
 
 let wideTimer = 0;
 
+let narrowTimer = 0;       // seconds of shrunk paddle left (the snake's "shrink" venom — see snakeBoss.js)
+
 let doubleTimer = 0;       // seconds of 2x score left
 
 let fireTimer = 0;         // seconds of fire ball left: pierces every brick, never bounces off them
@@ -190,7 +192,8 @@ let touchpadDot = null;
 let touchpadPct = -1;
 
 
-let pointerLockWanted = false; // the player turned it on; the browser may still grant/revoke it independently
+let pointerLockWanted = true; // defaults on for mouse players (see ui.js); the Lock button/L key turns it
+                               // off, and the browser may still grant/revoke it independently either way
 
 let pointerLocked = false;     // document.pointerLockElement === canvas, cached on pointerlockchange
 
