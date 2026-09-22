@@ -13,11 +13,24 @@ function bossPhase() {
 }
 
 
+// Two boss types share this arena slot: the mothership (below) and the snake (snakeBoss.js). The first
+// encounter is always the snake (an early, faster-paced fight) and the second is always the mothership;
+// from the SNAKE_UNLOCK_N-th encounter on it's a coin flip, picked deterministically per level like
+// everything else here, so ?level=N always gives the same boss. (Encounters 3+ reuse this same pair for
+// now — future boss types can slot in here once they exist.)
 function spawnBoss() {
     const n = Math.floor(level / UNLOCK.boss);
+    if (n === 1) {
+        spawnSnakeBoss();
+        return;
+    }
+    if (n >= SNAKE_UNLOCK_N && seededRandom(level * 11113 + 5)() < SNAKE_CHANCE) {
+        spawnSnakeBoss();
+        return;
+    }
     const hp = 6 + 8 * n; // 14, 22, 30, 38 ... (a chain multiplies damage, so later bosses need to grow faster)
     boss = {
-        n, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 130, t: 0, mt: 0, intro: 100,
+        kind: 'mothership', n, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 130, t: 0, mt: 0, intro: 100,
         atk: null, atkIn: 150, lastAtk: null, minionIn: 60 * 12, flash: 0, cool: 0,
         dying: 0, beamFx: 0, beamX: 0, lastPhase: 1, chain: 0, chainT: 0
     };
@@ -27,11 +40,13 @@ function spawnBoss() {
 // Hull and dome as two rectangles (x0, y0, x1, y1)
 
 function bossRects() {
+    if (boss.kind === 'snake') return snakeRects(); // used for guided-ball targeting; see snakeBoss.js
     const B = boss;
     return [[B.x - 108, B.y - 17, B.x + 108, B.y + 43], [B.x - 46, B.y - 43, B.x + 46, B.y - 17]];
 }
 
 // The weak point: a fixed hatch on the belly. A ball touching the hull from below is ~21px under its centre.
+// (The snake has no equivalent critical zone — hitting nearer its head already does more, by construction.)
 
 function bossCore() {
     return { x: boss.x, y: boss.y + 30 };
@@ -39,6 +54,7 @@ function bossCore() {
 
 
 function inBossHatch(x, y) {
+    if (boss.kind === 'snake') return false;
     const core = bossCore();
     return Math.hypot(x - core.x, y - core.y) < 34;
 }
@@ -148,6 +164,10 @@ function updateBossAttacks() {
 function updateBoss() {
     const B = boss;
     if (!B) return;
+    if (B.kind === 'snake') {
+        updateSnakeBoss();
+        return;
+    }
     B.t++;
     if (B.dying > 0) {
         updateBossDeath();
@@ -196,7 +216,12 @@ function checkBossPhase() {
 
 function bossBallCollision(b) {
     const B = boss;
-    if (!B || B.intro > 0 || B.dying > 0 || B.cool > 0) return;
+    if (!B) return;
+    if (B.kind === 'snake') {
+        snakeBallCollision(b);
+        return;
+    }
+    if (B.intro > 0 || B.dying > 0 || B.cool > 0) return;
     for (const [x0, y0, x1, y1] of bossRects()) {
         const cx = Math.max(x0, Math.min(b.x, x1));
         const cy = Math.max(y0, Math.min(b.y, y1));
@@ -258,13 +283,16 @@ function bossBallCollision(b) {
 // A lost ball gives the boss a breather too (it never heals)
 
 function bossBreather() {
-    if (boss && boss.dying <= 0) {
-        boss.atk = null;
-        boss.atkIn = 150;
-        boss.beamFx = 0;
-        boss.chain = 0;
-        boss.chainT = 0;
+    if (!boss || boss.dying > 0) return;
+    if (boss.kind === 'snake') {
+        snakeBreather();
+        return;
     }
+    boss.atk = null;
+    boss.atkIn = 150;
+    boss.beamFx = 0;
+    boss.chain = 0;
+    boss.chainT = 0;
 }
 
 
@@ -352,6 +380,10 @@ function drawBossTelegraph(B) {
 function drawBoss() {
     const B = boss;
     if (!B) return;
+    if (B.kind === 'snake') {
+        drawSnakeBoss();
+        return;
+    }
     if (B.atk) drawBossTelegraph(B);
     if (!bossSprite) bossSprite = makeSprite(240, 110, paintBossSprite);
     const jitter = B.dying > 0 ? (Math.random() - 0.5) * 8 : 0;
@@ -400,6 +432,10 @@ function drawBoss() {
 function drawBossBar() {
     const B = boss;
     if (!B || B.dying > 0) return;
+    if (B.kind === 'snake') {
+        drawSnakeBossBar();
+        return;
+    }
     const w = 460;
     const x = (CANVAS_W - w) / 2;
     const y = 64; // below the event banner, which can appear over the top of the playfield

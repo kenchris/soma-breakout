@@ -662,6 +662,10 @@ function update() {
 // Floating popups: drift upward and fade out; "pop" popups punch in from a larger scale
 
 function render() {
+    // Defensive: guarantee an identity transform at the start of every frame, so a canvas-state leak
+    // anywhere (a stray translate/scale, an unbalanced save/restore) can never carry over and leave the
+    // background — or anything after it — painted off to one side on a later frame.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     // Backdrop stays put while the playfield shakes
     drawBackground();
 

@@ -71,6 +71,37 @@ const ROW_STYLES = [
 
 
 const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7, cheat: 2 };
+
+// --- Snake boss (the second boss type, alongside the mothership) ---
+const SNAKE_UNLOCK_N = 3;   // from the Nth boss encounter on, it's a coin flip against the mothership;
+                             // the 1st and 2nd encounters are fixed instead (see spawnBoss in boss.js)
+const SNAKE_CHANCE = 0.5;   // from SNAKE_UNLOCK_N on, the odds a given boss level is a snake rather than a mothership
+const SNAKE_CELL = 28;      // square cells, unlike the bricks' 64x20 — a proper classic-Snake grid
+const SNAKE_COLS = 22;
+const SNAKE_ROWS = 13;
+const SNAKE_LEFT = (CANVAS_W - SNAKE_COLS * SNAKE_CELL) / 2;
+const SNAKE_TOP = 110;       // below the boss health bar / event banner area
+const SNAKE_COLOR = '#3ddc6b';
+const SNAKE_HEAD_COLOR = '#8dffab';
+const SNAKE_OBSTACLE_COLOR = '#8a6d3b';
+const SNAKE_REGROW_DELAY_FRAMES = 60 * 3;   // no hits for this long and it starts regrowing
+const SNAKE_REGROW_INTERVAL_FRAMES = 45;    // then one segment back every 0.75s while under that grace
+const SNAKE_OBSTACLE_RESPAWN_MIN = 1.5;     // seconds — snappier than the mothership's crates, since a
+const SNAKE_OBSTACLE_RESPAWN_SPREAD = 1.5;  // stale gap in the grid just makes the fight feel slow, and a
+                                             // full grid gives the ball more to ping-pong off on the way in
+const SNAKE_OBSTACLE_GHOST_SHARE = 0.3;     // this fraction of obstacles are harmless see-through decoys
+const SNAKE_WALL_W = 120;                   // a moving paddle-like wall floating between the arena and the
+const SNAKE_WALL_H = 14;                    // player's paddle — a second surface to rally the ball off of,
+const SNAKE_WALL_Y = SNAKE_TOP + SNAKE_ROWS * SNAKE_CELL + 36; // matching the sliding walls of level 3+
+const SNAKE_WALL_BASE_SPEED = 3.4;          // a bit brisker than the ordinary walls' opening speed, and
+const SNAKE_WALL_SPEED_PER_N = 0.5;         // ramps with each repeat encounter, capped so it stays returnable
+const SNAKE_WALL_MAX_SPEED = 7.5;
+const SNAKE_MAX_CUT_FRACTION = 0.3;         // a single hit can never remove more than this share of the
+                                             // snake's CURRENT length (so a head shot can't one-shot it,
+                                             // and no single hit guts most of it either); the last segment
+                                             // is always finishable in one hit regardless
+const SNAKE_ASSIST_SEGMENTS = 3;    // at or below this many segments left, it's a small fast target —
+const SNAKE_ASSIST_CHANCE = 0.55;   // drops get more frequent and lean toward Multi-ball & Shield to help land the finish
 const CHEAT_CHANCE_START = 0.4; // chance of a cheat-code brick right when they unlock
 const CHEAT_CHANCE_FLOOR = 0.1; // they never get rarer than this, however high the level
 const CHEAT_COLOR = '#e8b400'; // gold, distinct from TNT's red/yellow so the two are never confused

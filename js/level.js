@@ -356,6 +356,7 @@ function spawnLevel() {
     crates = [];
     crateTimer = 0;
     warpRift = null; // any rift belonged to the level just left
+    movingWalls = buildWalls(); // built before spawnBoss() so the snake boss can add its own wall to it
     const layout = currentLayout();
     const isSteel = buildSteelMask(layout, STEEL_STYLES[(level - 1) % STEEL_STYLES.length]);
 
@@ -400,7 +401,6 @@ function spawnLevel() {
     if (plan.boss) spawnBoss();
     introPending = true;
 
-    movingWalls = buildWalls();
     buildBackground();
 }
 
@@ -421,7 +421,10 @@ function makeBall(x, y, vx, vy) {
 
 function currentSpeed() {
     const base = Math.min(5 + (level - 1) * 0.4, 8);
-    const progress = levelBricksTotal > 0 ? 1 - bricksLeft / levelBricksTotal : (boss ? 1 - boss.hp / boss.maxHp : 0);
+    let progress = 0;
+    if (levelBricksTotal > 0) progress = 1 - bricksLeft / levelBricksTotal;
+    else if (boss && boss.kind === 'snake') progress = 1 - boss.segments.length / boss.startLength;
+    else if (boss) progress = 1 - boss.hp / boss.maxHp;
     const cleared = Math.max(0, Math.min(1, progress));
     return base + 1.2 * cleared;
 }
