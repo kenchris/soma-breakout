@@ -249,6 +249,11 @@ function applyPoison(debuff, scale = 1) {
     if (debuff === 'mirror') {
         startChaos('fullFlip');
         chaos.total = chaos.left = Math.round(chaos.total * scale);
+        // Unlike the scheduled FULL FLIP chaos event (which warns a few seconds ahead — see
+        // startChaosWarning in chaos.js), this one lands with zero warning. A free miss covers the
+        // disorientation while the player's brain catches up with mirrored controls.
+        shield = Math.min(shield + 1, SHIELD_MAX);
+        addPopup(paddle.x + paddle.w / 2, paddle.y - 30, 'Free shield!', '#33ddff', { life: 1.4, size: 14, rise: 0.2 });
     } else if (debuff === 'fast') {
         chaos.scale = TIME_WARP.turbo;
         startChaos('timeWarp');
@@ -318,6 +323,11 @@ function updateSnakeBoss() {
             addPopup(CANVAS_W / 2, 250, 'A WILD SNAKE APPEARS!', '#8dffab', { size: 28, life: 1.8, rise: 0.3, pop: true });
             tone(260, 0.4, { type: 'sawtooth', vol: 0.22, slideTo: 500, key: 'siren', force: true });
             haptic([50, 30, 50], true);
+            // Same cushion the mothership gets on its own intro (see updateBoss in boss.js) — this is
+            // usually the player's very first boss fight, so a guaranteed free miss up front keeps an
+            // unlucky opening launch from ending the run before the fight has really begun.
+            shield = Math.min(shield + 1, SHIELD_MAX);
+            addPopup(CANVAS_W / 2, 380, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 });
         }
         B.intro--;
         return;

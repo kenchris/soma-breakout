@@ -571,7 +571,7 @@ function update() {
                 b.y = CANVAS_H - b.r;
                 b.vy = -Math.abs(b.vy);
                 for (let x = 0; x < CANVAS_W; x += 60) spawnParticles(x, CANVAS_H - 2, '#33ddff', 3);
-                if (!free) addPopup(b.x, CANVAS_H - 40, shield > 0 ? 'Shield saved you! (' + shield + ' left)' : 'Shield saved you!', '#33ddff', { life: 1.2 });
+                if (!free) addPopup(b.x, CANVAS_H - 40, shield > 0 ? 'Shield saved you! (' + shield + ' left)' : 'Shield saved you! No more shields!', shield > 0 ? '#33ddff' : '#ff9a2e', { life: shield > 0 ? 1.2 : 1.8 });
                 addShake(6);
                 haptic([20, 40, 20], true);
                 tone(300, 0.25, { type: 'sawtooth', vol: 0.2, slideTo: 900 });
