@@ -95,12 +95,16 @@ const PONG_AIM_ERROR = 0.8;        // up to this share of its width off where th
 const PONG_SMASH = 1.06;           // from phase 2 each return speeds the ball up by this much...
 const PONG_SMASH_CAP = 1.3;        // ...up to this multiple of the level's normal ball speed
 const PONG_NET_Y = 330;
-// Its one-way bricks: PONG_WALL_COUNT of them scattered over random cells of a grid in its half of the
-// court, from just under its paddle down towards the net (full-width columns, PONG_WALL_ROWS rows)
+// Its one-way bricks: PONG_WALL_COUNT of them on random cells of a grid in its half of the court, from
+// just under its paddle down towards the net (full-width columns, PONG_WALL_ROWS rows). Every few seconds
+// each one fades out and reappears on another free cell.
 const PONG_WALL_TOP = PONG_Y + PONG_H + 22;
 const PONG_WALL_ROWS = 6;
 const PONG_WALL_ROW_STEP = 26;
-const PONG_WALL_COUNT = 18;
+const PONG_WALL_COUNT = 8;
+const PONG_HOP_MIN = 60 * 4;        // frames a brick stays put before hopping elsewhere...
+const PONG_HOP_SPREAD = 60 * 3;     // ...plus up to this much, so they don't all hop at once
+const PONG_HOP_FADE = 20;           // frames to fade out, and again to fade back in (not solid meanwhile)
 const PONG_WALL_POINTS = 40;
 
 // --- Asteroids boss: "Asteroid Field" (asteroidsBoss.js) ---

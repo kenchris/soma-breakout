@@ -229,7 +229,8 @@ function loseLife() {
         haptic(250, true);
         inputLockUntil = performance.now() + 700;
         const summary = buildSummary(false);
-        showOverlay('Game over\nTap or press R to play again', 'Play again', summary);
+        const from = restartLevel();
+        showOverlay('Game over\nTap or press R to play again' + (from > 1 ? ' from level ' + from : ''), 'Play again', summary);
         prepareShareCard(summary);
     } else {
         balls.push(makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, currentSpeed(), -currentSpeed()));

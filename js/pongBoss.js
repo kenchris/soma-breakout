@@ -3,13 +3,13 @@
 // An AI paddle guards the top edge of the screen, which is its goal. Get the ball past it to the top wall
 // and that's a goal; score enough goals to win the match. It reads where the ball will arrive (side-wall
 // bounces included) but moves at a capped speed and aims with a random error each return, so wide angled
-// shots beat it. One-way bricks are scattered across its half of the court: they stop your shots going
-// up (each hit breaks one) but let its returns straight through on the way down, so they only ever help
-// it. As it loses it gets harder: from phase 2 it rebuilds every one you've broken and returns faster
-// "smash" shots, and in phase 3 it splits into twin paddles, each guarding its own half of the court, and
-// in a rage calls for backup: three of the regular aliens warp in to shoot holes in your paddle. Your
-// paddle and its paddle count as two rally surfaces, so a long back-and-forth earns the usual PING PONG
-// bonus too.
+// shots beat it. One-way bricks drift about its half of the court (every few seconds each fades out and
+// reappears somewhere else): they stop your shots going up (each hit breaks one) but let its returns
+// straight through on the way down, so they only ever help it. As it loses it gets harder: from phase 2
+// it rebuilds every one you've broken and returns faster "smash" shots, and in phase 3 it splits into twin
+// paddles, each guarding its own half of the court, and in a rage calls for backup: three of the regular
+// aliens warp in to shoot holes in your paddle. Your paddle and its paddle count as two rally surfaces, so
+// a long back-and-forth earns the usual PING PONG bonus too.
 
 function spawnPongBoss(n) {
     const goals = Math.min(4 + n, 12); // 7 at its debut (the 3rd boss encounter)
@@ -22,17 +22,57 @@ function spawnPongBoss(n) {
 }
 
 // One-way bricks on PONG_WALL_COUNT distinct random cells of a grid spanning the court's width, from just
-// under the rival's paddle down towards the net; a fresh layout every fight
+// under the rival's paddle down towards the net; each with its own hop clock, staggered
 function buildPongWall() {
-    const cols = Math.floor((CANVAS_W - 4) / BRICK_W);
-    const cells = [];
-    for (let c = 0; c < cols; c++) for (let r = 0; r < PONG_WALL_ROWS; r++) cells.push([c, r]);
-    for (let i = cells.length - 1; i > 0; i--) { // shuffle
-        const j = Math.floor(Math.random() * (i + 1));
-        [cells[i], cells[j]] = [cells[j], cells[i]];
+    const wall = [];
+    for (let i = 0; i < PONG_WALL_COUNT; i++) {
+        const w = { x: 0, y: 0, alive: true, fade: 0, vanish: 0, appear: 0, hopIn: pongHopDelay() };
+        placeOnFreeCell(w, wall);
+        wall.push(w);
     }
-    return cells.slice(0, PONG_WALL_COUNT).map(([c, r]) =>
-        ({ x: 2 + c * BRICK_W, y: PONG_WALL_TOP + r * PONG_WALL_ROW_STEP, alive: true, fade: 0 }));
+    return wall;
+}
+
+function pongHopDelay() {
+    return PONG_HOP_MIN + Math.floor(Math.random() * PONG_HOP_SPREAD);
+}
+
+// Move brick w to a random grid cell no other (alive) brick in the wall is on
+function placeOnFreeCell(w, wall) {
+    const cols = Math.floor((CANVAS_W - 4) / BRICK_W);
+    const taken = new Set(wall.filter(o => o !== w && o.alive).map(o => o.x + ',' + o.y));
+    const free = [];
+    for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < PONG_WALL_ROWS; r++) {
+            const x = 2 + c * BRICK_W, y = PONG_WALL_TOP + r * PONG_WALL_ROW_STEP;
+            if (!taken.has(x + ',' + y) && !(x === w.x && y === w.y)) free.push([x, y]);
+        }
+    }
+    [w.x, w.y] = free[Math.floor(Math.random() * free.length)];
+}
+
+// Solid only while fully there: mid-hop (fading out or back in) the ball passes through
+function pongBrickSolid(w) {
+    return w.alive && w.vanish === 0 && w.appear === 0;
+}
+
+// Each brick sits a while, fades out, jumps to a free cell, and fades back in
+function updatePongBricks() {
+    const wall = boss.wall;
+    for (const w of wall) {
+        if (!w.alive) continue;
+        if (w.vanish > 0) {
+            if (--w.vanish === 0) {
+                placeOnFreeCell(w, wall);
+                w.appear = PONG_HOP_FADE;
+            }
+        } else if (w.appear > 0) {
+            w.appear--;
+        } else if (--w.hopIn <= 0) {
+            w.vanish = PONG_HOP_FADE;
+            w.hopIn = pongHopDelay();
+        }
+    }
 }
 
 function pongPhase() {
@@ -77,6 +117,7 @@ function updatePongBoss() {
     if (B.cool > 0) B.cool--;
     if (B.flash > 0) B.flash--;
     if (B.rage > 0) B.rage--;
+    updatePongBricks();
     // Its backup warps in one alien at a time, so they don't all arrive stacked on top of each other
     if (B.backup > 0 && --B.backupIn <= 0) {
         spawnAlien();
@@ -140,7 +181,7 @@ function pongBallCollision(b) {
 function pongWallCollision(b) {
     if (b.vy >= 0) return false;
     for (const w of boss.wall) {
-        if (!w.alive) continue;
+        if (!pongBrickSolid(w)) continue;
         const cx = Math.max(w.x, Math.min(b.x, w.x + BRICK_W));
         const cy = Math.max(w.y, Math.min(b.y, w.y + BRICK_H));
         const dx = b.x - cx, dy = b.y - cy;
@@ -148,7 +189,7 @@ function pongWallCollision(b) {
         w.alive = false;
         w.fade = 16;
         addScore(PONG_WALL_POINTS * (doubleTimer > 0 ? 2 : 1));
-        spawnParticles(w.x + BRICK_W / 2, w.y + BRICK_H / 2, '#b58cff', 10);
+        spawnParticles(w.x + BRICK_W / 2, w.y + BRICK_H / 2, '#9a6bff', 10);
         beep(560, 'rivalWall');
         addShake(2);
         if (fireTimer <= 0) {
@@ -188,10 +229,14 @@ function pongGoal(b) {
         for (const w of B.wall) {
             if (w.alive) continue;
             w.alive = true;
+            placeOnFreeCell(w, B.wall);
+            w.vanish = 0;
+            w.appear = PONG_HOP_FADE;
+            w.hopIn = pongHopDelay();
             rebuilt++;
-            spawnParticles(w.x + BRICK_W / 2, w.y + BRICK_H / 2, '#b58cff', 6);
+            spawnParticles(w.x + BRICK_W / 2, w.y + BRICK_H / 2, '#9a6bff', 6);
         }
-        if (rebuilt) addPopup(CANVAS_W / 2, 250, 'IT REBUILDS ITS BRICKS!', '#b58cff', { size: 22, life: 1.8, rise: 0.25, pop: true });
+        if (rebuilt) addPopup(CANVAS_W / 2, 250, 'IT REBUILDS ITS BRICKS!', '#9a6bff', { size: 22, life: 1.8, rise: 0.25, pop: true });
     } else {
         // Splits into twins, each guarding its own half of the court
         const w = PONG_WIDTHS[2];
@@ -307,30 +352,32 @@ function drawRivalSlab(x, y, w, h, enraged) {
 
 let oneWaySprite = null;
 
-// A translucent violet brick with white chevrons pointing down: "this way through only"
+// The game's own bevelled brick in violet, marked with one crisp pixel arrow pointing down: "only this way
+// through". Fading while it hops; sinking away when broken.
 function drawPongWall(B) {
     if (!oneWaySprite) {
         oneWaySprite = makeSprite(BRICK_W, BRICK_H, g => {
-            g.fillStyle = 'rgba(140, 90, 255, 0.45)';
-            g.fillRect(1, 1, BRICK_W - 2, BRICK_H - 2);
-            g.strokeStyle = '#b58cff';
-            g.lineWidth = 1.5;
-            g.strokeRect(1.5, 1.5, BRICK_W - 3, BRICK_H - 3);
-            g.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-            g.lineWidth = 2;
-            g.lineCap = 'square';
-            for (const cx of [BRICK_W / 2 - 16, BRICK_W / 2, BRICK_W / 2 + 16]) {
-                g.beginPath();
-                g.moveTo(cx - 5, 6);
-                g.lineTo(cx, 12);
-                g.lineTo(cx + 5, 6);
-                g.stroke();
-            }
+            g.drawImage(brickSprite({ color: '#6a3fd6', steel: false, tnt: false }), 0, 0);
+            const cx = BRICK_W / 2;
+            g.fillStyle = 'rgba(0, 0, 0, 0.35)'; // a drop shadow under the arrow, one pixel down-right
+            g.fillRect(cx - 1, 5, 4, 6);
+            g.fillRect(cx - 5, 11, 12, 2);
+            g.fillRect(cx - 3, 13, 8, 2);
+            g.fillRect(cx - 1, 15, 4, 2);
+            g.fillStyle = '#ffffff';
+            g.fillRect(cx - 2, 4, 4, 6);  // stem
+            g.fillRect(cx - 6, 10, 12, 2); // head, narrowing to the tip
+            g.fillRect(cx - 4, 12, 8, 2);
+            g.fillRect(cx - 2, 14, 4, 2);
         });
     }
     for (const w of B.wall) {
         if (w.alive) {
+            const a = w.vanish > 0 ? w.vanish / PONG_HOP_FADE : w.appear > 0 ? 1 - w.appear / PONG_HOP_FADE : 1;
+            ctx.save();
+            ctx.globalAlpha = a;
             ctx.drawImage(oneWaySprite, w.x, w.y);
+            ctx.restore();
         } else if (w.fade > 0) {
             w.fade--;
             ctx.save();

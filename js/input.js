@@ -170,7 +170,7 @@ function handlePointerUp(e) {
     }
     if (isTap && !endScreenLocked()) {
         if (gameState === 'lost') {
-            resetGame(getStartingLevel());
+            resetGame(restartLevel());
             lastTapAt = 0;
         } else if (gameState === 'ready' || gameState === 'won') {
             launchGame();
@@ -188,9 +188,9 @@ function handleKeyDown(e) {
     // While the how-to-play dialog is up, only its own keys work: Space/P/R would act on the game behind it
     if (legendOpen() && e.key !== 'h' && e.key !== 'H' && e.key !== 'Escape') return;
     if (e.key === 'r' || e.key === 'R') {
-        // Restart from ready, won, or lost
+        // Restart from ready, won, or lost (after a game over, from your furthest unlocked level: see restartLevel)
         if ((gameState === 'ready' || gameState === 'won' || gameState === 'lost') && !endScreenLocked()) {
-            resetGame(getStartingLevel());
+            resetGame(gameState === 'lost' ? restartLevel() : getStartingLevel());
         }
         return;
     }

@@ -49,7 +49,7 @@ function bossRects() {
     if (boss.kind === 'snake') return snakeRects(); // used for guided-ball targeting; see snakeBoss.js
     if (boss.kind === 'asteroids') return asteroidsRects();
     if (boss.kind === 'pong') { // its one-way bricks: the guided ball helps clear a way through
-        return boss.wall.filter(w => w.alive).map(w => [w.x, w.y, w.x + BRICK_W, w.y + BRICK_H]);
+        return boss.wall.filter(pongBrickSolid).map(w => [w.x, w.y, w.x + BRICK_W, w.y + BRICK_H]);
     }
     const B = boss;
     return [[B.x - 108, B.y - 17, B.x + 108, B.y + 43], [B.x - 46, B.y - 43, B.x + 46, B.y - 17]];

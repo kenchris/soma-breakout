@@ -27,6 +27,13 @@ function getStartingLevel() {
     return 1;
 }
 
+// Where a new run starts after a game over: the level you died on if you've found its cheat code, else the
+// nearest earlier level you have one for, else the usual start (level 1, or what the URL asks for)
+function restartLevel() {
+    const unlocked = Object.keys(foundCodes).map(Number).filter(l => l <= level);
+    return unlocked.length ? Math.max(...unlocked) : getStartingLevel();
+}
+
 // --- Level codes ---
 // The code a player sees and shares is deliberately NOT the level number itself (that would just be
 // "type 6 to get level 6" — trivially guessable, and consecutive levels would look obviously related).

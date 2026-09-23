@@ -167,6 +167,7 @@ function renderFoundCodesPanel(justFound) {
     const empty = document.getElementById('found-codes-empty');
     if (!panel || !list) return;
     const levels = Object.keys(foundCodes).map(Number).sort((a, b) => a - b);
+    renderOverlayJumps(levels);
     list.textContent = '';
     if (empty) empty.style.display = levels.length ? 'none' : 'block';
     for (const lvl of levels) {
@@ -193,6 +194,32 @@ function renderFoundCodesPanel(justFound) {
         item.className = 'found-code';
         item.append(chip, share);
         list.appendChild(item);
+    }
+}
+
+
+// The same unlocked levels as compact jump buttons inside the launch / game-over dialog, which covers the
+// panel under the canvas. stopPropagation: the dialog's own click listener would otherwise launch or restart.
+function renderOverlayJumps(levels) {
+    const box = document.getElementById('overlay-codes');
+    if (!box) return;
+    box.textContent = '';
+    if (!levels.length) return;
+    const lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = 'JUMP TO LEVEL';
+    box.appendChild(lbl);
+    for (const lvl of levels) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'jump-chip';
+        chip.textContent = lvl;
+        chip.title = 'Start at level ' + lvl + ' (code ' + foundCodes[lvl] + ')';
+        chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetGame(lvl);
+        });
+        box.appendChild(chip);
     }
 }
 
@@ -255,7 +282,7 @@ function endScreenLocked() {
 function handleOverlayAction() {
     if (endScreenLocked()) return;
     if (gameState === 'lost') {
-        resetGame(getStartingLevel());
+        resetGame(restartLevel());
     } else if (gameState === 'ready' || gameState === 'won') {
         launchGame();
     } else if (gameState === 'paused') {

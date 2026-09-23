@@ -539,6 +539,24 @@
             padding-top: 18px;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
+        /* Your unlocked levels as one-tap jumps inside the dialog itself: the found-codes panel under the
+           canvas is out of reach while a dialog is up (and entirely covered by it on a phone) */
+        #overlay-codes { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; max-width: 340px; }
+        #overlay-codes:empty { display: none; }
+        #overlay-codes .lbl { width: 100%; font-family: var(--px); font-size: 9px; letter-spacing: 1px; color: var(--dim); margin-bottom: 2px; }
+        .jump-chip {
+            min-width: 38px;
+            padding: 7px 8px;
+            background: rgba(10, 5, 22, 0.85);
+            border: 1px solid rgba(255, 211, 25, 0.6);
+            border-radius: 0;
+            color: var(--yellow);
+            font-family: var(--px);
+            font-size: 10px;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.08s;
+        }
+        .jump-chip:active { transform: translateY(1px); }
         #cheat-code-toggle {
             background: transparent;
             border: 1px solid rgba(154, 140, 192, 0.45);
@@ -769,6 +787,7 @@
             .hud-btn.active:hover { background: var(--btn); color: var(--bg-0); }
             .found-code-chip:hover { background: rgba(255, 211, 25, 0.15); }
             .found-code-share:hover { background: rgba(255, 211, 25, 0.15); }
+            .jump-chip:hover { background: rgba(255, 211, 25, 0.15); }
             #share-btn:hover { background: rgba(255, 47, 180, 0.15); }
             #overlay-button:hover { background: #ffe25c; }
             #cheat-code-toggle:hover { color: var(--ink); border-color: var(--cyan); }
@@ -913,6 +932,7 @@
                     </button>
                 </div>
                 <div id="cheat-code-area">
+                    <div id="overlay-codes"></div>
                     <button id="cheat-code-toggle" type="button">Enter Cheat Code</button>
                     <div id="level-code-entry">
                         <input id="level-code-input" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" pattern="[0-9A-Za-z]*" maxlength="6" placeholder="e.g. 4F2A" aria-label="Enter a cheat code" />
