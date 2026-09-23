@@ -144,13 +144,22 @@ const CHEAT_COLOR = '#e8b400'; // gold, distinct from TNT's red/yellow so the tw
 const POWERUP_UNLOCK = { multi: 2, explosive: 2, double: 2, sticky: 3, shield: 3, fire: 4, guided: 6, split: 5 };
 // Short "what's new" hints, shown when the level starts
 
+// What's new on a level, shown as an intro card at launch (see showLevelIntro in level.js). Kept short:
+// the card is read in a couple of seconds while the ball is already in play.
 const LEVEL_INTROS = {
-    2: ['NEW: TNT bricks chain-explode', 'NEW drops: Multi-ball, Explosive, 2× Score'],
-    3: ['NEW: sliding walls', 'NEW: aliens shoot holes in your paddle: shoot them down!', 'NEW drops: Sticky, Shield'],
-    4: ['NEW: weird events: the world may flip or change speed', 'NEW drop: Fire ball'],
-    5: ['BOSS FIGHT', 'Hit the amber \u00d73 hatch on its belly for triple damage', 'Gold crates hold powerups (new ones keep appearing): break them, or catch what the boss shoots loose', 'Hit it again within 5 seconds to chain: \u00d72, then \u00d73 damage', 'NEW drop: Split Paddle \u2014 splits in two; one half mirrors your movement'],
-    6: ['NEW: your controls may reverse', 'NEW drop: Guided ball'],
-    8: ['NEW: the whole screen may flip']
+    2: { title: 'NEW: TNT', lines: ['TNT bricks chain-explode', 'New drops: Multi-ball, Explosive, 2\u00d7 Score'] },
+    3: { title: 'NEW: WALLS & ALIENS', lines: ['Sliding walls bounce the ball back', 'Aliens shoot holes in your paddle: shoot them down!', 'New drops: Sticky, Shield'] },
+    4: { title: 'NEW: WEIRD EVENTS', lines: ['The world may flip or change speed', 'New drop: Fire ball'] },
+    5: { lines: ['New drop: Split Paddle, one half mirrors you'] }, // joins the boss card (level 5 is a boss level)
+    6: { title: 'NEW: MIND FLIPS', lines: ['Your controls may reverse', 'New drop: Guided ball'] },
+    8: { title: 'NEW: FULL FLIP', lines: ['The whole screen may turn upside down'] }
+};
+
+// Each boss's tips, shown the first time you meet that boss in a session. Level 5 is always the snake and
+// level 10 always the mothership (see spawnBoss), so these can't be keyed by level like the intros above.
+const BOSS_INTROS = {
+    snake: { title: 'BOSS: THE SNAKE', lines: ['Hit it near the head to chop off more', 'Leave it alone and it grows back', 'Dodge its purple venom spit'] },
+    mothership: { title: 'BOSS: THE MOTHERSHIP', lines: ['Hit the amber \u00d73 hatch for triple damage', 'Hit it again within 5s to chain \u00d72, \u00d73', 'Break the gold crates for powerups'] }
 };
 
 const CHAOS = {

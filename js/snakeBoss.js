@@ -327,7 +327,7 @@ function updateSnakeBoss() {
             // usually the player's very first boss fight, so a guaranteed free miss up front keeps an
             // unlucky opening launch from ending the run before the fight has really begun.
             shield = Math.min(shield + 1, SHIELD_MAX);
-            addPopup(CANVAS_W / 2, 380, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 });
+            addPopup(CANVAS_W / 2, CANVAS_H - 60, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 }); // by the shield line, clear of the intro card
         }
         B.intro--;
         return;

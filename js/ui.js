@@ -173,7 +173,7 @@ function renderFoundCodesPanel(justFound) {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'found-code-chip';
-        if (foundCodes[lvl] === justFound && lvl === level) chip.classList.add('just-found');
+        if (foundCodes[lvl] === justFound) chip.classList.add('just-found'); // codes are unique per level
         chip.title = 'Load level ' + lvl;
         const num = document.createElement('span');
         num.className = 'found-code-lvl';

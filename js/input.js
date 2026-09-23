@@ -16,10 +16,11 @@ function followPaddleTarget(clientX) {
     return Math.max(0, Math.min(CANVAS_W - paddle.w, centre - paddle.w / 2));
 }
 
-// Touches on buttons or the overlay belong to them, not to the paddle
+// Touches on buttons, the overlay, the codes panel or the how-to-play dialog belong to them: they must
+// neither steer the paddle nor count as a "tap anywhere" to launch / resume / restart
 
 function isControlTarget(target) {
-    return !!(target && target.closest && target.closest('button, #overlay, a, #found-codes'));
+    return !!(target && target.closest && target.closest('button, #overlay, a, #found-codes, #legend-dialog, #legend-backdrop'));
 }
 
 // Displayed pixels -> canvas coordinate space, mirrored when the view is flipped or controls are reversed
@@ -184,6 +185,8 @@ function handlePointerUp(e) {
 
 
 function handleKeyDown(e) {
+    // While the how-to-play dialog is up, only its own keys work: Space/P/R would act on the game behind it
+    if (legendOpen() && e.key !== 'h' && e.key !== 'H' && e.key !== 'Escape') return;
     if (e.key === 'r' || e.key === 'R') {
         // Restart from ready, won, or lost
         if ((gameState === 'ready' || gameState === 'won' || gameState === 'lost') && !endScreenLocked()) {

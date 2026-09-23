@@ -14,46 +14,53 @@ if (document.fonts && document.fonts.load) {
     }, () => {});
 }
 
-function crackPath(x, y, angle, length, brick, out, branchChance) {
-    const pts = [[x, y]];
-    const steps = 3 + Math.floor(Math.random() * 3);
-    let a = angle;
-    for (let s = 0; s < steps; s++) {
-        a += (Math.random() - 0.5) * 1.1; // jagged
-        const seg = (length / steps) * (0.6 + Math.random() * 0.8);
-        const nx = x + Math.cos(a) * seg;
-        const ny = y + Math.sin(a) * seg;
-        if (nx < 1 || nx > brick.w - 1 || ny < 1 || ny > brick.h - 1) {
-            // Ran into the brick's edge: end exactly on it
-            pts.push([Math.max(1, Math.min(brick.w - 1, nx)), Math.max(1, Math.min(brick.h - 1, ny))]);
-            break;
-        }
-        x = nx;
-        y = ny;
-        pts.push([x, y]);
-        if (branchChance && Math.random() < branchChance) {
-            const side = Math.random() < 0.5 ? -1 : 1;
-            out.push(crackPath(x, y, a + side * (0.6 + Math.random() * 0.8), length * 0.35, brick, out, 0));
-        }
-    }
-    return pts;
-}
-
+// --- Steel brick cracks ---
+// Pixel art on the same 2px grid as the ball: from where the ball actually struck, two fissures run out
+// sideways (the brick is wide and flat), stepping up or down now and then, with short offshoots and a
+// spur toward the struck edge, plus a few pixels chipped clean out of that edge. Random per hit; stored
+// as grid cells in brick-local coordinates and baked into the brick's sprite once by bakeCrack().
+const CRACK_CELL = 2;
 
 function makeCrack(brick, hitX, hitY) {
-    const ox = Math.max(3, Math.min(brick.w - 3, hitX - brick.x));
-    const oy = Math.max(3, Math.min(brick.h - 3, hitY - brick.y));
-    const lines = [];
-    const arms = 3 + Math.floor(Math.random() * 2);
-    const base = Math.random() * Math.PI * 2;
-    for (let i = 0; i < arms; i++) {
-        const angle = base + (i / arms) * Math.PI * 2 + (Math.random() - 0.5) * 0.9;
-        lines.push(crackPath(ox, oy, angle, 16 + Math.random() * 30, brick, lines, 0.4));
-    }
-    return { ox, oy, lines };
-}
+    const cols = Math.floor(brick.w / CRACK_CELL), rows = Math.floor(brick.h / CRACK_CELL);
+    const ox = Math.max(3, Math.min(cols - 4, Math.floor((hitX - brick.x) / CRACK_CELL)));
+    const hitRow = Math.floor((hitY - brick.y) / CRACK_CELL);
+    const towardTop = hitRow < rows / 2;
+    const oy = towardTop ? 3 : rows - 4; // a few cells in from the struck edge, so the fissures cross the face
+    const seen = new Set();
+    const cells = [];
+    const add = (x, y) => {
+        const k = x + ',' + y;
+        if (!seen.has(k)) { seen.add(k); cells.push([x, y]); }
+    };
+    // A walk that mostly heads (dx, dy) with a sideways wobble, ending at the edge or after `len` cells
+    const walk = (x, y, dx, dy, len, branchChance) => {
+        for (let i = 0; i < len; i++) {
+            if (dx) { x += dx; if (Math.random() < 0.35) y += Math.random() < 0.5 ? -1 : 1; }
+            else { y += dy; if (Math.random() < 0.3) x += Math.random() < 0.5 ? -1 : 1; }
+            if (x < 1 || x > cols - 2 || y < 1 || y > rows - 2) return;
+            add(x, y);
+            if (branchChance && Math.random() < branchChance) {
+                walk(x, y, 0, Math.random() < 0.5 ? -1 : 1, 1 + Math.floor(Math.random() * 3), 0);
+            }
+        }
+    };
+    add(ox, oy);
+    walk(ox, oy, -1, 0, 8 + Math.floor(Math.random() * 7), 0.22);
+    walk(ox, oy, 1, 0, 8 + Math.floor(Math.random() * 7), 0.22);
+    // A straight spur from the origin to the notch, so the damage reads as spreading out from the impact
+    for (let y = oy, step = towardTop ? -1 : 1; y > 0 && y < rows - 1; y += step) add(ox, y);
 
-// Small seeded PRNG (mulberry32) so a given level always generates the same layout, also for ?level=N
+    // A notch knocked out of the edge the ball struck: 2-4 cells wide, a cell deeper in the middle
+    const chips = [];
+    const edgeY = towardTop ? 0 : rows - 1;
+    const inY = towardTop ? 1 : rows - 2;
+    const w = 2 + Math.floor(Math.random() * 3);
+    const start = Math.max(1, Math.min(cols - 1 - w, ox - Math.floor(w / 2)));
+    for (let x = start; x < start + w; x++) chips.push([x, edgeY]);
+    if (w > 2) chips.push([start + Math.floor(w / 2), inY]);
+    return { cells, chips, inward: towardTop ? 1 : -1 };
+}
 
 function crateSprite(cr) {
     if (!crateSprites[cr.type]) {
@@ -312,30 +319,16 @@ function brickSprite(brick) {
 // A crack: a dented spot where the ball struck, then each fissure as a dark groove with a bright lip
 
 function paintCrack(g, crack) {
-    const dent = g.createRadialGradient(crack.ox, crack.oy, 0, crack.ox, crack.oy, 10);
-    dent.addColorStop(0, 'rgba(15, 20, 25, 0.6)');
-    dent.addColorStop(1, 'rgba(15, 20, 25, 0)');
-    g.fillStyle = dent;
-    g.fillRect(0, 0, BRICK_W, BRICK_H);
-
-    g.lineJoin = 'round';
-    g.lineCap = 'round';
-    const passes = [
-        { off: 0.9, style: 'rgba(0, 0, 0, 0.7)', width: 2.6 },
-        { off: 0, style: 'rgba(255, 255, 255, 0.92)', width: 1.2 }
-    ];
-    for (const pass of passes) {
-        g.strokeStyle = pass.style;
-        g.lineWidth = pass.width;
-        g.beginPath();
-        for (const line of crack.lines) {
-            g.moveTo(line[0][0] + pass.off, line[0][1] + pass.off);
-            for (let i = 1; i < line.length; i++) {
-                g.lineTo(line[i][0] + pass.off, line[i][1] + pass.off);
-            }
-        }
-        g.stroke();
-    }
+    const C = CRACK_CELL;
+    // Engraved: a light lip one cell below each fissure pixel, then the dark fissure itself on top
+    g.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    for (const [x, y] of crack.cells) g.fillRect(x * C, (y + 1) * C, C, C);
+    g.fillStyle = '#1b2026';
+    for (const [x, y] of crack.cells) g.fillRect(x * C, y * C, C, C);
+    // The chipped notch: a thin dark lip on its inner side, then the chipped cells cleared right through the sprite
+    g.fillStyle = 'rgba(10, 12, 16, 0.6)';
+    for (const [x, y] of crack.chips) g.fillRect(x * C, (y + crack.inward) * C, C, C);
+    for (const [x, y] of crack.chips) g.clearRect(x * C, y * C, C, C);
 }
 
 // Called once when a steel brick cracks: bake the cracked look into that brick's own sprite

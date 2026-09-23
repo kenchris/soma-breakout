@@ -179,7 +179,7 @@ function updateBoss() {
             tone(300, 0.5, { type: 'sawtooth', vol: 0.25, slideTo: 200, key: 'siren', force: true });
             haptic([60, 40, 60], true);
             shield = Math.min(shield + 1, SHIELD_MAX); // a free miss to start the fight, on top of any already banked
-            addPopup(CANVAS_W / 2, 380, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 });
+            addPopup(CANVAS_W / 2, CANVAS_H - 60, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 }); // by the shield line, clear of the intro card
         }
         B.intro--;
         const k = 1 - B.intro / 100;

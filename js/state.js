@@ -78,6 +78,8 @@ let ghost = null;        // { rows, cells[c][r] = { state, dy } }; state 0 none,
 let ghostFlashes = [];   // row-clear flashes: { y, t }
 
 let ghostIntroSeen = false;
+const bossIntroSeen = {}; // boss kind -> its tips were shown this session
+let introCard = null;       // { title, lines, y, life } while a level intro card is up
 
 
 let bgGradient = null;
@@ -183,9 +185,9 @@ const keys = {};
 // Two modes, switched with the button in the HUD and remembered:
 //   FOLLOW (default): the paddle follows your finger's horizontal position from ANYWHERE on the screen.
 //     Rest your thumb below or beside the game instead of on top of the paddle, and after lifting just
-//     touch again anywhere: there is nothing to find. The screen's full width maps to the full paddle
-//     range (with a small inset so the edges are reachable), and the paddle slides toward the target at
-//     a capped speed instead of teleporting.
+//     touch again anywhere: there is nothing to find. The thumb pad's width (or, with no pad on screen,
+//     the window's) maps to the full paddle range — see followPaddleTarget in input.js — and the paddle
+//     slides toward the target at a capped speed instead of teleporting.
 //   DRAG: relative drag from wherever the finger lands (works from anywhere too).
 
 let touchMode = 'follow';

@@ -346,7 +346,6 @@ function collisionDetection(b) {
                     // Brick destruction (1-hit brick, cracked steel second hit, fire ball, explosive, or TNT)
                     const { targets, tnt, centers } = collectBlast(c, r, wasExplosive);
                     const wasBlast = wasExplosive || tnt > 0;
-                    if (targets.length >= 8) noteMoment(25 + Math.min(targets.length, 30), 'MEGA BLAST!');
                     for (const center of centers) {
                         addBlast(center.x + center.w / 2, center.y + center.h / 2);
                     }
@@ -374,6 +373,7 @@ function collisionDetection(b) {
                     totalEarned += chainBonus;
                     bricksLeft -= destroyed;
                     runStats.bricks += destroyed;
+                    if (destroyed >= 8) noteMoment(25 + Math.min(destroyed, 30), 'MEGA BLAST!');
                     addScore(totalEarned);
 
                     // Floating score popup at the break point
@@ -735,6 +735,7 @@ function render() {
     drawBoss();
     drawAliens();
     drawAlienBullets();
+    drawIntroCard(); // over the bricks and boss, but under the ball, drops and popups so play stays visible
     drawBall();
     drawPaddle();
     drawPowerups();

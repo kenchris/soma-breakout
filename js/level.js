@@ -119,6 +119,7 @@ function resetGame(startLevel = 1) {
     bestAtStart = bestScore;
     newBestShown = false;
     resetMoments();
+    introCard = null;
 
     // Paddle setup
     paddle = {
@@ -177,10 +178,7 @@ function currentLayout() {
     return LAYOUTS[(level - 1) % LAYOUTS.length];
 }
 
-// --- Steel brick cracks ---
-// Procedural and random per hit: 3-4 jagged fissures radiate from where the ball actually struck,
-// each with a chance of short offshoots, and every fissure stops when it reaches the brick's edge.
-// Stored on the brick as polylines in brick-local coordinates and baked into a sprite by bakeCrack().
+// Small seeded PRNG (mulberry32) so a given level always generates the same layout, also for ?level=N
 
 function seededRandom(seed) {
     let s = seed >>> 0;
@@ -286,18 +284,24 @@ function planLevel(l) {
 function showLevelIntro() {
     if (!introPending) return;
     introPending = false;
-    let lines = LEVEL_INTROS[level];
+    const intro = LEVEL_INTROS[level];
+    let title = intro && intro.title;
+    let lines = intro ? intro.lines.slice() : [];
     if (plan.tetris) {
+        title = 'GHOST ROWS';
         lines = ghostIntroSeen
-            ? ['GHOST ROWS', 'Fill whole rows to clear them']
-            : ['GHOST ROWS', 'Fly the ball THROUGH the ghost bricks to make them solid', 'Fill a whole row and it clears, like Tetris'];
+            ? ['Fill whole rows to clear them']
+            : ['Fly the ball THROUGH ghost bricks to make them solid', 'Fill a whole row and it clears, like Tetris'];
         ghostIntroSeen = true;
     }
-    if (!lines) return;
-    lines.forEach((text, i) => {
-        addPopup(CANVAS_W / 2, CANVAS_H * 0.42 + i * 30, text, i === 0 ? '#ffe58a' : '#d8e2ff',
-            { size: i === 0 ? 22 : 17, life: 3, rise: 0.15, pop: i === 0 });
-    });
+    if (boss && !bossIntroSeen[boss.kind]) {
+        bossIntroSeen[boss.kind] = true;
+        title = BOSS_INTROS[boss.kind].title;
+        lines = BOSS_INTROS[boss.kind].lines.concat(lines);
+    }
+    if (!title || !lines.length) return;
+    // On a boss level the card sits below the boss's own "A WILD SNAKE APPEARS!" / "BOSS INCOMING!" call-out
+    showIntroCard(title, lines, boss ? 370 : 290);
 }
 
 // Clearing a level (bricks gone, or the boss beaten): on to the next one with a fresh ball

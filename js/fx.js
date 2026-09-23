@@ -126,6 +126,70 @@ function addPopup(x, y, text, color, { life = 1, size = 16, rise = 1.5, pop = fa
     popups.push({ x, y, text, color, life, maxLife: life, size, rise, pop, tag });
 }
 
+// --- Level intro card ---
+// What's new on a level, as a dark panel with a pixel-font title and word-wrapped lines, centred on y.
+// Drawn under the ball and drops (see render in main.js) so it never hides the play while it's up.
+// A panel rather than loose popups: over a busy playfield bare text was hard to read, and long lines ran
+// off the canvas.
+const INTRO_CARD_FRAMES = 60 * 4.5;
+const INTRO_CARD_MAX_W = 620;
+
+function showIntroCard(title, lines, y) {
+    introCard = { title, lines, y, life: INTRO_CARD_FRAMES };
+}
+
+function wrapText(text, maxW) {
+    const out = [];
+    let line = '';
+    for (const word of text.split(' ')) {
+        const test = line ? line + ' ' + word : word;
+        if (line && ctx.measureText(test).width > maxW) {
+            out.push(line);
+            line = word;
+        } else {
+            line = test;
+        }
+    }
+    if (line) out.push(line);
+    return out;
+}
+
+function drawIntroCard() {
+    const card = introCard;
+    if (!card) return;
+    if (--card.life <= 0) {
+        introCard = null;
+        return;
+    }
+    const age = INTRO_CARD_FRAMES - card.life;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, age / 12, card.life / 30); // quick fade in, gentler fade out
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = termFont(24);
+    const rows = card.lines.flatMap(l => wrapText(l, INTRO_CARD_MAX_W - 48));
+    let textW = Math.max(...rows.map(r => ctx.measureText(r).width));
+    ctx.font = pixelFont(15);
+    textW = Math.max(textW, ctx.measureText(card.title).width);
+    const w = Math.min(INTRO_CARD_MAX_W, Math.max(340, textW + 48));
+    const h = 72 + rows.length * 28;
+    const x = (CANVAS_W - w) / 2;
+    const y = Math.round(card.y - h / 2);
+    ctx.fillStyle = 'rgba(8, 4, 20, 0.86)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#2de2e6';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.fillStyle = '#7a1560';
+    ctx.fillText(card.title, CANVAS_W / 2 + 2, y + 32);
+    ctx.fillStyle = '#ffd319';
+    ctx.fillText(card.title, CANVAS_W / 2, y + 30);
+    ctx.font = termFont(24);
+    ctx.fillStyle = '#ece8ff';
+    rows.forEach((r, i) => ctx.fillText(r, CANVAS_W / 2, y + 66 + i * 28));
+    ctx.restore();
+}
+
 // Big "x3!" / "x4!" / "x5!" call-out when the combo multiplier climbs
 
 function comboShout(mult, x, y) {
