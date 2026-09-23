@@ -2,7 +2,19 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
+// A cheat code shared as a link (?code=XXXX — see shareCheatCode in share.js), decoded to its level
+function sharedCodeLevel() {
+    try {
+        const code = new URLSearchParams(window.location.search).get('code');
+        return code ? codeToLevel(code) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 function getStartingLevel() {
+    const shared = sharedCodeLevel();
+    if (shared !== null) return shared;
     try {
         const params = new URLSearchParams(window.location.search);
         const lvl = parseInt(params.get('level'), 10);
@@ -84,7 +96,14 @@ function initGame() {
     } catch (e) {
         foundCodes = {}; // Storage unavailable or corrupt; codes found this session just won't persist
     }
-    renderFoundCodesPanel(); // show whatever was already found in earlier sessions right away
+    // Arrived through a friend's shared code link: it joins your own collection, like typing it in would
+    const shared = sharedCodeLevel();
+    const sharedIsNew = shared !== null && !foundCodes[shared];
+    if (sharedIsNew) {
+        foundCodes[shared] = levelToCode(shared);
+        saveFoundCodes();
+    }
+    renderFoundCodesPanel(sharedIsNew ? foundCodes[shared] : undefined); // show earlier sessions' finds right away
 
     // Initialize game state with optional URL level parameter
     resetGame(getStartingLevel());
@@ -99,6 +118,7 @@ function resetGame(startLevel = 1) {
     runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0, warps: 0 };
     bestAtStart = bestScore;
     newBestShown = false;
+    resetMoments();
 
     // Paddle setup
     paddle = {

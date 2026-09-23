@@ -15,6 +15,7 @@ function addScore(points) {
     }
     if (!newBestShown && bestAtStart > 0 && score > bestAtStart) {
         newBestShown = true;
+        noteMoment(80, 'NEW HIGH SCORE!', 14);
         addPopup(CANVAS_W / 2, CANVAS_H * 0.55, 'New high score!', '#FFD700', { size: 30, life: 1.6, rise: 0.5, pop: true });
         addShake(4);
         haptic([20, 40, 20, 40, 60], true);
@@ -131,6 +132,7 @@ function comboShout(mult, x, y) {
     const colors = { 3: '#FFD700', 4: '#FF9A2E', 5: '#FF4D4D' };
     addPopup(Math.max(60, Math.min(x, CANVAS_W - 60)), y - 26, 'x' + mult + '!', colors[mult] || '#FFD700',
         { size: 22 + mult * 4, life: 1.1, rise: 0.8, pop: true });
+    noteMoment(20 + mult * 10, 'x' + mult + ' COMBO!');
     const f = 440 * Math.pow(2, mult / 6);
     tone(f, 0.1, { type: 'triangle', vol: 0.2 });
     tone(f * 1.5, 0.14, { type: 'triangle', vol: 0.2, delay: 0.07 });

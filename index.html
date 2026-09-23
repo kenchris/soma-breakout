@@ -578,6 +578,72 @@
         }
         #level-code-go:active { transform: translateY(1px); }
 
+        /* --- Sharing: the game-over "share your run" button (with a thumbnail of the card it will send),
+           a share button on each found cheat code, and a toast for the copy/download fallback --- */
+        #share-area {
+            display: none; /* shown by setShareVisible() once the game-over share card is ready */
+            justify-content: center;
+            margin-top: 16px;
+        }
+        #share-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 16px 6px 6px;
+            background: rgba(10, 5, 22, 0.7);
+            border: 2px solid var(--magenta);
+            border-radius: 0;
+            color: var(--magenta);
+            font-family: var(--px);
+            font-size: 10px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.08s;
+        }
+        #share-btn:active { transform: translateY(1px); }
+        #share-btn:focus-visible { outline: 2px solid var(--yellow); outline-offset: 3px; }
+        #share-thumb {
+            width: 44px;
+            height: 44px;
+            object-fit: cover;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .found-code { display: inline-flex; align-items: stretch; }
+        .found-code-share {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            padding: 0;
+            background: rgba(10, 5, 22, 0.85);
+            border: 1px solid rgba(255, 211, 25, 0.6);
+            border-left: none;
+            border-radius: 0;
+            color: var(--yellow);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .found-code-share svg { width: 16px; height: 16px; }
+        #toast {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            z-index: 40;
+            max-width: 90vw;
+            box-sizing: border-box;
+            padding: 10px 18px;
+            background: var(--panel);
+            border: 2px solid var(--cyan);
+            color: var(--ink);
+            font-family: var(--term);
+            font-size: 20px;
+            text-align: center;
+            opacity: 0;
+            transform: translate(-50%, 16px);
+            transition: opacity 0.2s, transform 0.2s;
+            pointer-events: none;
+        }
+        #toast.show { opacity: 1; transform: translate(-50%, 0); }
         /* --- How-to-play dialog: reference info tucked behind the help button instead of permanently
            taking up space below the canvas --- */
         #legend-backdrop {
@@ -680,6 +746,8 @@
             .hud-btn:hover { border-color: var(--btn); }
             .hud-btn.active:hover { background: var(--btn); color: var(--bg-0); }
             .found-code-chip:hover { background: rgba(255, 211, 25, 0.15); }
+            .found-code-share:hover { background: rgba(255, 211, 25, 0.15); }
+            #share-btn:hover { background: rgba(255, 47, 180, 0.15); }
             #overlay-button:hover { background: #ffe25c; }
             #cheat-code-toggle:hover { color: var(--ink); border-color: var(--cyan); }
             #level-code-go:hover { background: rgba(45, 226, 230, 0.2); }
@@ -733,6 +801,8 @@
             #cheat-code-area { margin-top: 8px; padding-top: 6px; }
             #level-code-input { width: 140px; padding: 5px 8px; }
             #found-codes { display: none; } /* landscape phone: every pixel goes to the playfield */
+            #share-area { margin-top: 10px; }
+            #share-thumb { width: 30px; height: 30px; }
             body.touch #touchpad { display: none; } /* the whole screen is the pad */
             #canvas, body.touch #canvas {
                 max-height: calc(100vh - 90px);
@@ -810,6 +880,12 @@
                 <div id="overlay-flag">&#9733; New high score! &#9733;</div>
                 <div id="overlay-stats"></div>
                 <button id="overlay-button">Launch</button>
+                <div id="share-area">
+                    <button id="share-btn" type="button" title="Share a screenshot of your best moment">
+                        <img id="share-thumb" alt="">
+                        <span>SHARE YOUR RUN</span>
+                    </button>
+                </div>
                 <div id="cheat-code-area">
                     <button id="cheat-code-toggle" type="button">Enter Cheat Code</button>
                     <div id="level-code-entry">
@@ -827,6 +903,7 @@
             <span id="touchpad-label">Slide your thumb anywhere: the paddle follows</span>
             <i id="touchpad-dot"></i>
         </div>
+        <div id="toast" role="status" aria-live="polite"></div>
         <div id="legend-backdrop"></div>
         <div id="legend-dialog" role="dialog" aria-modal="true" aria-label="How to play">
             <button id="legend-close" type="button" aria-label="Close">&times;</button>
@@ -889,6 +966,7 @@
     <script src="js/rally.js"></script>
     <script src="js/guided.js"></script>
     <script src="js/ui.js"></script>
+    <script src="js/share.js"></script>
     <script src="js/input.js"></script>
     <script src="js/main.js"></script>
     <script>

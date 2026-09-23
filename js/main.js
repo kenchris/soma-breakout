@@ -346,6 +346,7 @@ function collisionDetection(b) {
                     // Brick destruction (1-hit brick, cracked steel second hit, fire ball, explosive, or TNT)
                     const { targets, tnt, centers } = collectBlast(c, r, wasExplosive);
                     const wasBlast = wasExplosive || tnt > 0;
+                    if (targets.length >= 8) noteMoment(25 + Math.min(targets.length, 30), 'MEGA BLAST!');
                     for (const center of centers) {
                         addBlast(center.x + center.w / 2, center.y + center.h / 2);
                     }
@@ -619,7 +620,9 @@ function update() {
                     playLoseJingle();
                     haptic(250, true);
                     inputLockUntil = performance.now() + 700;
-                    showOverlay('Game over\nTap or press R to play again', 'Play again', buildSummary(false));
+                    const summary = buildSummary(false);
+                    showOverlay('Game over\nTap or press R to play again', 'Play again', summary);
+                    prepareShareCard(summary);
                 } else if (balls.length === 0) {
                     // All balls lost: reset one ball on the paddle
                     balls.push(makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, currentSpeed(), -currentSpeed()));
@@ -743,6 +746,7 @@ function render() {
     drawTimeWarpFx();
     drawStatusChips();
     drawBossBar();
+    captureMomentIfDue(); // before the perf readout, so it never ends up in a shared screenshot
     if (PERF) drawPerf();
     updateHUD();
     updateTouchpad();

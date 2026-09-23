@@ -251,6 +251,7 @@ function bossBallCollision(b) {
         addPopup(b.x, b.y - 12, (crit ? 'CRITICAL! -' : '-') + dmg + (chainMult > 1 ? '  \u00d7' + chainMult : ''), crit ? '#FFD700' : '#ffffff',
             { size: crit ? 22 : 16, pop: crit, life: 0.9 });
         if (chainMult > prevMult) { // the chain just stepped up
+            if (chainMult >= 3) noteMoment(55, 'BOSS CHAIN x3!');
             addPopup(B.x, B.y - 62, 'CHAIN \u00d7' + chainMult + '!', '#ffb300', { size: 24, life: 1.1, rise: 0.5, pop: true });
             tone(660 + 220 * chainMult, 0.12, { type: 'triangle', vol: 0.25, key: 'chain' });
             addShake(4);
@@ -258,6 +259,7 @@ function bossBallCollision(b) {
         }
         spawnParticles(b.x, b.y, crit ? '#ffd23f' : '#c9a0ff', crit ? 14 : 6);
         if (crit) {
+            noteMoment(40, 'CRITICAL HIT!');
             tone(880, 0.1, { type: 'triangle', vol: 0.25, key: 'crit' });
             tone(1320, 0.14, { type: 'triangle', vol: 0.25, delay: 0.06, force: true });
         } else {
@@ -312,6 +314,7 @@ function killBoss() {
     addShake(12);
     haptic([60, 40, 60, 40, 120], true);
     tone(400, 0.6, { type: 'sawtooth', vol: 0.3, slideTo: 40, key: 'bossDie', force: true });
+    noteMoment(100, 'MOTHERSHIP DESTROYED!', 30); // mid-explosion, not the instant of the hit
     addPopup(CANVAS_W / 2, 250, 'MOTHERSHIP DESTROYED!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
 }
 

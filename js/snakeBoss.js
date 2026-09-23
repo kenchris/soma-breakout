@@ -419,6 +419,7 @@ function snakeBallCollision(b) {
         addShake(i === 0 ? 8 : 2 + cut * 0.3);
         haptic(i === 0 ? [25, 25, 40] : 15, i === 0);
         if (i === 0) {
+            noteMoment(45, 'HEAD SHOT!');
             tone(700, 0.1, { type: 'triangle', vol: 0.22, key: 'snakeCrit' });
             tone(1050, 0.14, { type: 'triangle', vol: 0.22, delay: 0.06, force: true });
         } else {
@@ -453,6 +454,7 @@ function killSnake() {
     addShake(10);
     haptic([50, 30, 50, 30, 100], true);
     tone(380, 0.5, { type: 'sawtooth', vol: 0.28, slideTo: 40, key: 'bossDie', force: true });
+    noteMoment(100, 'SNAKE DEFEATED!', 30);
     addPopup(CANVAS_W / 2, 250, 'SNAKE DEFEATED!', '#8dffab', { size: 28, life: 2, rise: 0.2, pop: true });
 }
 

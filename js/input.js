@@ -286,6 +286,16 @@ document.addEventListener('DOMContentLoaded', () => {
         fsBtn.addEventListener('click', toggleFullscreen);
     }
 
+    // stopPropagation for the same reason as the overlay button: #overlay's own click listener would
+    // otherwise treat it as "tap anywhere to play again"
+    const shareBtn = document.getElementById('share-btn');
+    if (shareBtn) {
+        shareBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            shareRun();
+        });
+    }
+
     const helpBtn = document.getElementById('help-btn');
     if (helpBtn) {
         helpBtn.addEventListener('click', toggleLegend);

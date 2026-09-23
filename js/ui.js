@@ -48,6 +48,7 @@ function showOverlay(message, buttonText = 'Launch', summary = null) {
     const msg = document.getElementById('overlay-message');
     const btn = document.getElementById('overlay-button');
     setOverlayMessage(message);
+    setShareVisible(false); // only the game-over screen offers sharing, once its card is ready
     if (btn) {
         btn.textContent = buttonText;
         btn.style.display = 'inline-block';
@@ -148,6 +149,7 @@ function revealLevelCode() {
     foundCodes[level] = code;
     saveFoundCodes();
     renderFoundCodesPanel(code);
+    noteMoment(60, 'CHEAT CODE FOUND!', 20);
     addPopup(CANVAS_W / 2, CANVAS_H * 0.4, 'CODE FOUND: ' + code + '!', '#ffe58a', { size: 26, life: 2, rise: 0.3, pop: true });
     addShake(6);
     haptic([20, 20, 20, 20, 60], true);
@@ -180,7 +182,17 @@ function renderFoundCodesPanel(justFound) {
         code.textContent = foundCodes[lvl];
         chip.append(num, code);
         chip.addEventListener('click', () => resetGame(lvl));
-        list.appendChild(chip);
+        const share = document.createElement('button');
+        share.type = 'button';
+        share.className = 'found-code-share';
+        share.title = 'Share this cheat code';
+        share.setAttribute('aria-label', 'Share cheat code ' + foundCodes[lvl]);
+        share.innerHTML = SHARE_ICON_SVG;
+        share.addEventListener('click', () => shareCheatCode(lvl, foundCodes[lvl]));
+        const item = document.createElement('span');
+        item.className = 'found-code';
+        item.append(chip, share);
+        list.appendChild(item);
     }
 }
 
