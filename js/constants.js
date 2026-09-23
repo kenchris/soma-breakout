@@ -6,6 +6,14 @@ const CANVAS_W = 900;
 
 const CANVAS_H = 600;
 
+// Canvas text uses the page's retro fonts (loaded by the <link> in index.html). Press Start 2P runs about
+// 1em per glyph, far wider than the sans text it replaced, so headlines use it at a smaller size; VT323
+// renders small for its nominal size, so labels use it larger.
+const PIXEL_FONT = "'Press Start 2P', 'Courier New', monospace";
+const TERM_FONT = "VT323, 'Courier New', monospace";
+function pixelFont(px) { return px + 'px ' + PIXEL_FONT; }
+function termFont(px) { return px + 'px ' + TERM_FONT; }
+
 // --- Game Entities ---
 
 const COMBO_MAX = 5;
@@ -197,7 +205,7 @@ const RALLY_MAX_SHOUT = 7;       // the popup stops growing past this streak; th
 const STAR_LAYERS = 3;
 
 const BALL_LOOKS = {
-    normal: { trailCore: '255, 150, 70', trailEdge: '255, 60, 60', trailA: 0.32, trailGrow: 0.9, halo: '255, 77, 77', haloA: 0.45, haloR: 2.6, mid: '#ff6b6b', edge: '#d40000' },
+    normal: { trailCore: '255, 140, 215', trailEdge: '255, 47, 180', trailA: 0.32, trailGrow: 0.9, halo: '255, 47, 180', haloA: 0.45, haloR: 2.6, mid: '#ffc8ec', edge: '#ff2fb4' },
     fire: { trailCore: '255, 190, 40', trailEdge: '255, 90, 0', trailA: 0.42, trailGrow: 1.3, halo: '255, 150, 20', haloA: 0.6, haloR: 3.4, mid: '#ffd23f', edge: '#ff5a00' },
     guided: { trailCore: '190, 140, 255', trailEdge: '110, 60, 230', trailA: 0.4, trailGrow: 1.1, halo: '160, 108, 255', haloA: 0.55, haloR: 3.0, mid: '#c9a0ff', edge: '#6a2fd0' }
 };

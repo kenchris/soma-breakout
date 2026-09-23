@@ -452,7 +452,7 @@ function drawBossBar() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; // phase notches
     ctx.fillRect(x + w * 0.33 - 1, y, 2, h);
     ctx.fillRect(x + w * 0.66 - 1, y, 2, h);
-    ctx.font = 'bold 12px sans-serif';
+    ctx.font = termFont(19);
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
     ctx.fillText('MOTHERSHIP ' + roman + '   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, CANVAS_W / 2, y - 6);
@@ -468,7 +468,7 @@ function drawBossBar() {
         ctx.fillStyle = '#ffb300';
         ctx.fillRect(px, py, pw * (B.chainT / BOSS_CHAIN_FRAMES), ph);
         ctx.fillStyle = '#2a1c00';
-        ctx.font = 'bold 11px sans-serif';
+        ctx.font = termFont(17);
         ctx.textBaseline = 'middle';
         ctx.fillText((mult > 1 ? 'CHAIN \u00d7' + mult : 'HIT IT AGAIN!') + (next > mult ? '  \u2192 next \u00d7' + next : '  MAX'), CANVAS_W / 2, py + ph / 2 + 1);
     }

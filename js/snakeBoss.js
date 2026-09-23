@@ -615,12 +615,12 @@ function drawSnakeBossBar() {
     ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
     ctx.fillStyle = ratio > 0.66 ? '#4de08c' : ratio > 0.33 ? '#ff9a2e' : '#ff4d4d';
     ctx.fillRect(x, y, w * Math.max(0, ratio), h);
-    ctx.font = 'bold 12px sans-serif';
+    ctx.font = termFont(19);
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
     ctx.fillText('SNAKE ' + roman + '   LENGTH ' + B.segments.length + ' / ' + B.startLength, CANVAS_W / 2, y - 6);
     if (B.sinceHit >= SNAKE_REGROW_DELAY_FRAMES && B.segments.length < B.startLength) {
-        ctx.font = 'bold 11px sans-serif';
+        ctx.font = termFont(17);
         ctx.fillStyle = '#ff9a2e';
         ctx.fillText('REGROWING', CANVAS_W / 2, y + h + 14);
     }

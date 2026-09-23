@@ -152,11 +152,17 @@ function drawPopups() {
         const scale = p.pop ? 1 + 0.8 * Math.max(0, 1 - age / 0.12) : 1;
         ctx.save();
         ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2));
-        ctx.font = 'bold ' + p.size + 'px sans-serif';
+        // Headlines in the pixel font with a hard arcade drop shadow; everything smaller in the terminal font
+        const headline = p.size >= 20;
+        ctx.font = headline ? pixelFont(Math.round(p.size * 0.62)) : termFont(Math.round(p.size * 1.4));
         ctx.textAlign = 'center';
-        ctx.lineJoin = 'round';
+        ctx.lineJoin = headline ? 'miter' : 'round';
         ctx.translate(p.x, p.y);
         ctx.scale(scale, scale);
+        if (headline) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.fillText(p.text, 3, 3);
+        }
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)'; // dark outline keeps text readable (cheaper than a shadow blur)
         ctx.lineWidth = 3;
         ctx.strokeText(p.text, 0, 0);

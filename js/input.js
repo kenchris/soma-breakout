@@ -205,6 +205,15 @@ function handleKeyDown(e) {
         toggleLock();
         return;
     }
+    if (e.key === 'h' || e.key === 'H') {
+        // Toggle the how-to-play / powerup legend dialog
+        toggleLegend();
+        return;
+    }
+    if (e.key === 'Escape' && legendOpen()) {
+        hideLegend();
+        return;
+    }
     if (e.key === ' ' || e.key === 'Spacebar') {
         // Launch (or continue to next level)
         if ((gameState === 'ready' || gameState === 'won') && !endScreenLocked()) {
@@ -275,6 +284,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const fsBtn = document.getElementById('fullscreen-btn');
     if (fsBtn) {
         fsBtn.addEventListener('click', toggleFullscreen);
+    }
+
+    const helpBtn = document.getElementById('help-btn');
+    if (helpBtn) {
+        helpBtn.addEventListener('click', toggleLegend);
+    }
+    const legendClose = document.getElementById('legend-close');
+    if (legendClose) {
+        legendClose.addEventListener('click', hideLegend);
+    }
+    const legendBackdrop = document.getElementById('legend-backdrop');
+    if (legendBackdrop) {
+        legendBackdrop.addEventListener('click', hideLegend);
     }
 
     // Cheat code: toggle/go both need stopPropagation, same reason the overlay-button does — otherwise

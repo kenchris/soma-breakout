@@ -22,7 +22,7 @@ function drawStuckAim(b) {
     ctx.restore();
 }
 
-// Ball look by state: a fire ball burns orange, a guided ball glows violet, otherwise red
+// Ball look by state: a fire ball burns orange, a guided ball glows violet, otherwise hot pink
 
 function drawReticleAt(cx, cy) {
     const spin = performance.now() / 500;
@@ -121,7 +121,7 @@ function drawShield() {
     ctx.restore();
     if (shield > 1) {
         ctx.save();
-        ctx.font = 'bold 12px sans-serif';
+        ctx.font = termFont(18);
         ctx.textAlign = 'center';
         ctx.fillStyle = '#dffcff';
         ctx.shadowColor = '#33ddff';
@@ -185,22 +185,23 @@ function drawStatusChips() {
     if (!chips.length) return;
 
     ctx.save();
-    ctx.font = 'bold 12px sans-serif';
+    ctx.font = termFont(18);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     let x = 10;
     for (const chip of chips) {
         const w = ctx.measureText(chip.text).width + 16;
-        roundRectPath(x, 10, w, 20, 10);
+        ctx.beginPath();
+        ctx.rect(x + 0.5, 10.5, w, 20); // square-cornered, like the page's HUD readouts
         ctx.globalAlpha = 0.25;
         ctx.fillStyle = chip.color;
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.strokeStyle = chip.color;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1;
         ctx.stroke();
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(chip.text, x + 8, 20.5);
+        ctx.fillText(chip.text, x + 8, 21);
         x += w + 6;
     }
     ctx.restore();
@@ -209,20 +210,39 @@ function drawStatusChips() {
 // --- HUD (DOM) ---
 // Only touch the DOM when a value changes; this runs every frame.
 
+// An arcade "ship" in the page's synthwave palette: a chrome body with a cyan neon strip down the middle
+// and magenta end caps, square-cornered like the rest of the retro UI. Every segment gets caps, so a
+// paddle split by alien-shot holes reads as separate broken pieces.
 function drawPaddleSlab(x, y, w, h) {
-    ctx.globalAlpha = 0.25; // glow underlay
-    ctx.fillStyle = '#0095DD';
-    roundRectPath(x - 3, y - 3, w + 6, h + 6, 8);
-    ctx.fill();
+    ctx.globalAlpha = 0.22; // glow underlay
+    ctx.fillStyle = '#2de2e6';
+    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
     ctx.globalAlpha = 1;
-    if (!paddleGradient) { // the paddle's y never changes, so one gradient serves every frame
+    if (!paddleGradient) { // the paddle's y never changes, so one pair of gradients serves every frame
         paddleGradient = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
-        paddleGradient.addColorStop(0, '#6fd6ff');
-        paddleGradient.addColorStop(1, '#0070b0');
+        paddleGradient.addColorStop(0, '#f4fbff');
+        paddleGradient.addColorStop(0.35, '#a9d8ee');
+        paddleGradient.addColorStop(0.65, '#4a86a8');
+        paddleGradient.addColorStop(1, '#1d3550');
+        paddleCapGradient = ctx.createLinearGradient(0, paddle.y, 0, paddle.y + paddle.h);
+        paddleCapGradient.addColorStop(0, '#ffc2ea');
+        paddleCapGradient.addColorStop(0.4, '#ff2fb4');
+        paddleCapGradient.addColorStop(1, '#8a0d5f');
     }
     ctx.fillStyle = paddleGradient;
-    roundRectPath(x, y, w, h, 4);
-    ctx.fill();
+    ctx.fillRect(x, y, w, h);
+    const cap = Math.min(10, Math.floor(w / 4));
+    ctx.fillStyle = paddleCapGradient;
+    ctx.fillRect(x, y, cap, h);
+    ctx.fillRect(x + w - cap, y, cap, h);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'; // seams between the caps and the body
+    ctx.fillRect(x + cap, y, 1, h);
+    ctx.fillRect(x + w - cap - 1, y, 1, h);
+    const strip = w - 2 * cap - 8;
+    if (strip > 4) {
+        ctx.fillStyle = '#2de2e6';
+        ctx.fillRect(x + cap + 4, y + Math.floor(h / 2) - 1, strip, 2);
+    }
 }
 
 function drawPaddle() {

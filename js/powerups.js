@@ -135,7 +135,7 @@ function drawPowerups() {
             ctx.lineWidth = 1.5;
             ctx.stroke();
             ctx.fillStyle = '#fff3c4';
-            ctx.font = 'bold 17px sans-serif';
+            ctx.font = pixelFont(12);
             ctx.fillText('?', p.x, p.y);
             continue;
         }
@@ -173,7 +173,7 @@ function drawPowerups() {
         ctx.fillStyle = '#ffffff';
         if (p.label) {
             const wide = p.label.length > 1;
-            ctx.font = wide ? 'bold 11px sans-serif' : 'bold 14px sans-serif';
+            ctx.font = wide ? termFont(16) : pixelFont(9); // a two-glyph label like ×2 is too cramped in the pixel font at this size
             ctx.fillText(p.label, p.x, p.y);
         } else {
             // Shield icon

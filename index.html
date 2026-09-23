@@ -7,7 +7,10 @@
 
     <!-- PWA: installable, offline-capable (see manifest.json and sw.js) -->
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#1a1a2e">
+    <meta name="theme-color" content="#07040f">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
     <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -15,26 +18,88 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Breakout">
     <style>
-        html, body {
+        /* Retro arcade / synthwave skin for everything around the canvas. Two pixel-era fonts (Press Start 2P
+           for numbers, titles and buttons; VT323 for running text) with monospace fallbacks, so an offline
+           launch before the fonts were ever cached still looks right, just less pixelly. */
+        :root {
+            --bg-0: #07040f;
+            --bg-1: #140a26;
+            --bg-2: #2a0f47;
+            --ink: #f3eeff;
+            --dim: #9a8cc0;
+            --cyan: #2de2e6;
+            --magenta: #ff2fb4;
+            --yellow: #ffd319;
+            --orange: #ff8a1f;
+            --red: #ff3b5c;
+            --green: #3dfc8a;
+            --panel: rgba(10, 5, 22, 0.94);
+            --px: 'Press Start 2P', 'Courier New', monospace;
+            --term: 'VT323', 'Courier New', monospace;
+        }
+        /* The sky lives on <html> and <body> stays transparent: body::before (the grid floor) sits at
+           z-index -1, which paints above the root background but would be hidden under a body background. */
+        html {
             height: 100%;
+            background-color: var(--bg-0);
+            background-image:
+                radial-gradient(ellipse 90% 45% at 50% 100%, rgba(255, 47, 180, 0.14) 0%, transparent 70%),
+                linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 50%, var(--bg-2) 100%);
+        }
+        html, body {
             overflow: hidden;
-            background-color: #1a1a2e;
-            color: #ffffff;
-            font-family: sans-serif;
             margin: 0;
             padding: 0;
+            color: var(--ink);
+            font-family: var(--term);
             touch-action: none; /* no panning/pinch-zoom on mobile */
+            -webkit-tap-highlight-color: transparent;
         }
         body {
+            height: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start; /* was "center": on a tall/narrow phone the landscape 3:2 canvas
-                only ever grows to the viewport's WIDTH, leaving far more height spare than that centres —
-                anchoring to the top uses the screen instead of parking the game in the middle of a gap */
-            padding: 12px 0 0; /* top only — the canvas itself should reach both edges on a narrow phone;
-                see #hud's own padding below for why its chips don't also end up flush against them */
+            justify-content: flex-start; /* anchored to the top: on a tall phone the 3:2 canvas only grows to
+                the viewport's WIDTH, and centring would just park the game in the middle of a gap */
+            padding: 12px 0 0; /* top only — the canvas itself should reach both edges on a narrow phone */
             box-sizing: border-box;
+            font-size: 20px;
+        }
+        /* Synthwave floor: a perspective grid rolling toward the horizon. Animated through transform only
+           (one cell per loop, so it's seamless) to stay on the compositor and off the game's frame budget. */
+        body::before {
+            content: '';
+            position: fixed;
+            left: -60%;
+            right: -60%;
+            bottom: -30%;
+            height: 80%;
+            z-index: -1;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255, 47, 180, 0.22) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 47, 180, 0.22) 1px, transparent 1px);
+            background-size: 56px 56px;
+            transform-origin: 50% 0;
+            transform: perspective(300px) rotateX(64deg) translateY(0);
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 40%);
+            mask-image: linear-gradient(to bottom, transparent 0%, #000 40%);
+            animation: gridRoll 6s linear infinite;
+        }
+        @keyframes gridRoll {
+            to { transform: perspective(300px) rotateX(64deg) translateY(56px); }
+        }
+        /* CRT glass: faint scanlines plus a vignette over the whole screen, never catching input */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            pointer-events: none;
+            background:
+                repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0, 0, 0, 0.07) 3px),
+                radial-gradient(ellipse at center, transparent 65%, rgba(0, 0, 0, 0.4) 100%);
         }
         #game-container {
             position: relative;
@@ -42,146 +107,137 @@
             flex-direction: column;
             align-items: center;
         }
+
+        /* --- HUD --- */
         #hud {
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
             row-gap: 8px;
-            column-gap: 16px;
+            column-gap: 14px;
             width: 100%;
             max-width: 900px;
-            margin-bottom: 10px;
-            padding: 0 10px; /* the canvas below goes edge-to-edge on a narrow phone; this keeps the HUD's
-                own chips/buttons off that same edge without moving the canvas in to match */
+            margin-bottom: 12px;
+            padding: 0 10px; /* keeps the chips off the edge on a phone, where the canvas below goes edge-to-edge */
             box-sizing: border-box;
-            font-size: 1.5em;
             user-select: none;
         }
-        /* Score/Best/Level/Lives/Combo, as one cluster on the left — a fixed gap between them so they stay
-           legible regardless of how much room the button group on the right ends up taking (space-around
-           across all six top-level items left almost no slack for it to work with once the buttons and
-           combo meter were both in the mix, so on desktop everything read as one squashed run of text). */
         #hud-stats {
             display: flex;
             align-items: center;
             flex-wrap: wrap;
-            row-gap: 6px;
-            column-gap: 8px;
+            gap: 8px;
         }
-        /* Score/Best/Level as small icon+number pills (Tabler icons: tabler.io/icons) instead of "Label:
-           value" text — shorter, reads at a glance, and never needs to wrap mid-label on a narrow screen. */
+        /* Each stat is a quiet readout: a tiny coloured label and a pixel number */
         .stat-chip {
+            --chip: var(--cyan);
+           
             display: flex;
             align-items: center;
-            gap: 5px;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(0, 188, 212, 0.35);
-            border-radius: 999px;
-            padding: 5px 12px 5px 9px;
-            /* A chip with a number's text line-box (~28px at this font size) is naturally taller than the
-               icon-only lives chip (~19px), which otherwise shrink-wraps noticeably shorter than its
-               neighbours — pin every chip to the same height regardless of what it holds. */
-            min-height: 28px;
-            box-sizing: content-box;
-            font-weight: bold;
+            gap: 10px;
+            height: 38px;
+            padding: 0 14px;
+            box-sizing: border-box;
+            background: rgba(10, 5, 22, 0.7);
+            border: 1px solid rgba(154, 140, 192, 0.35);
+        }
+        .stat-chip.score { --chip: var(--yellow); }
+        .stat-chip.best { --chip: var(--orange); }
+        .stat-chip.level { --chip: var(--cyan); }
+        .stat-chip.lives { --chip: var(--red); gap: 5px; }
+        .stat-chip.combo { --chip: var(--magenta); }
+        .stat-chip .lbl {
+            font-family: var(--px);
+            font-size: 8px;
+            letter-spacing: 1px;
+            color: var(--chip);
+        }
+        .stat-chip .val {
+            font-family: var(--px);
+            font-size: 13px;
+            color: var(--ink);
             font-variant-numeric: tabular-nums;
         }
-        .stat-chip svg { width: 17px; height: 17px; flex: none; stroke: currentColor; }
-        .stat-chip.score svg { color: #FFD700; }
-        .stat-chip.best svg { color: #ff9a2e; }
-        .stat-chip.level svg { color: #6fd6ff; }
-        .stat-chip.lives { gap: 3px; padding: 5px 11px; }
-        /* A heart's own outline leaves more empty space inside its 24x24 grid than a star/trophy/flag's
-           does, so at the same box size it reads as visibly smaller — sized and stroked a bit heavier here
-           to actually match their weight, not just their bounding box. */
+        /* Pixel-art hearts: drawn on a 7x6 grid, so crispEdges keeps every block square */
         .stat-chip.lives svg {
-            width: 19px;
-            height: 19px;
-            color: #ff5d7a;
-            fill: none;
-            stroke-width: 2.4;
-            opacity: 0.35;
-            transition: opacity 0.2s, fill 0.2s;
+            width: 16px;
+            height: 14px;
+            flex: none;
+            shape-rendering: crispEdges;
+            fill: #3a1432;
+            transition: fill 0.2s, filter 0.2s;
         }
-        .stat-chip.lives svg.on { opacity: 1; fill: #ff5d7a; }
+        .stat-chip.lives svg.on { fill: var(--red); filter: drop-shadow(0 0 3px var(--red)); }
+        #combo { transition: filter 0.2s; }
+        #combo-label {
+            min-width: 2.2em;
+            font-family: var(--px);
+            font-size: 12px;
+            color: var(--yellow);
+            text-shadow: 0 0 6px rgba(255, 211, 25, 0.7);
+        }
+        #combo-pips { display: flex; gap: 3px; }
+        #combo-pips i {
+            width: 8px;
+            height: 16px;
+            background: rgba(255, 255, 255, 0.12);
+            transition: background 0.1s, box-shadow 0.1s;
+        }
+        #combo-pips i.on:nth-child(1) { background: var(--cyan); color: var(--cyan); }
+        #combo-pips i.on:nth-child(2) { background: var(--green); color: var(--green); }
+        #combo-pips i.on:nth-child(3) { background: var(--yellow); color: var(--yellow); }
+        #combo-pips i.on:nth-child(4) { background: var(--orange); color: var(--orange); }
+        #combo-pips i.on:nth-child(5) { background: var(--red); color: var(--red); }
+        #combo-pips i.on { box-shadow: 0 0 6px currentColor; }
+        #combo.bump { animation: comboBump 0.25s ease-out; }
+        #combo.max #combo-label { color: var(--red); text-shadow: 0 0 8px var(--red); }
+        #combo.max { filter: drop-shadow(0 0 6px var(--red)); }
+        @keyframes comboBump {
+            0% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+
+        /* --- Action buttons: chunky arcade keys that physically press in --- */
         #hud-actions {
             display: flex;
             gap: 8px;
             align-items: center;
         }
         .hud-btn {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid #00bcd4;
-            color: #ffffff;
-            border-radius: 8px;
-            padding: 4px 10px;
-            font-size: 0.7em;
+            --btn: var(--cyan);
+            background: rgba(10, 5, 22, 0.7);
+            border: 1px solid rgba(154, 140, 192, 0.35);
+            border-radius: 0;
+            color: var(--btn);
+            font-family: var(--px);
             cursor: pointer;
-            transition: background 0.2s;
+            transition: transform 0.08s, background 0.15s, color 0.15s, border-color 0.15s;
         }
-        .hud-btn.active {
-            background: rgba(0, 188, 212, 0.45);
-            border-color: #00e5ff;
-        }
-        .hud-btn:hover {
-            background: rgba(0, 188, 212, 0.3);
-        }
-        /* Icon-only action buttons (Lock/Sound/Pause/Fullscreen/touch mode): each holds two Tabler icons —
-           .ico-a for the default state, .ico-b for the active one (locked, muted, paused, fullscreen-on) —
-           and .active (already toggled by each button's own JS) swaps which one shows. The icon shown is
-           always the current STATE, except Pause, which — like any media player — shows the action a click
-           performs (a pause glyph while playing, a play glyph while paused), not the state it's in. */
+        #help-btn { --btn: var(--yellow); }
+        .hud-btn:active { transform: translateY(1px); }
+        .hud-btn.active { background: var(--btn); border-color: var(--btn); color: var(--bg-0); }
+        .hud-btn:focus-visible { outline: 2px solid var(--yellow); outline-offset: 3px; }
+        /* Icon-only buttons hold two Tabler icons (tabler.io/icons, MIT): .ico-a for the default state,
+           .ico-b for the active one, swapped by .active (toggled by each button's own JS). Pause shows the
+           action a click performs, like a media player, rather than the state it's in. */
         .icon-btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 8px;
+            width: 38px;
+            height: 38px;
+            padding: 0;
             line-height: 0;
         }
         .icon-btn svg { width: 20px; height: 20px; stroke: currentColor; flex: none; }
         .icon-btn .ico-b { display: none; }
         .icon-btn.active .ico-a { display: none; }
         .icon-btn.active .ico-b { display: block; }
-        #combo {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            user-select: none;
-            transition: filter 0.2s;
-        }
-        #combo-label {
-            min-width: 1.6em;
-            font-weight: bold;
-            color: #FFD700;
-        }
-        #combo-pips {
-            display: flex;
-            gap: 3px;
-        }
-        #combo-pips i {
-            width: 9px;
-            height: 16px;
-            border-radius: 2px;
-            background: rgba(255, 255, 255, 0.15);
-            transition: background 0.1s, box-shadow 0.1s;
-        }
-        #combo-pips i.on:nth-child(1) { background: #00e5ff; }
-        #combo-pips i.on:nth-child(2) { background: #4de08c; }
-        #combo-pips i.on:nth-child(3) { background: #FFD700; }
-        #combo-pips i.on:nth-child(4) { background: #FF9A2E; }
-        #combo-pips i.on:nth-child(5) { background: #FF4D4D; }
-        #combo-pips i.on { box-shadow: 0 0 6px currentColor; }
-        #combo.bump { animation: comboBump 0.25s ease-out; }
-        #combo.max #combo-label { color: #FF4D4D; }
-        #combo.max { filter: drop-shadow(0 0 6px #FF4D4D); }
-        @keyframes comboBump {
-            0% { transform: scale(1.35); }
-            100% { transform: scale(1); }
-        }
-        /* The stage wraps canvas + overlay so the overlay centres on the canvas itself */
+
+        /* --- Playfield --- */
         #stage {
-            position: relative;
+            position: relative; /* the overlay and event banner centre on the canvas itself */
             display: flex;
             justify-content: center;
             max-width: 100%;
@@ -189,32 +245,33 @@
         #canvas {
             display: block;
             box-sizing: border-box; /* so max-width: 100% includes the border and never overflows a phone screen */
-            border: 2px solid #00bcd4;
+            border: 2px solid var(--magenta);
+            border-radius: 4px;
             background-color: #000000;
-            cursor: none; /* Hide default cursor over canvas */
+            box-shadow: 0 0 18px rgba(255, 47, 180, 0.35);
+            cursor: none;
             max-width: 100%;
-            max-height: calc(100vh - 150px); /* always fits viewport (HUD above, legend below), keeps 3:2 ratio */
+            max-height: calc(100vh - 150px); /* always fits the viewport (HUD above), keeps the 3:2 ratio */
             max-height: calc(100dvh - 150px); /* mobile: excludes the browser toolbar */
             touch-action: none;
+            transition: transform 0.6s ease-in-out; /* the view flips (weird events) with a smooth turn */
         }
-        /* The view flips (weird events) with a smooth turn */
-        #canvas { transition: transform 0.6s ease-in-out; }
-        /* Weird-event / warning banner: a compact pill whose fat bar drains as time runs out, so it is obvious
-           at a glance when the event ends. It sits over the playfield (which may be flipped); it is never flipped. */
+        /* Weird-event / warning banner: a pixel bar whose fill drains as time runs out. It sits over the
+           playfield (which may be flipped) and is never flipped itself. */
         #event-banner {
             position: absolute;
-            top: 8px;
+            top: 10px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 6;
             display: none;
-            width: min(280px, 78%);
-            height: 26px;
+            width: min(300px, 80%);
+            height: 28px;
             box-sizing: border-box;
-            border-radius: 13px;
             overflow: hidden;
-            border: 2px solid #ff4dd8;
-            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid var(--magenta);
+            background: rgba(0, 0, 0, 0.75);
+            box-shadow: 0 0 12px rgba(255, 47, 180, 0.6);
             pointer-events: none;
             user-select: none;
         }
@@ -224,81 +281,83 @@
             top: 0;
             bottom: 0;
             width: 100%;
-            background: linear-gradient(90deg, #d61fb0, #ff7be8);
+            background: repeating-linear-gradient(90deg, #d61fb0 0 6px, #ff5fcf 6px 8px);
         }
         #event-banner span {
             position: relative;
             display: block;
-            line-height: 22px;
+            line-height: 24px;
             text-align: center;
-            font-size: 0.72em;
-            font-weight: 800;
-            letter-spacing: 0.05em;
+            font-family: var(--term);
+            font-size: 21px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
             color: #ffffff;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+            text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.8);
             white-space: nowrap;
         }
-        #event-banner.low { top: auto; bottom: 8px; } /* view flipped: the paddle is at the top now */
+        #event-banner.low { top: auto; bottom: 10px; } /* view flipped: the paddle is at the top now */
         #event-banner.warn {
-            border-color: #ffd23f;
-            animation: bannerPulse 0.4s ease-in-out infinite alternate;
+            border-color: var(--yellow);
+            box-shadow: 0 0 12px rgba(255, 211, 25, 0.6);
+            animation: bannerPulse 0.4s steps(2) infinite alternate;
         }
-        #event-banner.warn b { background: linear-gradient(90deg, #e09a00, #ffe58a); }
+        #event-banner.warn b { background: repeating-linear-gradient(90deg, #e09a00 0 6px, #ffe58a 6px 8px); }
         #event-banner.warn span { color: #2a1c00; text-shadow: none; }
         @keyframes bannerPulse {
             from { transform: translateX(-50%) scale(1); }
             to { transform: translateX(-50%) scale(1.04); }
         }
-        /* Codes found in-game (by catching a cheat-code capsule — see revealLevelCode() in ui.js), listed
-           below the canvas where they stay for good. Clicking one loads that level directly. */
+
+        /* --- Found cheat codes (below the canvas; clicking one loads that level) --- */
         #found-codes {
             width: 100%;
             max-width: 900px;
-            margin-top: 10px;
+            margin-top: 16px;
             box-sizing: border-box;
-            padding: 8px 14px;
-            border: 1px dashed rgba(232, 180, 0, 0.4);
-            border-radius: 10px;
-            background: rgba(232, 180, 0, 0.05);
+            padding: 12px 20px;
+            border: 1px dashed rgba(255, 211, 25, 0.35);
+            background: rgba(255, 211, 25, 0.03);
             text-align: center;
             user-select: none;
         }
         #found-codes-empty {
-            font-size: 0.8em;
-            color: #8a8560;
-            line-height: 1.4;
+            font-size: 18px;
+            color: #a39870;
+            line-height: 1.3;
         }
-        #found-codes-empty b { color: #e8b400; }
+        #found-codes-empty b { color: var(--yellow); }
         #found-codes-list {
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            gap: 8px;
+            gap: 10px;
         }
         .found-code-chip {
             display: flex;
-            align-items: baseline;
-            gap: 6px;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(232, 180, 0, 0.5);
-            border-radius: 8px;
-            padding: 4px 10px;
-            color: #e8b400;
+            align-items: center;
+            gap: 8px;
+            background: rgba(10, 5, 22, 0.85);
+            border: 1px solid rgba(255, 211, 25, 0.6);
+            border-radius: 0;
+            padding: 7px 14px;
+            color: var(--yellow);
+            font-family: var(--term);
             cursor: pointer;
-            transition: background 0.2s, transform 0.1s;
+            transition: background 0.15s, transform 0.08s;
         }
-        .found-code-chip:hover { background: rgba(232, 180, 0, 0.18); transform: scale(1.04); }
-        .found-code-chip:active { transform: scale(0.97); }
-        .found-code-lvl { font-size: 0.7em; color: #b3ad86; }
-        .found-code-chip b { font-family: 'Courier New', monospace; font-size: 0.95em; letter-spacing: 0.06em; }
+        .found-code-chip:active { transform: translateY(1px); }
+        .found-code-lvl { font-size: 17px; color: #c9bb7a; }
+        .found-code-chip b { font-family: var(--px); font-size: 11px; font-weight: normal; letter-spacing: 1px; text-shadow: 0 0 6px rgba(255, 211, 25, 0.6); }
         .found-code-chip.just-found { animation: codeChipPopIn 0.5s ease-out; }
         @keyframes codeChipPopIn {
-            0% { transform: scale(0.3); background: rgba(232, 180, 0, 0.7); }
+            0% { transform: scale(0.3); background: rgba(255, 211, 25, 0.7); }
             60% { transform: scale(1.15); }
             100% { transform: scale(1); }
         }
-        /* Thumb pad (touch devices, portrait): a visible place to rest your thumb, off the playfield.
-           The dot shows where your finger maps to; touches work anywhere, not just here. */
+
+        /* --- Thumb pad (touch devices, portrait): somewhere to rest your thumb, off the playfield. The dot
+           shows where your finger maps to; touches work anywhere, not just here. --- */
         #touchpad {
             display: none;
             position: relative;
@@ -306,14 +365,16 @@
             justify-content: center;
             width: 100%;
             max-width: 900px;
-            height: 54px;
-            margin-top: 10px;
+            height: 56px;
+            margin-top: 16px;
+            padding: 0 16px;
             box-sizing: border-box;
-            border: 1px dashed rgba(0, 188, 212, 0.55);
-            border-radius: 14px;
-            background: rgba(0, 188, 212, 0.06);
-            color: #7fa9b3;
-            font-size: 0.75em;
+            border: 1px dashed rgba(45, 226, 230, 0.4);
+            background: rgba(45, 226, 230, 0.04);
+            color: #7fc3c9;
+            font-size: 18px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
             user-select: none;
         }
         body.touch #touchpad { display: flex; }
@@ -321,13 +382,12 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 30px;
-            height: 30px;
-            margin: -15px 0 0 -15px;
-            border-radius: 50%;
-            background: rgba(0, 188, 212, 0.35);
-            border: 2px solid #00e5ff;
-            box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+            width: 26px;
+            height: 26px;
+            margin: -13px 0 0 -13px;
+            background: rgba(45, 226, 230, 0.35);
+            border: 2px solid var(--cyan);
+            box-shadow: 0 0 12px rgba(45, 226, 230, 0.7);
             transition: left 0.06s linear;
             pointer-events: none;
         }
@@ -335,186 +395,169 @@
             max-height: calc(100vh - 230px);
             max-height: calc(100dvh - 230px); /* room for the thumb pad as well */
         }
-        /* Keys + powerup legend, below the playfield */
-        #controls {
-            width: 100%;
-            max-width: 900px;
-            margin-top: 10px;
-            color: #8b93a8;
-            font-size: 0.8em;
-            text-align: center;
-            user-select: none;
-        }
-        #controls .row {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 6px 16px;
-        }
-        #controls .row + .row { margin-top: 8px; }
-        #controls kbd {
-            font: inherit;
-            font-size: 0.9em;
-            color: #d5dbeb;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            border-radius: 4px;
-            padding: 0 5px;
-            margin-right: 3px;
-        }
-        #controls .pu { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-        #controls .pu i {
-            display: inline-grid;
-            place-items: center;
-            min-width: 18px;
-            height: 18px;
-            padding: 0 3px;
+
+        /* --- Shared arcade panel look: the game overlay and the how-to-play dialog --- */
+        #overlay, #legend-dialog {
             box-sizing: border-box;
-            border-radius: 9px;
-            background: var(--c, #7a1010);
-            color: #ffffff;
-            font-style: normal;
-            font-size: 10px;
-            font-weight: bold;
+            background: var(--panel);
+            border: 2px solid var(--cyan);
+            border-radius: 0;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
         }
-        #controls .pu.tnt i { border-radius: 4px; color: #ffe14d; }
-        #controls .pu.alien i { --c: #1c7a34; font-size: 11px; }
         #overlay {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            /* An explicit width: a shrink-to-fit box placed at left: 50% only gets half the width to work with,
-               which squeezed the old dialog into a tall, narrow column on a phone. */
-            width: min(92%, 440px);
-            box-sizing: border-box;
-            max-height: 96%;
-            overflow-y: auto; /* content that doesn't fit (e.g. a full stat grid plus the level-code row on a
-                                  short screen) scrolls inside the box instead of being silently clipped */
+            /* An explicit width: a shrink-to-fit box placed at left: 50% only gets half the width to work
+               with, which squeezes the dialog into a tall, narrow column on a phone. */
+            width: min(90%, 460px);
+            max-height: 94%;
+            overflow-y: auto; /* content that doesn't fit scrolls inside the box instead of being clipped */
             overflow-x: hidden;
-            background-color: rgba(8, 10, 24, 0.92);
-            border: 1px solid rgba(0, 188, 212, 0.45);
-            padding: 14px 16px 16px;
-            border-radius: 14px;
+            padding: 28px 26px 26px;
             text-align: center;
-            font-size: 1rem;
+            font-size: 20px;
             display: none; /* Hidden by default */
             z-index: 10;
             cursor: pointer;
             user-select: none;
             -webkit-user-select: none;
-            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
         }
         #overlay-message { margin: 0; }
         #overlay-message .ov-title {
             display: block;
-            font-size: 1.35em;
-            font-weight: 800;
-            line-height: 1.15;
+            font-family: var(--px);
+            font-size: 17px;
+            line-height: 1.5;
+            color: var(--yellow);
+            text-shadow: 3px 3px 0 #7a1560;
         }
         #overlay-message .ov-hint {
             display: block;
-            margin-top: 4px;
-            font-size: 0.82em;
-            color: #aab4c8;
+            margin-top: 14px;
+            font-size: 22px;
+            line-height: 1.1;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--cyan);
+            animation: insertCoin 1.1s steps(1) infinite;
+        }
+        @keyframes insertCoin {
+            0%, 65% { opacity: 1; }
+            66%, 100% { opacity: 0.25; }
         }
         #overlay-flag {
             display: none;
-            color: #FFD700;
-            font-weight: bold;
-            font-size: 0.85em;
-            margin: 6px 0 0;
-            animation: flagPulse 1s ease-in-out infinite;
+            margin: 12px 0 0;
+            font-family: var(--px);
+            font-size: 10px;
+            line-height: 1.5;
+            color: var(--yellow);
+            text-shadow: 0 0 8px rgba(255, 211, 25, 0.8);
+            animation: flagPulse 0.9s steps(2) infinite;
         }
         @keyframes flagPulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.06); }
+            0%, 100% { color: var(--yellow); }
+            50% { color: var(--magenta); }
         }
         #overlay-stats {
             display: none; /* becomes a grid when there is a summary to show */
-            grid-template-columns: repeat(auto-fit, minmax(62px, 1fr));
-            gap: 6px;
-            margin: 10px 0 0;
+            grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
+            gap: 10px;
+            margin: 20px 0 0;
         }
         #overlay-stats .stat {
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 6px 4px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.08);
+            padding: 12px 6px 10px;
+            border: 1px solid rgba(154, 140, 192, 0.3);
+            background: rgba(255, 255, 255, 0.03);
         }
-        #overlay-stats .stat b { font-size: 1.05em; line-height: 1.1; }
-        #overlay-stats .stat span { margin-top: 2px; font-size: 0.66em; line-height: 1.2; color: #9aa4b2; }
+        #overlay-stats .stat b {
+            font-family: var(--px);
+            font-size: 12px;
+            font-weight: normal;
+            line-height: 1.3;
+            color: var(--ink);
+        }
+        #overlay-stats .stat span {
+            margin-top: 4px;
+            font-size: 16px;
+            line-height: 1;
+            text-transform: uppercase;
+            color: var(--dim);
+        }
         #overlay-button {
             display: inline-block;
-            background: #00bcd4;
-            color: #ffffff;
+            margin-top: 22px;
+            padding: 14px 30px;
+            background: var(--yellow);
+            color: #2a0a3d;
             border: none;
-            border-radius: 8px;
-            padding: 9px 28px;
-            margin-top: 12px;
-            font-size: 1rem;
-            font-weight: bold;
+            border-radius: 0;
+            font-family: var(--px);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
             cursor: pointer;
-            transition: background 0.2s, transform 0.1s;
+            box-shadow: 0 5px 0 #b35f00;
+            transition: transform 0.08s, box-shadow 0.08s, background 0.15s;
         }
-        #overlay-button:hover {
-            background: #00e5ff;
-            transform: scale(1.04);
-        }
-        #overlay-button:active {
-            transform: scale(0.98);
-        }
-        /* Cheat codes: entering one (typed, or found in-game — see #found-codes below the canvas) is
-           tucked behind a single toggle button so it doesn't clutter the overlay when not in use. */
+        #overlay-button:active { transform: translateY(4px); box-shadow: 0 1px 0 #b35f00; }
+        #overlay-button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 4px; }
+        /* Cheat codes: entering one is tucked behind a single toggle so it doesn't clutter the overlay */
         #cheat-code-area {
             display: none; /* shown by updateCheatCodeUi() outside of Paused */
             flex-direction: column;
             align-items: center;
-            gap: 8px;
-            margin-top: 14px;
-            padding-top: 12px;
-            border-top: 1px solid rgba(255, 255, 255, 0.12);
+            gap: 12px;
+            margin-top: 22px;
+            padding-top: 18px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
         #cheat-code-toggle {
             background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            color: #aab4c8;
-            border-radius: 6px;
-            padding: 5px 14px;
-            font-size: 0.78em;
+            border: 1px solid rgba(154, 140, 192, 0.45);
+            border-radius: 0;
+            color: var(--dim);
+            padding: 6px 18px;
+            font-family: var(--term);
+            font-size: 18px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
             cursor: pointer;
-            transition: background 0.2s, border-color 0.2s;
+            transition: color 0.15s, border-color 0.15s;
         }
-        #cheat-code-toggle:hover { background: rgba(255, 255, 255, 0.08); border-color: #00bcd4; }
         #level-code-entry {
             display: none; /* toggled by toggleCheatCodeEntry() */
             justify-content: center;
-            gap: 6px;
+            align-items: stretch;
+            gap: 8px;
             cursor: default; /* this row is real UI, not a "tap anywhere to launch" surface */
         }
         #level-code-input {
-            width: 108px;
+            width: 150px;
             box-sizing: border-box;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            border-radius: 6px;
-            padding: 5px 8px;
-            color: #ffffff;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-            font-weight: bold;
-            letter-spacing: 0.1em;
+            background: #000;
+            border: 2px solid var(--green);
+            border-radius: 0;
+            padding: 9px 10px;
+            color: var(--green);
+            font-family: var(--px);
+            font-size: 12px;
+            letter-spacing: 2px;
             text-transform: uppercase;
             text-align: center;
+            text-shadow: 0 0 6px rgba(61, 252, 138, 0.8);
             cursor: text;
             user-select: text;
             -webkit-user-select: text;
         }
-        #level-code-input::placeholder { color: #7a839a; }
-        #level-code-input:focus { outline: none; border-color: #00e5ff; }
-        #level-code-input.shake { border-color: #ff5a5a; animation: codeShake 0.35s; }
+        #level-code-input::placeholder { color: #2f7a52; text-shadow: none; font-family: var(--term); font-size: 20px; letter-spacing: 1px; text-transform: none; }
+        #level-code-input:focus { outline: none; box-shadow: 0 0 12px rgba(61, 252, 138, 0.5); }
+        #level-code-input.shake { border-color: var(--red); color: var(--red); animation: codeShake 0.35s; }
         @keyframes codeShake {
             0%, 100% { transform: translateX(0); }
             20% { transform: translateX(-5px); }
@@ -523,52 +566,184 @@
             80% { transform: translateX(4px); }
         }
         #level-code-go {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid #00bcd4;
-            color: #ffffff;
-            border-radius: 6px;
-            padding: 3px 12px;
-            font-size: 0.85em;
+            background: rgba(10, 5, 22, 0.85);
+            border: 2px solid var(--cyan);
+            border-radius: 0;
+            color: var(--cyan);
+            padding: 0 16px;
+            font-family: var(--px);
+            font-size: 11px;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: transform 0.08s, background 0.15s;
         }
-        #level-code-go:hover { background: rgba(0, 188, 212, 0.3); }
-        /* Responsive overrides go LAST so they beat the base rules above (they used to sit above the overlay
-           rules and silently lost, which left the desktop-sized dialog on phones). */
+        #level-code-go:active { transform: translateY(1px); }
+
+        /* --- How-to-play dialog: reference info tucked behind the help button instead of permanently
+           taking up space below the canvas --- */
+        #legend-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 2, 12, 0.75);
+            z-index: 19;
+        }
+        #legend-backdrop.open { display: block; }
+        #legend-dialog {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: min(90%, 660px);
+            max-height: 84vh;
+            max-height: 84dvh;
+            overflow-y: auto;
+            padding: 30px 28px 30px;
+            color: #b9b0d6;
+            font-size: 19px;
+            text-align: center;
+            user-select: none;
+            z-index: 20;
+        }
+        #legend-dialog.open { display: block; }
+        #legend-dialog h2 {
+            margin: 0 0 22px;
+            font-family: var(--px);
+            font-size: 15px;
+            font-weight: normal;
+            color: var(--yellow);
+            text-shadow: 3px 3px 0 #7a1560;
+        }
+        #legend-dialog h3 {
+            margin: 26px 0 14px;
+            font-family: var(--px);
+            font-size: 9px;
+            font-weight: normal;
+            letter-spacing: 2px;
+            color: var(--magenta);
+        }
+        #legend-dialog h2 + h3 { margin-top: 0; }
+        #legend-close {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            background: transparent;
+            border: none;
+            color: var(--magenta);
+            font-family: var(--term);
+            font-size: 36px;
+            line-height: 1;
+            padding: 0 8px;
+            cursor: pointer;
+        }
+        #legend-dialog .row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px 22px;
+        }
+        #legend-dialog kbd {
+            display: inline-block;
+            min-width: 12px;
+            margin-right: 4px;
+            padding: 4px 6px 3px;
+            font-family: var(--px);
+            font-size: 9px;
+            line-height: 1;
+            text-align: center;
+            color: var(--ink);
+            background: #231540;
+            border: 2px solid #4b3a78;
+            border-bottom-width: 4px;
+            vertical-align: 2px;
+        }
+        #legend-dialog .pu { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+        #legend-dialog .pu i {
+            display: inline-grid;
+            place-items: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 4px;
+            box-sizing: border-box;
+            border-radius: 10px;
+            background: var(--c, #7a1010);
+            color: #ffffff;
+            font-family: var(--px);
+            font-style: normal;
+            font-size: 8px;
+        }
+        #legend-dialog .pu.tnt i { border-radius: 0; color: #ffe14d; font-size: 7px; }
+        #legend-dialog .pu.alien i { --c: #1c7a34; font-family: inherit; font-size: 12px; }
+
+        /* --- Hover only where there's a real pointer, so taps on a phone don't leave buttons stuck lit --- */
+        @media (hover: hover) {
+            .hud-btn:hover { border-color: var(--btn); }
+            .hud-btn.active:hover { background: var(--btn); color: var(--bg-0); }
+            .found-code-chip:hover { background: rgba(255, 211, 25, 0.15); }
+            #overlay-button:hover { background: #ffe25c; }
+            #cheat-code-toggle:hover { color: var(--ink); border-color: var(--cyan); }
+            #level-code-go:hover { background: rgba(45, 226, 230, 0.2); }
+            #legend-close:hover { color: #ffffff; }
+        }
+
+        /* Responsive overrides go LAST so they beat the base rules above */
         @media (max-width: 600px) {
-            #hud { font-size: 0.9em; flex-wrap: wrap; gap: 6px; }
-            #hud-stats { column-gap: 10px; row-gap: 2px; }
-            #controls { font-size: 0.75em; }
-            #overlay { padding: 10px 10px 12px; }
-            #overlay-message .ov-title { font-size: 1.2em; }
-            #overlay-stats { margin-top: 8px; gap: 5px; }
-            #overlay-stats .stat { padding: 4px 2px; }
-            #overlay-button { margin-top: 10px; padding: 7px 24px; }
-            #cheat-code-area { margin-top: 8px; padding-top: 7px; }
-            #level-code-input { width: 92px; padding: 4px 6px; }
-            #found-codes { font-size: 0.85em; }
+            body { font-size: 18px; }
+            /* Let the chips and the button group wrap as one flow (two rows: readouts, then combo + buttons)
+               instead of the stats cluster and the buttons each claiming full rows of their own */
+            #hud { justify-content: center; column-gap: 6px; row-gap: 8px; }
+            #hud-stats { display: contents; }
+            .stat-chip { height: 34px; padding: 0 9px; gap: 6px; }
+            .stat-chip .lbl { font-size: 7px; }
+            .stat-chip .val { font-size: 11px; }
+            .stat-chip.lives svg { width: 13px; height: 11px; }
+            #combo-label { font-size: 10px; }
+            #combo-pips i { width: 6px; height: 13px; }
+            #hud-actions { gap: 7px; }
+            #overlay { padding: 22px 18px 20px; }
+            #overlay-message .ov-title { font-size: 13px; }
+            #overlay-message .ov-hint { font-size: 19px; }
+            #overlay-stats { margin-top: 12px; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); }
+            #overlay-stats .stat b { font-size: 10px; }
+            #overlay-stats .stat span { font-size: 14px; }
+            #overlay-button { margin-top: 14px; padding: 11px 20px; font-size: 11px; }
+            #cheat-code-area { margin-top: 12px; padding-top: 10px; }
+            #level-code-input { width: 140px; padding: 8px; font-size: 11px; }
+            #legend-dialog { font-size: 17px; padding: 26px 18px; }
+            #legend-dialog h2 { font-size: 12px; }
+            #found-codes-empty { font-size: 16px; }
+            #touchpad { font-size: 16px; }
         }
         @media (pointer: coarse) {
-            .hud-btn { min-height: 40px; padding: 6px 12px; } /* finger-sized tap targets */
+            .icon-btn { width: 42px; height: 42px; } /* finger-sized tap targets */
             #overlay-button { min-height: 44px; }
-            #controls .keys { display: none; } /* no keyboard on a touch screen */
+            #legend-dialog .keys { display: none; } /* no keyboard on a touch screen */
         }
         @media (max-height: 500px) {
-            #overlay { width: min(72%, 560px); padding: 8px 14px 10px; }
-            #overlay-message .ov-title { font-size: 1.15em; }
-            #overlay-stats { margin: 6px 0 0; }
+            body { padding-top: 8px; }
+            #hud { margin-bottom: 8px; }
+            .stat-chip { height: 30px; }
+            .icon-btn { width: 34px; height: 34px; }
+            #overlay { width: min(72%, 560px); padding: 14px 20px 14px; }
+            #overlay-message .ov-title { font-size: 13px; }
+            #overlay-message .ov-hint { margin-top: 6px; font-size: 18px; }
+            #overlay-stats { margin: 8px 0 0; }
             #overlay-stats .stat { padding: 4px 2px; }
-            #overlay-button { margin-top: 8px; padding: 6px 24px; }
-            #cheat-code-area { margin-top: 6px; padding-top: 5px; }
-            #level-code-input { width: 84px; padding: 3px 5px; }
-            #controls, #found-codes { display: none; } /* landscape phone: every pixel goes to the playfield */
+            #overlay-button { margin-top: 10px; padding: 9px 22px; min-height: 0; }
+            #cheat-code-area { margin-top: 8px; padding-top: 6px; }
+            #level-code-input { width: 140px; padding: 5px 8px; }
+            #found-codes { display: none; } /* landscape phone: every pixel goes to the playfield */
             body.touch #touchpad { display: none; } /* the whole screen is the pad */
             #canvas, body.touch #canvas {
                 max-height: calc(100vh - 90px);
                 max-height: calc(100dvh - 90px);
             }
         }
-    </style>
+        @media (prefers-reduced-motion: reduce) {
+            body::before, #overlay-message .ov-hint, #overlay-flag, #event-banner.warn { animation: none; }
+            #canvas { transition: none; }
+        }
+</style>
 </head>
 <body>
 
@@ -576,23 +751,23 @@
         <div id="hud">
             <div id="hud-stats">
                 <div class="stat-chip score" title="Score">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873l-6.158 -3.245" /></svg>
-                    <span id="score">0</span>
+                    <span class="lbl">SCORE</span>
+                    <span class="val" id="score">0</span>
                 </div>
                 <div class="stat-chip best" title="Best score">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21l8 0" /><path d="M12 17l0 4" /><path d="M7 4l10 0" /><path d="M17 4v8a5 5 0 0 1 -10 0v-8" /><path d="M3 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M17 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /></svg>
-                    <span id="best">0</span>
+                    <span class="lbl">HI</span>
+                    <span class="val" id="best">0</span>
                 </div>
                 <div class="stat-chip level" title="Level">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14h14l-4.5 -4.5l4.5 -4.5h-14v16" /></svg>
-                    <span id="level">1</span>
+                    <span class="lbl">LV</span>
+                    <span class="val" id="level">1</span>
                 </div>
                 <div class="stat-chip lives" id="hud-lives" title="Lives">
-                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
-                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
-                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
-                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
-                    <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572" /></svg>
+                    <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
+                    <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
+                    <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
+                    <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
+                    <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
                 </div>
                 <div id="combo" class="stat-chip combo" title="Combo multiplier: chain bricks without touching the paddle">
                     <span id="combo-label">&times;1</span>
@@ -622,6 +797,9 @@
                     <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8v-2a2 2 0 0 1 2 -2h2" /><path d="M4 16v2a2 2 0 0 0 2 2h2" /><path d="M16 4h2a2 2 0 0 1 2 2v2" /><path d="M16 20h2a2 2 0 0 0 2 -2v-2" /></svg>
                     <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19v-2a2 2 0 0 1 2 -2h2" /><path d="M15 5v2a2 2 0 0 0 2 2h2" /><path d="M5 15h2a2 2 0 0 1 2 2v2" /><path d="M5 9h2a2 2 0 0 0 2 -2v-2" /></svg>
                 </button>
+                <button id="help-btn" class="hud-btn icon-btn" title="How to play &amp; controls (H)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M12 17l0 .01" /><path d="M12 13.5a1.5 1.5 0 0 1 1 -1.5a2.6 2.6 0 1 0 -3 -4" /></svg>
+                </button>
             </div>
         </div>
         <div id="stage">
@@ -649,7 +827,11 @@
             <span id="touchpad-label">Slide your thumb anywhere: the paddle follows</span>
             <i id="touchpad-dot"></i>
         </div>
-        <div id="controls">
+        <div id="legend-backdrop"></div>
+        <div id="legend-dialog" role="dialog" aria-modal="true" aria-label="How to play">
+            <button id="legend-close" type="button" aria-label="Close">&times;</button>
+            <h2>HOW TO PLAY</h2>
+            <h3 class="keys">CONTROLS</h3>
             <div class="row keys">
                 <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> / drag move</span>
                 <span><kbd>Space</kbd> / tap launch &amp; release</span>
@@ -659,6 +841,7 @@
                 <span><kbd>F</kbd> fullscreen</span>
                 <span><kbd>L</kbd> pointer lock</span>
             </div>
+            <h3>POWER-UPS &amp; HAZARDS</h3>
             <div class="row legend">
                 <span class="pu" style="--c:#33cc33"><i>+</i>Life</span>
                 <span class="pu" style="--c:#cc33cc"><i>S</i>Slow</span>

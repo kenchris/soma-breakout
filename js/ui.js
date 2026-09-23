@@ -477,3 +477,40 @@ function togglePause() {
     }
 }
 
+// The keys/powerup legend: reference material, not something that needs its own permanent strip of
+// screen — a dialog opened on demand instead (see #legend-dialog in index.html). Opening it mid-play
+// pauses the game so the ball doesn't fall through an empty paddle while it's read; legendPausedGame
+// tracks that so closing it only resumes play it itself paused, never overriding a manual P pause.
+let legendPausedGame = false;
+
+function legendOpen() {
+    const dlg = document.getElementById('legend-dialog');
+    return !!dlg && dlg.classList.contains('open');
+}
+
+function showLegend() {
+    if (gameState === 'playing') {
+        gameState = 'paused';
+        legendPausedGame = true;
+    }
+    const dlg = document.getElementById('legend-dialog');
+    const backdrop = document.getElementById('legend-backdrop');
+    if (dlg) dlg.classList.add('open');
+    if (backdrop) backdrop.classList.add('open');
+}
+
+function hideLegend() {
+    const dlg = document.getElementById('legend-dialog');
+    const backdrop = document.getElementById('legend-backdrop');
+    if (dlg) dlg.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('open');
+    if (legendPausedGame) {
+        legendPausedGame = false;
+        if (gameState === 'paused') gameState = 'playing';
+    }
+}
+
+function toggleLegend() {
+    if (legendOpen()) hideLegend(); else showLegend();
+}
+

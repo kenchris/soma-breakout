@@ -161,6 +161,7 @@ let paddleHoles = [];     // { x: hole centre in paddle-local px, w, life: secon
 const alienSprites = {};
 
 let paddleGradient = null;
+let paddleCapGradient = null;
 
 let paddleVX = 0;
 

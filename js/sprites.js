@@ -2,6 +2,18 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
+// Sprites with text in them (TNT, the "?" brick, crate labels, the boss hatch) are painted once and cached,
+// so one painted before the web fonts finished loading would keep the fallback font for good. Once the
+// fonts are in, drop those caches and let them repaint on next use. Offline with the fonts never cached,
+// the loads fail and the fallback font simply stays.
+if (document.fonts && document.fonts.load) {
+    Promise.all([document.fonts.load(pixelFont(16)), document.fonts.load(termFont(20))]).then(() => {
+        for (const k in brickSprites) delete brickSprites[k];
+        for (const k in crateSprites) delete crateSprites[k];
+        bossSprite = null;
+    }, () => {});
+}
+
 function crackPath(x, y, angle, length, brick, out, branchChance) {
     const pts = [[x, y]];
     const steps = 3 + Math.floor(Math.random() * 3);
@@ -62,7 +74,7 @@ function crateSprite(cr) {
             g.stroke();
             g.fillStyle = '#ffffff';
             if (cr.label) {
-                g.font = cr.label.length > 1 ? 'bold 9px sans-serif' : 'bold 11px sans-serif';
+                g.font = cr.label.length > 1 ? termFont(13) : pixelFont(8);
                 g.textAlign = 'center';
                 g.textBaseline = 'middle';
                 g.fillText(cr.label, cx, cy + 1);
@@ -133,7 +145,7 @@ function paintBossSprite(g) {
     g.lineWidth = 2;
     g.stroke();
     g.fillStyle = '#3a2a00';
-    g.font = 'bold 15px sans-serif';
+    g.font = pixelFont(11);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText('\u00d73', 120, 86);
@@ -148,18 +160,6 @@ function roundRectOn(g, x, y, w, h, r) {
     g.arcTo(x, y + h, x, y, r);
     g.arcTo(x, y, x + w, y, r);
     g.closePath();
-}
-
-
-function roundRectPath(x, y, w, h, r) {
-    r = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
 }
 
 
@@ -203,18 +203,21 @@ function ballSpriteSet(name) {
         g.fill();
     });
 
-    // The ball: a sphere with a highlight
+    // The ball: a pixel-art sphere on a coarse grid (2px cells), shaded in three hard steps from a
+    // top-left highlight — the page's retro look rather than a smooth gradient
     const bodySize = r * 2 + 2;
     const body = makeSprite(bodySize, bodySize, g => {
-        const c = bodySize / 2;
-        const gr = g.createRadialGradient(c - r * 0.35, c - r * 0.35, 1, c, c, r);
-        gr.addColorStop(0, '#ffffff');
-        gr.addColorStop(0.35, look.mid);
-        gr.addColorStop(1, look.edge);
-        g.fillStyle = gr;
-        g.beginPath();
-        g.arc(c, c, r, 0, Math.PI * 2);
-        g.fill();
+        const cell = 2;
+        const n = Math.round((r * 2) / cell);
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                const px = (i + 0.5) * cell - r, py = (j + 0.5) * cell - r;
+                if (px * px + py * py > r * r) continue;
+                const d = Math.hypot(px + r * 0.35, py + r * 0.35) / (r * 1.6);
+                g.fillStyle = d < 0.22 ? '#ffffff' : d < 0.62 ? look.mid : look.edge;
+                g.fillRect(1 + i * cell, 1 + j * cell, cell, cell);
+            }
+        }
     });
 
     ballSprites[name] = { blob, halo, body, haloSize, bodySize };
@@ -260,7 +263,7 @@ function paintBrick(g, color, steel, tnt, cheat) {
         for (let sx = 4; sx < w - 8; sx += 14) {
             fillPoly(g, [[sx, h - bev], [sx + 6, h - bev], [sx + 10, bev], [sx + 4, bev]], 'rgba(255, 210, 0, 0.28)');
         }
-        g.font = 'bold 12px sans-serif';
+        g.font = pixelFont(8);
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         g.fillStyle = '#ffe14d';
@@ -288,7 +291,7 @@ function paintBrick(g, color, steel, tnt, cheat) {
         g.fillStyle = 'rgba(255, 243, 196, 0.85)';
         sparkle(9, 5, 3);
         sparkle(w - 9, h - 5, 3);
-        g.font = 'bold 13px sans-serif';
+        g.font = pixelFont(10);
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         g.fillStyle = '#fff3c4';
