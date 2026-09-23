@@ -71,6 +71,10 @@ let warpRift = null;    // { x, y, r, pullR, warn, life, t }
 
 let warpTimer = 0;      // frames until the next one may appear
 
+let portals = null;     // { a, b, warn, life, t }: a linked pair, see portals.js
+
+let portalTimer = 0;    // frames until the next pair may open
+
 // Longer than a boss/ghost level takes to notice help is needed, shorter later on; always some randomness
 
 let ghost = null;        // { rows, cells[c][r] = { state, dy } }; state 0 none, 1 ghost, 2 arming (ball inside), 3 solid

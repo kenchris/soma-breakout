@@ -80,10 +80,49 @@ const ROW_STYLES = [
 
 const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7, cheat: 2 };
 
-// --- Snake boss (the second boss type, alongside the mothership) ---
-const SNAKE_UNLOCK_N = 3;   // from the Nth boss encounter on, it's a coin flip against the mothership;
-                             // the 1st and 2nd encounters are fixed instead (see spawnBoss in boss.js)
-const SNAKE_CHANCE = 0.5;   // from SNAKE_UNLOCK_N on, the odds a given boss level is a snake rather than a mothership
+// Each boss debuts in this order, one per boss encounter (level 5, 10, 15, 20); after that every boss level
+// picks one of them at random, seeded per level (see spawnBoss in boss.js)
+const BOSS_ORDER = ['snake', 'mothership', 'pong', 'asteroids'];
+
+// --- Pong boss: "The Rival" (pongBoss.js) ---
+const PONG_Y = 104;                // the rival paddle's top edge, just under the boss health bar
+const PONG_H = 12;
+const PONG_WIDTHS = [140, 118, 96]; // paddle width in phases 1-3 (phase 3 has two of them)
+const PONG_SPEED_BASE = 2.6;       // px per step the rival can move, before the per-encounter ramp
+const PONG_SPEED_PER_N = 0.25;
+const PONG_SPEED_PER_PHASE = 0.5;
+const PONG_AIM_ERROR = 0.8;        // up to this share of its width off where the ball will really arrive
+const PONG_SMASH = 1.06;           // from phase 2 each return speeds the ball up by this much...
+const PONG_SMASH_CAP = 1.3;        // ...up to this multiple of the level's normal ball speed
+const PONG_NET_Y = 330;
+// Its one-way bricks: PONG_WALL_COUNT of them scattered over random cells of a grid in its half of the
+// court, from just under its paddle down towards the net (full-width columns, PONG_WALL_ROWS rows)
+const PONG_WALL_TOP = PONG_Y + PONG_H + 22;
+const PONG_WALL_ROWS = 6;
+const PONG_WALL_ROW_STEP = 26;
+const PONG_WALL_COUNT = 18;
+const PONG_WALL_POINTS = 40;
+
+// --- Asteroids boss: "Asteroid Field" (asteroidsBoss.js) ---
+// Rock tiers: a hit splits a rock into two of the next tier down, and a tier-1 rock just breaks. Points
+// follow the arcade original: the smaller (harder to hit) the rock, the more it's worth.
+const ROCK_TIERS = { 3: { r: 62, speed: 1.0, points: 20 }, 2: { r: 36, speed: 1.8, points: 50 }, 1: { r: 19, speed: 2.7, points: 100 } };
+// The vault the field guards: VAULT_ROWS rows of ordinary bricks from VAULT_TOP (just under the boss
+// health bar), sealed by a lock row right below them. Rocks drift between the lock row and ROCK_BOTTOM.
+const VAULT_TOP = 84;
+const VAULT_ROWS = 2;
+const ROCK_TOP = VAULT_TOP + (VAULT_ROWS + 1) * BRICK_H + 6;
+const ROCK_BOTTOM = 470;           // low enough that a rock can come at you before you've read its bounce
+// One key per third of the lock row, each in its own colour (the locks it opens share it): 0 opens the
+// middle, 1 the left, 2 the right. None of them clash with the vault's yellow and orange bricks.
+const KEY_COLORS = ['#2de2e6', '#ff2fb4', '#3dfc8a'];
+const KEY_NAMES = ['CYAN', 'PINK', 'GREEN'];
+const KEY_LOCK_SHADES = ['#136f73', '#7e1459', '#1b7a45']; // the locked bricks' body, a darker tone of each
+const FIELD_KEYS = KEY_COLORS.length;
+const KEY_FALL_VY = 1.7;           // a freed key drifts down, a little slower than a powerup capsule
+const KEY_DROP_CHANCE = { 3: 0.35, 2: 0.6, 1: 1 }; // per key, each time the rock holding it is hit, by rock size
+
+// --- Snake boss ---
 const SNAKE_CELL = 28;      // square cells, unlike the bricks' 64x20 — a proper classic-Snake grid
 const SNAKE_COLS = 22;
 const SNAKE_ROWS = 13;
@@ -155,11 +194,13 @@ const LEVEL_INTROS = {
     8: { title: 'NEW: FULL FLIP', lines: ['The whole screen may turn upside down'] }
 };
 
-// Each boss's tips, shown the first time you meet that boss in a session. Level 5 is always the snake and
-// level 10 always the mothership (see spawnBoss), so these can't be keyed by level like the intros above.
+// Each boss's tips, shown the first time you meet that boss in a session. Which boss a level brings isn't
+// fixed past the debuts (see BOSS_ORDER), so these can't be keyed by level like the intros above.
 const BOSS_INTROS = {
     snake: { title: 'BOSS: THE SNAKE', lines: ['Hit it near the head to chop off more', 'Leave it alone and it grows back', 'Dodge its purple venom spit'] },
-    mothership: { title: 'BOSS: THE MOTHERSHIP', lines: ['Hit the amber \u00d73 hatch for triple damage', 'Hit it again within 5s to chain \u00d72, \u00d73', 'Break the gold crates for powerups'] }
+    mothership: { title: 'BOSS: THE MOTHERSHIP', lines: ['Hit the amber \u00d73 hatch for triple damage', 'Hit it again within 5s to chain \u00d72, \u00d73', 'Break the gold crates for powerups'] },
+    pong: { title: 'BOSS: THE RIVAL', lines: ['Get the ball past its paddle to score a goal', 'Its one-way bricks only stop YOUR shots', 'A fire ball burns right through bricks and paddle'] },
+    asteroids: { title: 'BOSS: ASTEROID FIELD', lines: ['Smash the vault bricks at the top to win', 'Keys hidden in the rocks open the locks of their colour', 'Drop a key and you die: the field starts over!'] }
 };
 
 const CHAOS = {
@@ -196,6 +237,17 @@ const WARP_PULL_R = 130;       // how far out it starts pulling the ball in
 const WARP_PULL_MAX = 0.9;     // strongest pull, applied right at the edge of the rift itself
 
 const WARP_ON_ALIEN_KILL_CHANCE = 0.5;
+
+const WARP_TINT = '120, 90, 255'; // the rift's violet (see drawVortex in warpRift.js)
+
+// --- Portal pairs (portals.js): ball in one, out the other, momentum kept ---
+const PORTAL_UNLOCK = 3;
+const PORTAL_R = WARP_R;            // the same size and gravity as a warp rift...
+const PORTAL_PULL_R = WARP_PULL_R;
+const PORTAL_PULL_MAX = WARP_PULL_MAX;
+const PORTAL_EXIT_MIN_CLIMB = 0.5;  // ...and the ball always leaves the far one heading up, at least this steeply (|vy| / speed)
+const PORTAL_WARN_FRAMES = 75;
+const PORTAL_LIFE_FRAMES = 60 * 12;
 
 const TETRIS_COLORS = ['#00e5ff', '#ffd23f', '#b56bff', '#4de08c', '#ff5a5a', '#3d7bff', '#ff9a2e', '#e05cff'];
 

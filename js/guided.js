@@ -33,7 +33,8 @@ function hitValue(c, r) {
 }
 
 // March a ray from (x, y) along the unit vector (dx, dy), reflecting off the side walls, and return
-// the first alive brick it reaches ({c, r}), 'wall' if a sliding barrier blocks it, or null.
+// the first thing it reaches: an alien ({alien}), a crate, the boss, an alive brick ({c, r}), 'wall' if a
+// sliding barrier blocks it, or null.
 
 function castRay(x, y, dx, dy) {
     const step = 5;
@@ -52,6 +53,9 @@ function castRay(x, y, dx, dy) {
         if (y < 0 || y > CANVAS_H) return null;
         for (const w of movingWalls) {
             if (x > w.x - 4 && x < w.x + w.w + 4 && y > w.y - 4 && y < w.y + w.h + 4) return 'wall';
+        }
+        for (const a of aliens) {
+            if (a.x > 0 && a.x < CANVAS_W && Math.abs(x - a.x) < a.w / 2 + 4 && Math.abs(y - a.y) < a.h / 2 + 4) return { alien: a, x, y };
         }
         for (const cr of crates) {
             if (cr.alive && x >= cr.x && x <= cr.x + cr.w && y >= cr.y && y <= cr.y + cr.h) return { crate: true };
@@ -83,7 +87,9 @@ function bestAim(x, y) {
         const hit = castRay(x, y, dx, dy);
         if (!hit || hit === 'wall') continue;
         let value;
-        if (hit.crate) {
+        if (hit.alien) {
+            value = 120; // the biggest threat on screen: a guided ball goes for the aliens first
+        } else if (hit.crate) {
             value = 40; // worth a powerup, but less than hitting the boss
         } else if (hit.boss) {
             value = inBossHatch(hit.x, hit.y) ? 150 : 45; // the hatch is worth triple
@@ -93,7 +99,7 @@ function bestAim(x, y) {
         const v = value * (1 - Math.abs(deg) / 400); // slight preference for straighter shots
         if (v > bestValue) {
             bestValue = v;
-            best = { vx: dx * speed, vy: dy * speed, c: hit.c, r: hit.r, boss: !!hit.boss, crate: !!hit.crate };
+            best = { vx: dx * speed, vy: dy * speed, c: hit.c, r: hit.r, boss: !!hit.boss, crate: !!hit.crate, alien: hit.alien || null, x: hit.x, y: hit.y };
         }
     }
     return best;

@@ -396,6 +396,8 @@ function spawnLevel() {
     crates = [];
     crateTimer = 0;
     warpRift = null; // any rift belonged to the level just left
+    portals = null;
+    portalTimer = 60 * (12 + Math.random() * 10); // the first pair of a level opens 12-22s in
     movingWalls = buildWalls(); // built before spawnBoss() so the snake boss can add its own wall to it
     const layout = currentLayout();
     const isSteel = buildSteelMask(layout, STEEL_STYLES[(level - 1) % STEEL_STYLES.length]);

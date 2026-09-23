@@ -13,19 +13,25 @@ function bossPhase() {
 }
 
 
-// Two boss types share this arena slot: the mothership (below) and the snake (snakeBoss.js). The first
-// encounter is always the snake (an early, faster-paced fight) and the second is always the mothership;
-// from the SNAKE_UNLOCK_N-th encounter on it's a coin flip, picked deterministically per level like
-// everything else here, so ?level=N always gives the same boss. (Encounters 3+ reuse this same pair for
-// now — future boss types can slot in here once they exist.)
+// Four boss types share this arena slot: the mothership (below), the snake (snakeBoss.js), the rival
+// (pongBoss.js) and the asteroid field (asteroidsBoss.js). Each debuts in BOSS_ORDER, one per encounter;
+// after that a boss level picks one at random, seeded per level like everything else here, so ?level=N
+// always gives the same boss.
 function spawnBoss() {
     const n = Math.floor(level / UNLOCK.boss);
-    if (n === 1) {
+    const kind = n <= BOSS_ORDER.length
+        ? BOSS_ORDER[n - 1]
+        : BOSS_ORDER[Math.floor(seededRandom(level * 11113 + 5)() * BOSS_ORDER.length)];
+    if (kind === 'snake') {
         spawnSnakeBoss();
         return;
     }
-    if (n >= SNAKE_UNLOCK_N && seededRandom(level * 11113 + 5)() < SNAKE_CHANCE) {
-        spawnSnakeBoss();
+    if (kind === 'pong') {
+        spawnPongBoss(n);
+        return;
+    }
+    if (kind === 'asteroids') {
+        spawnAsteroidsBoss(n);
         return;
     }
     const hp = 6 + 8 * n; // 14, 22, 30, 38 ... (a chain multiplies damage, so later bosses need to grow faster)
@@ -41,6 +47,10 @@ function spawnBoss() {
 
 function bossRects() {
     if (boss.kind === 'snake') return snakeRects(); // used for guided-ball targeting; see snakeBoss.js
+    if (boss.kind === 'asteroids') return asteroidsRects();
+    if (boss.kind === 'pong') { // its one-way bricks: the guided ball helps clear a way through
+        return boss.wall.filter(w => w.alive).map(w => [w.x, w.y, w.x + BRICK_W, w.y + BRICK_H]);
+    }
     const B = boss;
     return [[B.x - 108, B.y - 17, B.x + 108, B.y + 43], [B.x - 46, B.y - 43, B.x + 46, B.y - 17]];
 }
@@ -54,7 +64,7 @@ function bossCore() {
 
 
 function inBossHatch(x, y) {
-    if (boss.kind === 'snake') return false;
+    if (boss.kind !== 'mothership') return false;
     const core = bossCore();
     return Math.hypot(x - core.x, y - core.y) < 34;
 }
@@ -168,6 +178,14 @@ function updateBoss() {
         updateSnakeBoss();
         return;
     }
+    if (B.kind === 'pong') {
+        updatePongBoss();
+        return;
+    }
+    if (B.kind === 'asteroids') {
+        updateAsteroidsBoss();
+        return;
+    }
     B.t++;
     if (B.dying > 0) {
         updateBossDeath();
@@ -221,6 +239,14 @@ function bossBallCollision(b) {
     if (!B) return;
     if (B.kind === 'snake') {
         snakeBallCollision(b);
+        return;
+    }
+    if (B.kind === 'pong') {
+        pongBallCollision(b);
+        return;
+    }
+    if (B.kind === 'asteroids') {
+        asteroidsBallCollision(b);
         return;
     }
     if (B.intro > 0 || B.dying > 0 || B.cool > 0) return;
@@ -284,6 +310,33 @@ function bossBallCollision(b) {
     }
 }
 
+// The newer bosses' shared entrance: a call-out, the siren, and the same free shield every boss hands out
+// at the start of its fight (see updateBoss / updateSnakeBoss for the older two's own versions)
+function announceBoss(text, color, freeShield = true) {
+    addPopup(CANVAS_W / 2, 250, text, color, { size: 28, life: 1.8, rise: 0.3, pop: true });
+    tone(260, 0.4, { type: 'sawtooth', vol: 0.22, slideTo: 500, key: 'siren', force: true });
+    haptic([50, 30, 50], true);
+    if (!freeShield) return;
+    shield = Math.min(shield + 1, SHIELD_MAX);
+    addPopup(CANVAS_W / 2, CANVAS_H - 60, 'Free shield!', '#33ddff', { size: 18, life: 1.8, rise: 0.2 });
+}
+
+// A plain health bar with a label, for the bosses without extras (phase notches, chain meter) on theirs
+function drawSimpleBossBar(label, ratio) {
+    if (!boss || boss.dying > 0) return;
+    const w = 460, x = (CANVAS_W - w) / 2, y = 64, h = 12;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    ctx.fillStyle = ratio > 0.66 ? '#4de08c' : ratio > 0.33 ? '#ff9a2e' : '#ff4d4d';
+    ctx.fillRect(x, y, w * Math.max(0, ratio), h);
+    ctx.font = termFont(19);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, CANVAS_W / 2, y - 6);
+    ctx.restore();
+}
+
 // A lost ball gives the boss a breather too (it never heals)
 
 function bossBreather() {
@@ -292,6 +345,11 @@ function bossBreather() {
         snakeBreather();
         return;
     }
+    if (boss.kind === 'pong') {
+        pongBreather();
+        return;
+    }
+    if (boss.kind === 'asteroids') return; // rocks don't regroup; nothing to reset
     boss.atk = null;
     boss.atkIn = 150;
     boss.beamFx = 0;
@@ -389,6 +447,14 @@ function drawBoss() {
         drawSnakeBoss();
         return;
     }
+    if (B.kind === 'pong') {
+        drawPongBoss();
+        return;
+    }
+    if (B.kind === 'asteroids') {
+        drawAsteroidsBoss();
+        return;
+    }
     if (B.atk) drawBossTelegraph(B);
     if (!bossSprite) bossSprite = makeSprite(240, 110, paintBossSprite);
     const jitter = B.dying > 0 ? (Math.random() - 0.5) * 8 : 0;
@@ -439,6 +505,14 @@ function drawBossBar() {
     if (!B || B.dying > 0) return;
     if (B.kind === 'snake') {
         drawSnakeBossBar();
+        return;
+    }
+    if (B.kind === 'pong') {
+        drawPongBossBar();
+        return;
+    }
+    if (B.kind === 'asteroids') {
+        drawAsteroidsBossBar();
         return;
     }
     const w = 460;

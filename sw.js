@@ -2,7 +2,7 @@
 // list below changes (a new js/*.js file added/removed) or you want to force clients to pick up new code —
 // this is a static site with no build step, so this list is maintained by hand, same as the <script> tags
 // in index.html.
-const CACHE_VERSION = 'v9';
+const CACHE_VERSION = 'v17';
 const CACHE_NAME = 'breakout-' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -10,6 +10,7 @@ const APP_SHELL = [
     './index.html',
     './manifest.json',
     './js/aliens.js',
+    './js/asteroidsBoss.js',
     './js/audio.js',
     './js/boss.js',
     './js/chaos.js',
@@ -21,6 +22,8 @@ const APP_SHELL = [
     './js/input.js',
     './js/level.js',
     './js/main.js',
+    './js/pongBoss.js',
+    './js/portals.js',
     './js/powerups.js',
     './js/rally.js',
     './js/share.js',

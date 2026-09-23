@@ -55,9 +55,11 @@ function drawBall() {
     for (const b of balls) {
         if (b.stuck) drawStuckAim(b);
         if (guidedTimer > 0 && b.aim) {
-            if (b.aim.boss) {
+            if (b.aim.alien) {
+                if (aliens.includes(b.aim.alien)) drawReticleAt(b.aim.alien.x, b.aim.alien.y);
+            } else if (b.aim.boss) {
                 if (boss && boss.hp > 0) {
-                    const core = bossCore();
+                    const core = boss.kind === 'mothership' ? bossCore() : b.aim; // the hatch, or wherever it's aiming
                     drawReticleAt(core.x, core.y);
                 }
             } else if (b.aim.c !== undefined && bricks[b.aim.c][b.aim.r].alive) {
@@ -205,6 +207,35 @@ function drawStatusChips() {
         x += w + 6;
     }
     ctx.restore();
+}
+
+// Losing a life: the last ball dropping, or (in the asteroid field) a key falling past the paddle. Any
+// balls still in play go with it: it's either a fresh ball on the paddle, or game over.
+function loseLife() {
+    balls.length = 0;
+    lives = Math.max(0, lives - 1);
+    combo = 0;
+    powerups.length = 0;
+    clearTimedEffects();
+    // Aliens and an active weird event (mirrored view, reversed controls, ...) survive a lost ball: a
+    // surprise event is often what causes the ball to be lost in the first place, and cutting it short
+    // right then would mean never really getting to react to it
+    bossBreather();
+    addShake(7);
+    haptic(70, true);
+    if (lives === 0) {
+        gameState = 'lost';
+        playLoseJingle();
+        haptic(250, true);
+        inputLockUntil = performance.now() + 700;
+        const summary = buildSummary(false);
+        showOverlay('Game over\nTap or press R to play again', 'Play again', summary);
+        prepareShareCard(summary);
+    } else {
+        balls.push(makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, currentSpeed(), -currentSpeed()));
+        gameState = 'ready';
+        showOverlay(getLaunchMessage(false), 'Launch');
+    }
 }
 
 // --- HUD (DOM) ---
@@ -605,30 +636,7 @@ function update() {
                     haptic(25);
                     continue;
                 }
-                lives = Math.max(0, lives - 1);
-                combo = 0;
-                powerups.length = 0;
-                clearTimedEffects();
-                // Aliens and an active weird event (mirrored view, reversed controls, ...) survive a lost
-                // ball: a surprise event is often what causes the ball to be lost in the first place, and
-                // cutting it short right then would mean never really getting to react to it
-                bossBreather();
-                addShake(7);
-                haptic(70, true);
-                if (lives === 0) {
-                    gameState = 'lost';
-                    playLoseJingle();
-                    haptic(250, true);
-                    inputLockUntil = performance.now() + 700;
-                    const summary = buildSummary(false);
-                    showOverlay('Game over\nTap or press R to play again', 'Play again', summary);
-                    prepareShareCard(summary);
-                } else if (balls.length === 0) {
-                    // All balls lost: reset one ball on the paddle
-                    balls.push(makeBall(paddle.x + paddle.w / 2, paddle.y - BALL_RADIUS, currentSpeed(), -currentSpeed()));
-                    gameState = 'ready';
-                    showOverlay(getLaunchMessage(false), 'Launch');
-                }
+                loseLife();
             }
         }
     }
@@ -694,6 +702,7 @@ function update() {
     updateBoss();
     updateCrates();
     updateWarpRift();
+    updatePortals();
 
     // 3. Brick collisions for each ball
     for (const b of balls) {
@@ -705,6 +714,7 @@ function update() {
         if (gameState === 'playing') crateBallCollision(b);
         if (gameState === 'playing') ghostBallCollision(b);
         if (gameState === 'playing') warpRiftBallCollision(b);
+        if (gameState === 'playing') portalBallCollision(b);
     }
     if (gameState === 'playing') updateGhostGrid();
 }
@@ -730,6 +740,7 @@ function render() {
     drawGhostGrid();
     drawCrates();
     drawWarpRift();
+    drawPortals();
     drawMovingWalls();
     drawShield();
     drawBoss();

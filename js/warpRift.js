@@ -9,7 +9,7 @@ function warpInterval() {
 
 
 function canSpawnWarp() {
-    return gameState === 'playing' && !warpRift &&
+    return gameState === 'playing' && !warpRift && !portals && // never both at once: too much going on
         !(boss && (boss.intro > 0 || boss.dying > 0)) &&
         !(ghost && ghostCount() <= 6) &&
         !(!ghost && !boss && bricksLeft <= 3);
@@ -100,39 +100,44 @@ function warpRiftBallCollision(b) {
 function drawWarpRift() {
     if (!warpRift) return;
     const r = warpRift;
+    drawVortex(r.x, r.y, r.r, r.pullR, r.t, r.warn, WARP_WARN_FRAMES, r.life, WARP_TINT, '#7be8ff');
+}
+
+// The space-anomaly look shared by warp rifts and portal pairs (tinted), so they read as the same kind of
+// thing. While warn > 0 it's a telegraph (a growing dashed ring); then a faint vignette out to pullR (so the
+// pull's reach is visible, not just felt) under three counter-rotating glowing swirls. Blinks just before
+// closing. tint is an 'r, g, b' string for the swirls' colour.
+function drawVortex(x, y, r, pullR, t, warn, warnFrames, life, tint, warnColor) {
     ctx.save();
-    if (r.warn > 0) {
-        // Telegraph: a growing dashed ring
-        const k = 1 - r.warn / WARP_WARN_FRAMES;
+    if (warn > 0) {
+        const k = 1 - warn / warnFrames;
         ctx.globalAlpha = 0.5 + 0.4 * k;
-        ctx.strokeStyle = '#7be8ff';
+        ctx.strokeStyle = warnColor;
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.arc(r.x, r.y, 4 + r.r * k, 0, Math.PI * 2);
+        ctx.arc(x, y, 4 + r * k, 0, Math.PI * 2);
         ctx.stroke();
     } else {
-        const spin = r.t / 12;
-        const fade = r.life < 90 && Math.floor(r.life / 6) % 2 === 0 ? 0.35 : 1; // blinks just before closing
-        ctx.globalAlpha = fade;
-        // The pull field itself: a faint vignette out to pullR, so its reach is visible, not just felt
-        const field = ctx.createRadialGradient(r.x, r.y, r.r, r.x, r.y, r.pullR);
-        field.addColorStop(0, 'rgba(120, 90, 255, 0.16)');
-        field.addColorStop(1, 'rgba(120, 90, 255, 0)');
+        const spin = t / 12;
+        ctx.globalAlpha = life < 90 && Math.floor(life / 6) % 2 === 0 ? 0.35 : 1;
+        const field = ctx.createRadialGradient(x, y, r, x, y, pullR);
+        field.addColorStop(0, 'rgba(' + tint + ', 0.16)');
+        field.addColorStop(1, 'rgba(' + tint + ', 0)');
         ctx.fillStyle = field;
         ctx.beginPath();
-        ctx.arc(r.x, r.y, r.pullR, 0, Math.PI * 2);
+        ctx.arc(x, y, pullR, 0, Math.PI * 2);
         ctx.fill();
-        ctx.translate(r.x, r.y);
+        ctx.translate(x, y);
         for (let i = 0; i < 3; i++) {
             ctx.rotate(spin * (i % 2 === 0 ? 1 : -1) + i);
-            const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, r.r - i * 5);
+            const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, r - i * 5);
             grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
-            grad.addColorStop(0.5, 'rgba(120, 90, 255, 0.55)');
-            grad.addColorStop(1, 'rgba(60, 30, 180, 0)');
+            grad.addColorStop(0.5, 'rgba(' + tint + ', 0.55)');
+            grad.addColorStop(1, 'rgba(' + tint + ', 0)');
             ctx.fillStyle = grad;
             ctx.beginPath();
-            ctx.ellipse(0, 0, r.r - i * 5, (r.r - i * 5) * 0.4, 0, 0, Math.PI * 2);
+            ctx.ellipse(0, 0, r - i * 5, (r - i * 5) * 0.4, 0, 0, Math.PI * 2);
             ctx.fill();
         }
     }
