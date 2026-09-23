@@ -12,13 +12,13 @@ function isTouchDevice() {
 }
 
 
+// Every launch screen (a fresh run, the next level, or relaunching after a lost ball) names the level
 function getLaunchMessage(levelWon = false) {
     const isTouch = isTouchDevice();
-    if (levelWon) {
-        const name = plan.boss ? 'Boss fight' : plan.tetris ? 'Ghost rows' : currentLayout().name;
-        return 'Level ' + level + ' · ' + name + '\n' + (isTouch ? 'Tap to continue' : 'Press SPACE to continue');
-    }
-    return 'Ready?\n' + (isTouch ? 'Tap or press SPACE to launch' : 'Press SPACE to launch');
+    const name = plan.boss ? 'Boss fight' : plan.tetris ? 'Ghost rows' : currentLayout().name;
+    const title = 'Level ' + level + ' · ' + name;
+    if (levelWon) return title + '\n' + (isTouch ? 'Tap to continue' : 'Press SPACE to continue');
+    return title + '\n' + (isTouch ? 'Tap or press SPACE to launch' : 'Press SPACE to launch');
 }
 
 // The first line of the message is the headline; any further lines are a smaller hint under it
@@ -468,7 +468,7 @@ function updateTouchpad() {
     if (!touchpadDot) return;
     let frac = (paddle.x + paddle.w / 2) / CANVAS_W;
     if (mapMirror()) frac = 1 - frac;
-    const pct = Math.round(frac * 100);
+    const pct = Math.round((FOLLOW_INSET + frac * (1 - 2 * FOLLOW_INSET)) * 1000) / 10; // same mapping as followPaddleTarget, so the dot sits under the thumb
     if (pct !== touchpadPct) {
         touchpadPct = pct;
         touchpadDot.style.left = pct + '%';

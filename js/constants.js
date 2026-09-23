@@ -277,6 +277,7 @@ const STEP_MS = 1000 / 60;
 
 const MAX_STEPS_PER_FRAME = 3; // if the device can't keep up, drop the backlog instead of spiralling
 
+const FOLLOW_INSET = 0.05;    // share of the thumb pad's width at each end that already counts as the wall
 const FOLLOW_MAX_STEP = 55;   // canvas px per 60 Hz step
 
 const POINTER_LOCK_SENSITIVITY = 1.6;

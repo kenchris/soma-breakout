@@ -2,9 +2,15 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
+// Follow mode maps the paddle's whole range onto the thumb pad's width rather than the screen's, so the
+// narrower pad brings both walls within reach of one thumb. Touches outside the pad still steer; they just
+// clamp at the wall. With no pad on screen (landscape), the full window width is used instead.
 function followPaddleTarget(clientX) {
-    const inset = 0.04;
-    const norm = Math.max(0, Math.min(1, (clientX / window.innerWidth - inset) / (1 - 2 * inset)));
+    const pad = document.getElementById('touchpad');
+    const r = pad ? pad.getBoundingClientRect() : null;
+    const left = r && r.width > 0 ? r.left : 0;
+    const width = r && r.width > 0 ? r.width : window.innerWidth;
+    const norm = Math.max(0, Math.min(1, ((clientX - left) / width - FOLLOW_INSET) / (1 - 2 * FOLLOW_INSET)));
     let centre = norm * CANVAS_W;
     if (mapMirror()) centre = CANVAS_W - centre;
     return Math.max(0, Math.min(CANVAS_W - paddle.w, centre - paddle.w / 2));
@@ -13,7 +19,7 @@ function followPaddleTarget(clientX) {
 // Touches on buttons or the overlay belong to them, not to the paddle
 
 function isControlTarget(target) {
-    return !!(target && target.closest && target.closest('button, #overlay, a'));
+    return !!(target && target.closest && target.closest('button, #overlay, a, #found-codes'));
 }
 
 // Displayed pixels -> canvas coordinate space, mirrored when the view is flipped or controls are reversed
