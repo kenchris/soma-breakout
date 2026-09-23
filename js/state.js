@@ -69,6 +69,8 @@ let bossSprite = null;
 
 let warpRift = null;    // { x, y, r, pullR, warn, life, t }
 
+const explainedDrops = new Set(); // drop types whose tip has been shown this session
+let warpOffer = null;   // { steps, ball } while the warp dialog asks whether to jump
 let warpTimer = 0;      // frames until the next one may appear
 
 let portals = null;     // { a, b, warn, life, t }: a linked pair, see portals.js
@@ -164,6 +166,7 @@ let aliens = [];
 let alienBullets = [];
 
 let alienTimer = 0;       // frames until the next alien may warp in
+let aliensThisLevel = 0;  // arrivals so far on this level (the tutorial's second alien is a tougher one)
 
 let invaderMarchIn = 0;   // frames until the invaders' march takes its next step (see updateAliens)
 

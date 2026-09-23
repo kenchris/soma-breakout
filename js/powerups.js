@@ -4,7 +4,7 @@
 
 function spawnPowerup(x, y) {
     // Weighted pick among the powerups unlocked by this level
-    const pool = POWERUP_TYPES.filter(p => level >= (POWERUP_UNLOCK[p.type] || 1));
+    const pool = POWERUP_TYPES.filter(p => unlockLevel() >= (POWERUP_UNLOCK[p.type] || 1));
     let roll = Math.random() * pool.reduce((sum, p) => sum + p.weight, 0);
     let t = pool[pool.length - 1];
     for (const p of pool) {
@@ -18,11 +18,21 @@ function spawnPowerup(x, y) {
 }
 
 
+// The first catch of each drop type says what it does: in the tutorial, and for the drops that only turn up
+// after it (the player's first chance to meet those). Once per session each.
+function explainDrop(def) {
+    if (explainedDrops.has(def.type)) return;
+    if (!isTutorial() && (POWERUP_UNLOCK[def.type] || 1) <= TUTORIAL[TUTORIAL_LEVELS - 1].unlock) return;
+    explainedDrops.add(def.type);
+    addPopup(CANVAS_W / 2, 330, def.tip, def.color, { size: 17, life: 2.6, rise: 0.1 });
+}
+
 function applyPowerup(type) {
     const def = POWERUP_TYPES.find(p => p.type === type);
     // Stack the name above any still-visible catch popups so back-to-back catches stay readable
     const stacked = popups.filter(p => p.tag === 'powerup').length;
     addPopup(paddle.x + paddle.w / 2, paddle.y - 10 - stacked * 22, def.text, def.color, { life: 1.2, tag: 'powerup' });
+    explainDrop(def);
 
     if (type === 'life') {
         lives = Math.min(lives + 1, 5);

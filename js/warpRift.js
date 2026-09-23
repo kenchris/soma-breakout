@@ -3,13 +3,14 @@
 // here needed import/export changes. See index.html for the required load order.)
 
 function warpInterval() {
-    const base = Math.max(38, 75 - level * 0.6);
+    const base = Math.max(38, 75 - curveLevel() * 0.6);
     return Math.round(60 * base * (0.75 + Math.random() * 0.6));
 }
 
 
 function canSpawnWarp() {
     return gameState === 'playing' && !warpRift && !portals && // never both at once: too much going on
+        !isTutorial() && // a warp would skip you past the lessons
         !(boss && (boss.intro > 0 || boss.dying > 0)) &&
         !(ghost && ghostCount() <= 6) &&
         !(!ghost && !boss && bricksLeft <= 3);
@@ -32,9 +33,53 @@ function spawnWarpRift() {
 }
 
 
-function triggerWarp() {
-    const from = level;
+// The ball reaching a rift's core asks first (#warp-dialog in index.html, paused meanwhile): jump ahead,
+// or stay, and the rift collapses and spits the ball back out. How far it would go is rolled up front, so
+// the choice is an informed one.
+function offerWarp(b) {
     const steps = 1 + Math.floor(Math.random() * WARP_MAX_STEPS); // 1-5 levels forward, never more
+    warpOffer = { steps, ball: b };
+    const text = document.getElementById('warp-text');
+    if (text) text.textContent = 'Jump ' + steps + (steps === 1 ? ' level' : ' levels') + ' ahead, to level ' + (level + steps) + '?';
+    const bonus = document.getElementById('warp-bonus');
+    if (bonus) bonus.textContent = 'Warp bonus +' + 50 * steps;
+    const go = document.getElementById('warp-go');
+    if (go) go.textContent = 'WARP +' + steps;
+    sfxWarpOpen();
+    showModal('warp-dialog');
+    if (go && !isTouchDevice()) go.focus(); // Enter or Space warps, Esc stays
+}
+
+function acceptWarp() {
+    if (!warpOffer) return;
+    const steps = warpOffer.steps;
+    warpOffer = null; // before hideModal, so it isn't taken as a no
+    hideModal();
+    triggerWarp(steps);
+}
+
+// Staying (the Stay button, Esc, or a tap outside the dialog: see hideModal): the rift collapses and flings
+// the ball back out upward, at the speed it went in
+function declineWarp() {
+    if (!warpOffer) return;
+    const b = warpOffer.ball;
+    warpOffer = null;
+    if (warpRift) {
+        spawnParticles(warpRift.x, warpRift.y, '#a78bff', 24);
+        addBlast(warpRift.x, warpRift.y);
+        addPopup(warpRift.x, warpRift.y - 30, 'RIFT CLOSED', '#7be8ff', { size: 18, life: 1.2, rise: 0.4 });
+    }
+    warpRift = null;
+    warpTimer = warpInterval();
+    const speed = Math.hypot(b.vx, b.vy) || currentSpeed();
+    const a = (Math.random() * 2 - 1) * 0.6; // up to ~35 degrees either side of straight up
+    b.vx = Math.sin(a) * speed;
+    b.vy = -Math.cos(a) * speed;
+    tone(900, 0.4, { type: 'sine', vol: 0.16, slideTo: 200, force: true });
+}
+
+function triggerWarp(steps) {
+    const from = level;
     level += steps;
     gameState = 'ready';
     runStats.warps++;
@@ -92,7 +137,7 @@ function warpRiftBallCollision(b) {
         }
         if (Math.random() < 0.4) spawnParticles(b.x, b.y, '#a78bff', 1);
     }
-    if (dist < warpRift.r + b.r) triggerWarp();
+    if (dist < warpRift.r + b.r && !warpOffer) offerWarp(b);
 }
 
 

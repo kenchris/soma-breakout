@@ -17,26 +17,37 @@ function bossPhase() {
 // (pongBoss.js) and the asteroid field (asteroidsBoss.js). Each debuts in BOSS_ORDER, one per encounter;
 // after that a boss level picks one at random, seeded per level like everything else here, so ?level=N
 // always gives the same boss.
+// A boss's tricks pop up the moment they matter, once per fight, instead of as a wall of text up front
+function bossTip(key, text, y = 300) {
+    if (!boss) return;
+    boss.tips = boss.tips || {};
+    if (boss.tips[key]) return;
+    boss.tips[key] = true;
+    addPopup(CANVAS_W / 2, y, text, '#ffffff', { size: 20, life: 2.4, rise: 0.15, pop: true });
+}
+
 function spawnBoss() {
-    const n = Math.floor(level / UNLOCK.boss);
-    const kind = n <= BOSS_ORDER.length
+    const n = Math.floor(curveLevel() / UNLOCK.boss);
+    const debut = n <= BOSS_ORDER.length;
+    const kind = debut
         ? BOSS_ORDER[n - 1]
         : BOSS_ORDER[Math.floor(seededRandom(level * 11113 + 5)() * BOSS_ORDER.length)];
+    const strength = debut ? BOSS_DEBUT_STRENGTH[kind] : n;
     if (kind === 'snake') {
-        spawnSnakeBoss();
+        spawnSnakeBoss(strength);
         return;
     }
     if (kind === 'pong') {
-        spawnPongBoss(n);
+        spawnPongBoss(strength);
         return;
     }
     if (kind === 'asteroids') {
-        spawnAsteroidsBoss(n);
+        spawnAsteroidsBoss(strength);
         return;
     }
-    const hp = 6 + 8 * n; // 14, 22, 30, 38 ... (a chain multiplies damage, so later bosses need to grow faster)
+    const hp = 6 + 8 * strength; // 14, 22, 30, 38 ... (a chain multiplies damage, so later bosses need to grow faster)
     boss = {
-        kind: 'mothership', n, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 130, t: 0, mt: 0, intro: 100,
+        kind: 'mothership', n: strength, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 150, t: 0, mt: 0, intro: 100,
         atk: null, atkIn: 150, lastAtk: null, minionIn: 60 * 12, flash: 0, cool: 0,
         dying: 0, beamFx: 0, beamX: 0, lastPhase: 1, chain: 0, chainT: 0, cheatRolled: false
     };
@@ -51,15 +62,16 @@ function bossRects() {
     if (boss.kind === 'pong') { // its one-way bricks: the guided ball helps clear a way through
         return boss.wall.filter(pongBrickSolid).map(w => [w.x, w.y, w.x + BRICK_W, w.y + BRICK_H]);
     }
-    const B = boss;
-    return [[B.x - 108, B.y - 17, B.x + 108, B.y + 43], [B.x - 46, B.y - 43, B.x + 46, B.y - 17]];
+    const B = boss; // the giant invader's solid outline (see BOSS_RUNS in sprites.js)
+    const x0 = B.x - BOSS_W / 2, y0 = B.y - BOSS_H / 2;
+    return BOSS_RUNS.map(([r, c0, c1]) => [x0 + c0 * BOSS_CELL, y0 + r * BOSS_CELL, x0 + (c1 + 1) * BOSS_CELL, y0 + (r + 1) * BOSS_CELL]);
 }
 
 // The weak point: a fixed hatch on the belly. A ball touching the hull from below is ~21px under its centre.
 // (The snake has no equivalent critical zone — hitting nearer its head already does more, by construction.)
 
 function bossCore() {
-    return { x: boss.x, y: boss.y + 30 };
+    return { x: boss.x, y: boss.y + BOSS_HATCH.y + BOSS_HATCH.h / 2 };
 }
 
 
@@ -85,7 +97,7 @@ function fireBossFan() {
     const B = boss;
     const count = bossPhase() >= 2 ? 4 : 3;
     const speed = bossBoltSpeed();
-    const y0 = B.y + 40;
+    const y0 = B.y + BOSS_H / 2; // from between its legs
     const base = Math.atan2(paddle.x + paddle.w / 2 - B.x, paddle.y - y0);
     for (let i = 0; i < count; i++) {
         const a = base + (i - (count - 1) / 2) * 0.28;
@@ -260,6 +272,8 @@ function bossBallCollision(b) {
         B.cool = 8; // one contact = one hit
         B.flash = 6;
         const crit = inBossHatch(b.x, b.y);
+        B.plainHits = crit ? 0 : (B.plainHits || 0) + 1;
+        if (B.plainHits === 3) bossTip('hatch', 'AIM FOR THE AMBER HATCH: \u00d73 DAMAGE!');
         const prevMult = B.chainT > 0 ? bossChainMult(B.chain) : 1;
         B.chain = B.chainT > 0 ? B.chain + 1 : 1; // hitting again in time extends the chain
         B.chainT = BOSS_CHAIN_FRAMES;
@@ -373,8 +387,8 @@ function killBoss() {
     addShake(12);
     haptic([60, 40, 60, 40, 120], true);
     tone(400, 0.6, { type: 'sawtooth', vol: 0.3, slideTo: 40, key: 'bossDie', force: true });
-    noteMoment(100, 'MOTHERSHIP DESTROYED!', 30); // mid-explosion, not the instant of the hit
-    addPopup(CANVAS_W / 2, 250, 'MOTHERSHIP DESTROYED!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
+    noteMoment(100, 'MEGA INVADER DOWN!', 30); // mid-explosion, not the instant of the hit
+    addPopup(CANVAS_W / 2, 250, 'MEGA INVADER DOWN!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
 }
 
 
@@ -413,7 +427,7 @@ function finishBoss() {
 
 function drawBossTelegraph(B) {
     const a = B.atk;
-    const y0 = B.y + 40;
+    const y0 = B.y + BOSS_H / 2; // from between its legs
     ctx.save();
     if (a.kind === 'fan') {
         const count = bossPhase() >= 2 ? 4 : 3;
@@ -435,7 +449,7 @@ function drawBossTelegraph(B) {
         ctx.strokeStyle = 'rgba(255, 77, 216, ' + (a.t > a.dur - 30 ? 0.8 : 0.4) + ')'; // brighter once it has locked on
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 6]);
-        ctx.strokeRect(a.x - BEAM_HALF, B.y + 43, BEAM_HALF * 2, CANVAS_H - B.y - 43);
+        ctx.strokeRect(a.x - BEAM_HALF, B.y + BOSS_H / 2, BEAM_HALF * 2, CANVAS_H - B.y - BOSS_H / 2);
     }
     ctx.restore();
 }
@@ -457,35 +471,28 @@ function drawBoss() {
         return;
     }
     if (B.atk) drawBossTelegraph(B);
-    if (!bossSprite) bossSprite = makeSprite(240, 110, paintBossSprite);
+    if (!bossSprite) bossSprite = [0, 1].map(f => makeSprite(BOSS_W, BOSS_H, g => paintBossSprite(g, f)));
+    const frame = bossSprite[Math.floor(B.t / 30) % 2]; // the legs march, like the little ones
     const jitter = B.dying > 0 ? (Math.random() - 0.5) * 8 : 0;
-    const sx = B.x - 120 + jitter;
-    const sy = B.y - 55 + (B.dying > 0 ? (Math.random() - 0.5) * 8 : 0);
-    ctx.drawImage(bossSprite, sx, sy);
+    const sx = Math.round(B.x - BOSS_W / 2 + jitter);
+    const sy = Math.round(B.y - BOSS_H / 2 + (B.dying > 0 ? (Math.random() - 0.5) * 8 : 0));
+    ctx.drawImage(frame, sx, sy);
 
-    // Blinking rim lights
-    const beat = Math.floor(B.t / 8);
-    for (let i = 0; i < 9; i++) {
-        const th = Math.PI * (0.12 + i * 0.095);
-        ctx.fillStyle = (beat + i) % 2 === 0 ? '#ffd23f' : '#ff4d6a';
-        ctx.beginPath();
-        ctx.arc(B.x + jitter + Math.cos(th) * 96, B.y + 13 + Math.sin(th) * 26, 3, 0, Math.PI * 2);
-        ctx.fill();
+    // Pulsing corner brackets around the hatch draw the eye to the weak point
+    const out = 4 + (Math.floor(B.t / 12) % 2) * 2; // steps in and out, pixel-style, rather than easing
+    const hx0 = sx + BOSS_W / 2 + BOSS_HATCH.x - out, hy0 = sy + BOSS_H / 2 + BOSS_HATCH.y - out;
+    const hx1 = hx0 + BOSS_HATCH.w + 2 * out, hy1 = hy0 + BOSS_HATCH.h + 2 * out;
+    ctx.fillStyle = '#ffd23f';
+    for (const [x, y, dx, dy] of [[hx0, hy0, 1, 1], [hx1, hy0, -1, 1], [hx0, hy1, 1, -1], [hx1, hy1, -1, -1]]) {
+        ctx.fillRect(dx > 0 ? x : x - 10, dy > 0 ? y : y - 3, 10, 3);
+        ctx.fillRect(dx > 0 ? x : x - 3, dy > 0 ? y : y - 10, 3, 10);
     }
-
-    // A soft pulse around the hatch draws the eye to the weak point
-    const core = bossCore();
-    ctx.strokeStyle = 'rgba(255, 210, 90, ' + (0.35 + 0.3 * Math.sin(B.t / 10)) + ')';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(core.x + jitter, core.y, 40 + 3 * Math.sin(B.t / 10), 0, Math.PI * 2);
-    ctx.stroke();
 
     if (B.flash > 0) { // damage flash
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         ctx.globalAlpha = (B.flash / 6) * 0.7;
-        ctx.drawImage(bossSprite, sx, sy);
+        ctx.drawImage(frame, sx, sy);
         ctx.restore();
     }
 
@@ -493,9 +500,9 @@ function drawBoss() {
         ctx.save();
         ctx.globalAlpha = B.beamFx / 18;
         ctx.fillStyle = '#ff4dd8';
-        ctx.fillRect(B.beamX - BEAM_HALF, B.y + 43, BEAM_HALF * 2, CANVAS_H - B.y - 43);
+        ctx.fillRect(B.beamX - BEAM_HALF, B.y + BOSS_H / 2, BEAM_HALF * 2, CANVAS_H - B.y - BOSS_H / 2);
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(B.beamX - 8, B.y + 43, 16, CANVAS_H - B.y - 43);
+        ctx.fillRect(B.beamX - 8, B.y + BOSS_H / 2, 16, CANVAS_H - B.y - BOSS_H / 2);
         ctx.restore();
     }
 }
@@ -533,7 +540,7 @@ function drawBossBar() {
     ctx.font = termFont(19);
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('MOTHERSHIP ' + roman + '   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, CANVAS_W / 2, y - 6);
+    ctx.fillText('MEGA INVADER ' + roman + '   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, CANVAS_W / 2, y - 6);
     if (B.chainT > 0) {
         const mult = bossChainMult(B.chain);
         const next = bossChainMult(B.chain + 1);

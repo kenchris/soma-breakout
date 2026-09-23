@@ -65,8 +65,7 @@ function snakeBoustrophedonPath(length) {
     return path;
 }
 
-function spawnSnakeBoss() {
-    const n = Math.floor(level / UNLOCK.boss);
+function spawnSnakeBoss(n) {
     const maxLen = Math.floor(SNAKE_COLS * SNAKE_ROWS * 0.35); // leaves room for obstacles and manoeuvring
     const length = Math.min(8 + 3 * n, maxLen);
     const path = snakeBoustrophedonPath(length);
@@ -216,6 +215,7 @@ function snakeSpit() {
         type: 'poison', debuff: randomPoisonDebuff(), color: SNAKE_POISON_COLOR, vy: SNAKE_SPIT_VY
     });
     spawnParticles(head.x, head.y, SNAKE_POISON_COLOR, 10);
+    bossTip('venom', "DON'T CATCH THE PURPLE VENOM!");
     tone(180, 0.25, { type: 'sawtooth', vol: 0.22, slideTo: 320, key: 'snakeSpit', force: true });
     haptic(20);
 }
@@ -307,6 +307,10 @@ function snakeUpdateRegrow() {
     B.sinceHit++;
     if (B.sinceHit < SNAKE_REGROW_DELAY_FRAMES) return false;
     if (B.segments.length >= B.startLength) return false; // fully healed; no need to keep growing
+    if (B.sinceHit === SNAKE_REGROW_DELAY_FRAMES) { // left alone too long: say so as it starts
+        addPopup(CANVAS_W / 2, 300, "OH NO, IT'S REGROWING! HIT IT!", SNAKE_HEAD_COLOR, { size: 20, life: 1.8, rise: 0.2, pop: true });
+        tone(200, 0.3, { type: 'sawtooth', vol: 0.16, slideTo: 420, key: 'regrow', force: true });
+    }
     if (--B.regrowT > 0) return false;
     B.regrowT = SNAKE_REGROW_INTERVAL_FRAMES;
     return true; // this tick's move should grow instead of just shift

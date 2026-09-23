@@ -162,6 +162,11 @@ function handlePointerUp(e) {
         if (e.pointerId !== dragPointerId) return;
         dragPointerId = null;
     }
+    if (isTap && introHold()) { // a tap skips the level's intro card and starts play
+        skipIntroCard();
+        isTap = false;
+        return;
+    }
     // Sticky paddle: a click, a tap, or lifting the finger after a touch drag fires the held ball
     if (gameState === 'playing' && (isTap || (e && e.pointerType !== 'mouse')) && releaseStuckBalls()) {
         lastTapAt = 0;
@@ -205,7 +210,7 @@ function handleKeyDown(e) {
         return;
     }
     if (e.key === 'f' || e.key === 'F') {
-        // Toggle fullscreen & landscape orientation
+        // Toggle fullscreen (portrait-locked on phones)
         toggleFullscreen();
         return;
     }
@@ -227,6 +232,8 @@ function handleKeyDown(e) {
         // Launch (or continue to next level)
         if ((gameState === 'ready' || gameState === 'won') && !endScreenLocked()) {
             launchGame();
+        } else if (introHold()) {
+            skipIntroCard();
         } else if (gameState === 'playing') {
             releaseStuckBalls();
         }
@@ -315,6 +322,10 @@ document.addEventListener('DOMContentLoaded', () => {
         modalBackdrop.addEventListener('click', hideModal);
     }
     initSoundDialog();
+    const warpGo = document.getElementById('warp-go');
+    if (warpGo) warpGo.addEventListener('click', acceptWarp);
+    const warpStay = document.getElementById('warp-stay');
+    if (warpStay) warpStay.addEventListener('click', hideModal);
 
     // Cheat code: toggle/go both need stopPropagation, same reason the overlay-button does — otherwise
     // the click bubbles up to #overlay's own "tap anywhere to launch/continue/restart" listener.
@@ -346,7 +357,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('fullscreenchange', () => {
         updateFullscreenBtn();
         if (document.fullscreenElement) {
-            lockLandscape();
+            lockPortrait();
         } else {
             unlockOrientation();
         }
@@ -354,7 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('webkitfullscreenchange', () => {
         updateFullscreenBtn();
         if (document.webkitFullscreenElement) {
-            lockLandscape();
+            lockPortrait();
         } else {
             unlockOrientation();
         }

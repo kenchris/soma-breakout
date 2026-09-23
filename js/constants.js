@@ -78,11 +78,31 @@ const ROW_STYLES = [
 ];
 
 
+// The main game's curve, in curve levels (see curveLevel in level.js): level N after the tutorial is curve
+// level N - TUTORIAL_LEVELS. Everything up to UNLOCK.chaos is taught by the tutorial and in play from the
+// first level after it.
 const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7, cheat: 2 };
 
-// Each boss debuts in this order, one per boss encounter (level 5, 10, 15, 20); after that every boss level
-// picks one of them at random, seeded per level (see spawnBoss in boss.js)
-const BOSS_ORDER = ['snake', 'mothership', 'pong', 'asteroids'];
+// --- Levels 1-5: the tutorial ---
+// Five short levels with only a handful of bricks, each showing one new thing, before the main game.
+// unlock: the curve level whose unlocks it has (so its drops and events are what it has taught so far).
+const TUTORIAL = [
+    { name: 'Warm-up', unlock: 1, alive: (c, r) => r >= 2 && r <= 3 && c >= 2 && c <= 9 },
+    { name: 'Boom', unlock: 2, tnt: 2, alive: (c, r) => r >= 1 && r <= 3 && c >= 2 && c <= 9 },
+    { name: 'Company', unlock: 3, walls: 1, aliens: true, alive: (c, r) => r >= 1 && r <= 2 && c >= 1 && c <= 10 },
+    { name: 'Flip Side', unlock: 4, chaos: true, alive: (c, r) => r <= 3 && c >= 2 && c <= 9 && (c + r) % 2 === 0 },
+    { name: 'Gold Rush', unlock: 4, code: true, steel: (c, r) => r === 1, alive: (c, r) => r >= 1 && r <= 3 && c >= 3 && c <= 8 }
+];
+const TUTORIAL_LEVELS = TUTORIAL.length;
+
+// Each boss debuts in this order, one per boss encounter (levels 10, 15, 20, 25); after that every boss
+// level picks one of them at random, seeded per level (see spawnBoss in boss.js). The mothership is the
+// gentlest, so it comes first; the snake is the toughest to read, so it waits until you've seen two.
+const BOSS_ORDER = ['mothership', 'pong', 'snake', 'asteroids'];
+// How tough each boss is on its debut, whatever encounter that is: the mothership and the snake at their
+// gentlest, the rival and the asteroid field at the strength they were tuned at (their old debut spots).
+// Past the debuts a boss's strength is simply the encounter number.
+const BOSS_DEBUT_STRENGTH = { mothership: 1, pong: 3, snake: 1, asteroids: 4 };
 
 // --- Pong boss: "The Rival" (pongBoss.js) ---
 const PONG_Y = 104;                // the rival paddle's top edge, just under the boss health bar
@@ -187,24 +207,28 @@ const CHEAT_COLOR = '#e8b400'; // gold, distinct from TNT's red/yellow so the tw
 const POWERUP_UNLOCK = { multi: 2, explosive: 2, double: 2, sticky: 3, shield: 3, fire: 4, guided: 6, split: 5 };
 // Short "what's new" hints, shown when the level starts
 
-// What's new on a level, shown as an intro card at launch (see showLevelIntro in level.js). Kept short:
-// the card is read in a couple of seconds while the ball is already in play.
+// What's new on a level, shown as an intro card at launch (see showLevelIntro in level.js). One or two
+// short lines: nobody reads more. Anything else is told the moment it happens (see bossTip in boss.js).
 const LEVEL_INTROS = {
-    2: { title: 'NEW: TNT', lines: ['TNT bricks chain-explode', 'New drops: Multi-ball, Explosive, 2\u00d7 Score'] },
-    3: { title: 'NEW: WALLS & ALIENS', lines: ['Sliding walls bounce the ball back', 'Aliens shoot holes in your paddle: shoot them down!', 'New drops: Sticky, Shield'] },
-    4: { title: 'NEW: WEIRD EVENTS', lines: ['The world may flip or change speed', 'New drop: Fire ball'] },
-    5: { lines: ['New drop: Split Paddle, one half mirrors you'] }, // joins the boss card (level 5 is a boss level)
-    6: { title: 'NEW: MIND FLIPS', lines: ['Your controls may reverse', 'New drop: Guided ball'] },
-    8: { title: 'NEW: FULL FLIP', lines: ['The whole screen may turn upside down'] }
+    1: { title: 'BREAK ALL THE BRICKS', lines: ['Catch the drops that fall for powerups'] },
+    2: { title: 'NEW: TNT', lines: ['It blows up everything around it'] },
+    3: { title: 'NEW: WALLS & ALIENS', lines: ['Shoot aliens down before they hole your paddle'] },
+    4: { title: 'NEW: WEIRD EVENTS', lines: ['Now and then the world flips or changes speed'] },
+    5: { title: 'NEW: LEVEL CODES', lines: ['Catch what falls from the gold ? brick', 'Grey steel bricks take two hits'] },
+    6: { title: 'TRAINING OVER', lines: ['Every 5th level is a boss fight'] },
+    10: { lines: ['New drop: Split Paddle'] }, // joins the boss card (level 10 is the first boss)
+    11: { title: 'NEW: MIND FLIPS', lines: ['Your controls may reverse'] },
+    13: { title: 'NEW: FULL FLIP', lines: ['The whole screen may turn over'] }
 };
 
-// Each boss's tips, shown the first time you meet that boss in a session. Which boss a level brings isn't
-// fixed past the debuts (see BOSS_ORDER), so these can't be keyed by level like the intros above.
+// Each boss's goal, shown the first time you meet that boss in a session: just how you win. Its tricks
+// are called out as they happen (see bossTip in boss.js). Which boss a level brings isn't fixed past the
+// debuts (see BOSS_ORDER), so these can't be keyed by level like the intros above.
 const BOSS_INTROS = {
-    snake: { title: 'BOSS: THE SNAKE', lines: ['Hit it near the head to chop off more', 'Leave it alone and it grows back', 'Dodge its purple venom spit'] },
-    mothership: { title: 'BOSS: THE MOTHERSHIP', lines: ['Hit the amber \u00d73 hatch for triple damage', 'Hit it again within 5s to chain \u00d72, \u00d73', 'Break the gold crates for powerups'] },
-    pong: { title: 'BOSS: THE RIVAL', lines: ['Get the ball past its paddle to score a goal', 'Its one-way bricks only stop YOUR shots', 'A fire ball burns right through bricks and paddle'] },
-    asteroids: { title: 'BOSS: ASTEROID FIELD', lines: ['Smash the vault bricks at the top to win', 'Keys hidden in the rocks open the locks of their colour', 'Drop a key and you die: the field starts over!'] }
+    snake: { title: 'BOSS: THE SNAKE', lines: ['Chop it down to nothing!'] },
+    mothership: { title: 'BOSS: MEGA INVADER', lines: ['Shoot it down!'] }, // (kind 'mothership': it was a flying saucer once)
+    pong: { title: 'BOSS: THE RIVAL', lines: ['Score goals past its paddle!'] },
+    asteroids: { title: 'BOSS: ASTEROID FIELD', lines: ['Smash the vault bricks at the top!'] }
 };
 
 const CHAOS = {
@@ -289,17 +313,18 @@ const POWERUP_CHANCE = 0.25;
 // weight: relative drop chance (extra life is the rarest)
 
 const POWERUP_TYPES = [
-    { type: 'life', label: '+', color: '#33cc33', text: '+1 Life', weight: 1 },
-    { type: 'slow', label: 'S', color: '#cc33cc', text: 'Slow Ball', weight: 2 },
-    { type: 'wide', label: 'W', color: '#ff9900', text: 'Wide Paddle', weight: 2 },
-    { type: 'explosive', label: 'E', color: '#ff3366', text: 'Explosive!', weight: 2 },
-    { type: 'multi', label: 'M', color: '#3399ff', text: 'Multi-Ball!', weight: 2 },
-    { type: 'double', label: '2×', color: '#c98f00', text: '2× Score!', weight: 1.5 },
-    { type: 'shield', label: null, color: '#22bbdd', text: 'Shield!', weight: 1.5 }, // label null: drawn as a shield icon
-    { type: 'fire', label: 'F', color: '#ff6a00', text: 'Fire Ball!', weight: 1.5 },
-    { type: 'sticky', label: 'G', color: '#7cb518', text: 'Sticky Paddle!', weight: 2 },
-    { type: 'guided', label: 'A', color: '#a06cff', text: 'Guided Ball!', weight: 1.5 },
-    { type: 'split', label: '⇄', color: '#14e6b4', text: 'Split Paddle!', weight: 1.5 }
+// tip: what it does, told the first time you catch one (see explainDrop in powerups.js)
+    { type: 'life', label: '+', color: '#33cc33', text: '+1 Life', weight: 1, tip: 'One extra life' },
+    { type: 'slow', label: 'S', color: '#cc33cc', text: 'Slow Ball', weight: 2, tip: 'The ball slows down for a while' },
+    { type: 'wide', label: 'W', color: '#ff9900', text: 'Wide Paddle', weight: 2, tip: 'A wider paddle for a while' },
+    { type: 'explosive', label: 'E', color: '#ff3366', text: 'Explosive!', weight: 2, tip: 'Your next brick hit blows up the bricks around it' },
+    { type: 'multi', label: 'M', color: '#3399ff', text: 'Multi-Ball!', weight: 2, tip: 'The ball splits in two on its next paddle bounce' },
+    { type: 'double', label: '2×', color: '#c98f00', text: '2× Score!', weight: 1.5, tip: 'Double points for a while' },
+    { type: 'shield', label: null, color: '#22bbdd', text: 'Shield!', weight: 1.5, tip: 'The line at the bottom saves one missed ball' }, // label null: drawn as a shield icon
+    { type: 'fire', label: 'F', color: '#ff6a00', text: 'Fire Ball!', weight: 1.5, tip: 'The ball burns straight through bricks' },
+    { type: 'sticky', label: 'G', color: '#7cb518', text: 'Sticky Paddle!', weight: 2, tip: 'The paddle catches the ball: aim, then release it' },
+    { type: 'guided', label: 'A', color: '#a06cff', text: 'Guided Ball!', weight: 1.5, tip: 'The ball steers itself toward the best target' },
+    { type: 'split', label: '⇄', color: '#14e6b4', text: 'Split Paddle!', weight: 1.5, tip: 'A mirrored second paddle on the other side' }
 ];
 
 const GUIDED_SECONDS = 8;

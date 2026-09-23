@@ -102,62 +102,72 @@ function crateSprite(cr) {
 }
 
 
-function paintBossSprite(g) {
-    // Hull
-    let gr = g.createLinearGradient(0, 38, 0, 98);
-    gr.addColorStop(0, '#9a9ab8');
-    gr.addColorStop(0.5, '#565673');
-    gr.addColorStop(1, '#25253a');
-    g.fillStyle = gr;
-    g.beginPath();
-    g.ellipse(120, 68, 108, 30, 0, 0, Math.PI * 2);
-    g.fill();
-    g.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    g.lineWidth = 2;
-    g.beginPath();
-    g.ellipse(120, 66, 106, 28, 0, Math.PI * 1.05, Math.PI * 1.95);
-    g.stroke();
-    g.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-    g.lineWidth = 1;
-    for (let i = -3; i <= 3; i++) {
-        g.beginPath();
-        g.moveTo(120 + i * 28, 42);
-        g.lineTo(120 + i * 34, 96);
-        g.stroke();
+// The mothership boss is a giant space invader: the regular aliens' two-frame crab (ALIEN_SPRITES) at
+// BOSS_CELL px per pixel instead of 3, so it plainly belongs with them, with chunky edge shading, glowing red
+// eyes and the amber x3 weak-point hatch on its belly (row 5, between the legs, where a ball from below can
+// reach it). The boss's origin is the sprite's centre. BOSS_RUNS is its solid outline (both frames, so the
+// hitbox doesn't twitch as the legs march): bossRects in boss.js turns it into rectangles.
+const BOSS_CELL = 16;
+const BOSS_W = 11 * BOSS_CELL;
+const BOSS_H = 8 * BOSS_CELL;
+const BOSS_COLOR = '#a45cff';
+const BOSS_LIGHT = '#d4adff';
+const BOSS_DARK = '#6a2fc0';
+const BOSS_EYES = [[3, 3], [7, 3]]; // the empty cells in the face
+const BOSS_HATCH = { x: -40, y: 16, w: 80, h: 16 }; // relative to the boss's origin: row 5, columns 3-7
+const BOSS_RUNS = (() => { // [row, firstCol, lastCol] for each unbroken run of solid cells in either frame
+    const runs = [];
+    for (let r = 0; r < 8; r++) {
+        let start = -1;
+        for (let c = 0; c <= 11; c++) {
+            const on = c < 11 && (ALIEN_SPRITES[0][r][c] === '1' || ALIEN_SPRITES[1][r][c] === '1');
+            if (on && start < 0) start = c;
+            if (!on && start >= 0) { runs.push([r, start, c - 1]); start = -1; }
+        }
     }
-    // Glass dome with the pilot inside
-    gr = g.createRadialGradient(120, 44, 4, 120, 50, 46);
-    gr.addColorStop(0, 'rgba(200, 255, 255, 0.95)');
-    gr.addColorStop(1, 'rgba(60, 140, 210, 0.85)');
-    g.fillStyle = gr;
-    g.beginPath();
-    g.ellipse(120, 52, 46, 40, 0, Math.PI, Math.PI * 2);
-    g.closePath();
-    g.fill();
-    g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    g.lineWidth = 1.5;
-    g.beginPath();
-    g.ellipse(120, 52, 46, 40, 0, Math.PI, Math.PI * 2);
-    g.stroke();
-    g.drawImage(alienSprite(0, '#1f6b34'), 96, 28, 48, 36);
+    return runs;
+})();
 
-    // Weak-point hatch on the belly (sprite centre is the boss origin + (120, 55)): an amber panel marked x3
-    gr = g.createLinearGradient(0, 74, 0, 96);
-    gr.addColorStop(0, '#ffe58a');
-    gr.addColorStop(1, '#e08a00');
-    g.fillStyle = gr;
-    roundRectOn(g, 88, 74, 64, 22, 6);
-    g.fill();
-    g.strokeStyle = '#3a2a00';
-    g.lineWidth = 2;
-    g.stroke();
+function paintBossSprite(g, frame) {
+    const C = BOSS_CELL;
+    const rows = ALIEN_SPRITES[frame];
+    const on = (c, r) => r >= 0 && r < 8 && c >= 0 && c < 11 && rows[r][c] === '1';
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 11; c++) {
+            if (!on(c, r)) continue;
+            g.fillStyle = BOSS_COLOR;
+            g.fillRect(c * C, r * C, C, C);
+            // Lit from above: a light lip on top edges, a shadow on bottom edges and the right side
+            g.fillStyle = BOSS_LIGHT;
+            if (!on(c, r - 1)) g.fillRect(c * C, r * C, C, 4);
+            g.fillStyle = BOSS_DARK;
+            if (!on(c, r + 1)) g.fillRect(c * C, r * C + C - 4, C, 4);
+            if (!on(c + 1, r)) g.fillRect(c * C + C - 4, r * C, 4, C);
+        }
+    }
+    // Eyes: glowing red in the holes of the face
+    for (const [c, r] of BOSS_EYES) {
+        g.fillStyle = '#5a0010';
+        g.fillRect(c * C, r * C, C, C);
+        g.fillStyle = '#ff4d6a';
+        g.fillRect(c * C + 3, r * C + 3, C - 6, C - 6);
+        g.fillStyle = '#ffd0d8';
+        g.fillRect(c * C + 3, r * C + 3, 4, 4);
+    }
+    // The weak point: an amber hatch, bevelled, marked x3
+    const hx = BOSS_W / 2 + BOSS_HATCH.x, hy = BOSS_H / 2 + BOSS_HATCH.y;
     g.fillStyle = '#3a2a00';
-    g.font = pixelFont(11);
+    g.fillRect(hx, hy, BOSS_HATCH.w, BOSS_HATCH.h);
+    g.fillStyle = '#ffc53d';
+    g.fillRect(hx + 3, hy + 3, BOSS_HATCH.w - 6, BOSS_HATCH.h - 6);
+    g.fillStyle = '#ffe58a';
+    g.fillRect(hx + 3, hy + 3, BOSS_HATCH.w - 6, 3);
+    g.fillStyle = '#3a2a00';
+    g.font = pixelFont(9);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText('\u00d73', 120, 86);
+    g.fillText('\u00d73', BOSS_W / 2, hy + BOSS_HATCH.h / 2 + 1);
 }
-
 
 function roundRectOn(g, x, y, w, h, r) {
     g.beginPath();

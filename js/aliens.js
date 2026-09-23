@@ -88,29 +88,31 @@ function blockMirrorBolt(worldX) {
 function resetAliens(graceSeconds = 8, spreadSeconds = 8) {
     aliens.length = 0;
     alienBullets.length = 0;
+    aliensThisLevel = 0;
     alienTimer = Math.round(60 * (graceSeconds + Math.random() * spreadSeconds));
 }
 
 
-function alienMax(l = level) {
+function alienMax(l = curveLevel()) {
     return Math.min(1 + Math.floor((l - 1) / 5), 3);
 }
 
 // Frames between arrivals: shorter on later levels, never under ~8s, randomised +-30%
 
 function alienInterval() {
-    const base = Math.max(8, 20 - level * 0.9);
+    if (plan.tutorial) return Math.round(60 * (4 + Math.random() * 3)); // a tutorial level is short: the next one soon
+    const base = Math.max(8, 20 - curveLevel() * 0.9);
     return Math.round(60 * base * (0.7 + Math.random() * 0.6));
 }
 
 
 function alienFireEvery() {
-    return Math.round(60 * Math.max(0.9, 2.2 - level * 0.1) * (0.75 + Math.random() * 0.5));
+    return Math.round(60 * Math.max(0.9, 2.2 - curveLevel() * 0.1) * (0.75 + Math.random() * 0.5));
 }
 
 
 function alienBoltSpeed() {
-    return Math.min(3.6 + level * 0.25, 6.5);
+    return Math.min(3.6 + curveLevel() * 0.25, 6.5);
 }
 
 // Where a bolt fired now would be aimed: the paddle centre, led a little in the direction it's moving
@@ -122,8 +124,10 @@ function alienAimX() {
 
 function spawnAlien() {
     const fromLeft = Math.random() < 0.5;
-    const speed = Math.min(1.1 + level * 0.08, 2.4);
-    const hp = Math.min(1 + Math.floor(level / 4), 3);
+    const speed = Math.min(1.1 + curveLevel() * 0.08, 2.4);
+    // The tutorial's second alien needs two hits: showing that tougher aliens exist, and how they look
+    const tough = !!plan.tutorial && ++aliensThisLevel === 2;
+    const hp = tough ? 2 : Math.min(1 + Math.floor(curveLevel() / 4), 3);
     aliens.push({
         x: fromLeft ? -ALIEN_W : CANVAS_W + ALIEN_W,
         y: 0,
@@ -141,7 +145,8 @@ function spawnAlien() {
         cool: 0,
         t: Math.floor(Math.random() * 100)
     });
-    if (!boss) addPopup(CANVAS_W / 2, 46, 'ALIEN INCOMING!', ALIEN_COLOR, { size: 24, life: 1.4, rise: 0.2, pop: true }); // (a boss's summons need no banner over its health bar)
+    if (tough) addPopup(CANVAS_W / 2, 46, 'OH OH, THIS ALIEN HAS A SHIELD: TWO HITS!', ALIEN_COLOR, { size: 22, life: 2.2, rise: 0.2, pop: true });
+    else if (!boss) addPopup(CANVAS_W / 2, 46, 'ALIEN INCOMING!', ALIEN_COLOR, { size: 24, life: 1.4, rise: 0.2, pop: true }); // (a boss's summons need no banner over its health bar)
     sfxUfo();
     haptic([15, 40, 15], true);
 }
@@ -280,8 +285,9 @@ function alienBallCollision(b) {
     for (let i = aliens.length - 1; i >= 0; i--) {
         const a = aliens[i];
         if (a.cool > 0) continue;
-        const left = a.x - a.w / 2;
-        const top = a.y - a.h / 2;
+        const pad = alienShieldPad(a); // a shielded alien is hit on its shield's edge
+        const left = a.x - a.w / 2 - pad;
+        const top = a.y - a.h / 2 - pad;
         const cx = Math.max(left, Math.min(b.x, left + a.w));
         const cy = Math.max(top, Math.min(b.y, top + a.h));
         const dx = b.x - cx;
@@ -304,17 +310,59 @@ function alienBallCollision(b) {
         }
         if (a.hp <= 0) {
             killAlien(i, a);
-        } else {
-            sfxAlienHurt();
+        } else { // a shield layer shatters
+            sfxShieldBreak();
             addShake(2);
             haptic(15);
-            spawnParticles(b.x, b.y, ALIEN_COLOR, 6);
+            spawnParticles(b.x, b.y, ALIEN_SHIELD_COLOR, 10);
+            addPopup(a.x, a.y - 30, 'SHIELD DOWN!', ALIEN_SHIELD_COLOR, { life: 0.9, rise: 0.6 });
         }
     }
 }
 
 // -- Drawing --
 // Each animation frame x colour is drawn once into a small sprite (the sprite is 60+ cell fills)
+
+// Tough aliens wear a shield: one pixel bubble per hit they can take beyond the last, each a little further
+// out. A hit breaks the outermost one; the ball bounces off the outermost one's edge (alienShieldPad).
+const ALIEN_SHIELD_GAP = 6;
+const ALIEN_SHIELD_COLOR = '#7fe9ff';
+const alienShieldSprites = {};
+
+function alienShieldPad(a) {
+    return Math.max(0, a.hp - 1) * ALIEN_SHIELD_GAP;
+}
+
+function alienShieldSprite(layers) {
+    if (alienShieldSprites[layers]) return alienShieldSprites[layers];
+    const C = 3; // the aliens' own pixel size
+    const margin = layers * ALIEN_SHIELD_GAP + 2 * C;
+    const w = ALIEN_W + 2 * margin, h = ALIEN_H + 2 * margin;
+    const inside = (px, py, rx, ry) => ((px - w / 2) / rx) ** 2 + ((py - h / 2) / ry) ** 2 <= 1;
+    alienShieldSprites[layers] = makeSprite(w, h, g => {
+        for (let y = 0; y < h; y += C) {
+            for (let x = 0; x < w; x += C) {
+                const px = x + C / 2, py = y + C / 2;
+                for (let k = layers; k >= 1; k--) {
+                    const rx = ALIEN_W / 2 + k * ALIEN_SHIELD_GAP + C, ry = ALIEN_H / 2 + k * ALIEN_SHIELD_GAP + C;
+                    if (!inside(px, py, rx, ry)) continue;
+                    const ring = !inside(px, py, rx - C, ry - C);
+                    if (ring) {
+                        g.globalAlpha = k === layers ? 0.9 : 0.55;
+                        g.fillStyle = ALIEN_SHIELD_COLOR;
+                        g.fillRect(x, y, C, C);
+                    } else if (k === layers) {
+                        g.globalAlpha = 0.1; // the bubble's faint glassy inside
+                        g.fillStyle = ALIEN_SHIELD_COLOR;
+                        g.fillRect(x, y, C, C);
+                    }
+                    if (ring) break;
+                }
+            }
+        }
+    });
+    return alienShieldSprites[layers];
+}
 
 function drawAliens() {
     for (const a of aliens) {
@@ -346,12 +394,12 @@ function drawAliens() {
 
         const color = a.flash > 0 ? '#ffffff' : (charging && Math.floor(a.t / 3) % 2 === 0 ? '#ff5a5a' : ALIEN_COLOR);
         ctx.drawImage(alienSprite(Math.floor(a.t / 14) % 2, color), sx, sy);
-        // Remaining hit points for tougher aliens
-        if (a.maxHp > 1) {
-            for (let h = 0; h < a.maxHp; h++) {
-                ctx.fillStyle = h < a.hp ? '#ffffff' : 'rgba(255, 255, 255, 0.25)';
-                ctx.fillRect(a.x - (a.maxHp * 6) / 2 + h * 6 + 1, sy - 7, 4, 3);
-            }
+        // The shield, shimmering a little so it reads as energy, not as part of the alien
+        if (a.hp > 1) {
+            const sh = alienShieldSprite(a.hp - 1);
+            ctx.globalAlpha = 0.8 + 0.2 * Math.sin(a.t / 6);
+            ctx.drawImage(sh, Math.round(a.x - sh.width / 2), Math.round(a.y - sh.height / 2));
+            ctx.globalAlpha = 1;
         }
         ctx.restore();
     }

@@ -3,9 +3,9 @@
 // here needed import/export changes. See index.html for the required load order.)
 
 function isGhostLevel(l) {
-    if (l < UNLOCK.tetris || isBossLevel(l)) return false;
+    if (isTutorial(l) || unlockLevel(l) < UNLOCK.tetris || isBossLevel(l)) return false;
     if (ghostLevelCache[l] === undefined) {
-        ghostLevelCache[l] = l === UNLOCK.tetris || (seededRandom(l * 7368787 + 3)() < 0.3 && !isGhostLevel(l - 1));
+        ghostLevelCache[l] = unlockLevel(l) === UNLOCK.tetris || (seededRandom(l * 7368787 + 3)() < 0.3 && !isGhostLevel(l - 1));
     }
     return ghostLevelCache[l];
 }
@@ -146,7 +146,7 @@ function clearRows(full) {
     // happen to clear. At most one per level (cheatDone), same as a gold brick.
     let cheatRow = null;
     if (plan.cheatEligible && !ghost.cheatDone) {
-        const perRowChance = cheatChance(level) / ghost.rows;
+        const perRowChance = cheatChance() / ghost.rows;
         for (const r of full) {
             if (Math.random() < perRowChance) {
                 ghost.cheatDone = true;

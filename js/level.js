@@ -103,6 +103,19 @@ function initGame() {
     } catch (e) {
         foundCodes = {}; // Storage unavailable or corrupt; codes found this session just won't persist
     }
+    // Levels 1-5 became the tutorial, moving every earlier level 5 up: codes found before that move with
+    // their levels (a code is derived from its level number, so each one is re-derived)
+    try {
+        if (!localStorage.getItem('breakout-levels-v2')) {
+            const moved = {};
+            for (const l of Object.keys(foundCodes)) moved[+l + TUTORIAL_LEVELS] = levelToCode(+l + TUTORIAL_LEVELS);
+            foundCodes = moved;
+            saveFoundCodes();
+            localStorage.setItem('breakout-levels-v2', '1');
+        }
+    } catch (e) {
+        // Storage unavailable: nothing saved to move
+    }
     // Arrived through a friend's shared code link: it joins your own collection, like typing it in would
     const shared = sharedCodeLevel();
     const sharedIsNew = shared !== null && !foundCodes[shared];
@@ -182,7 +195,7 @@ function resetGame(startLevel = 1) {
 // Levels 1-5 keep the original layout order.
 
 function currentLayout() {
-    return LAYOUTS[(level - 1) % LAYOUTS.length];
+    return isTutorial() ? TUTORIAL[level - 1] : LAYOUTS[(curveLevel() - 1) % LAYOUTS.length];
 }
 
 // Small seeded PRNG (mulberry32) so a given level always generates the same layout, also for ?level=N
@@ -207,7 +220,7 @@ function buildSteelMask(layout, style) {
     // 'clusters': 2x2 steel blocks scattered over cells that actually hold bricks, more of them on later levels
     const rand = seededRandom(level * 7919);
     const marked = new Set();
-    const count = Math.min(2 + Math.floor((level - 1) / 3), 5);
+    const count = Math.min(2 + Math.floor((curveLevel() - 1) / 3), 5);
     for (let i = 0; i < count; i++) {
         for (let attempt = 0; attempt < 20; attempt++) {
             const c0 = Math.floor(rand() * (BRICK_COLS - 1));
@@ -229,8 +242,25 @@ function buildSteelMask(layout, style) {
 // and ?level=N works); *when* things happen inside a level (alien arrivals, weird events) is random at
 // runtime. Tune the whole curve here.
 
+// Levels 1..TUTORIAL_LEVELS are the tutorial (see TUTORIAL in constants.js); the main game's curve is
+// written in its own numbers, and level N after the tutorial plays curve level N - TUTORIAL_LEVELS.
+function isTutorial(l = level) {
+    return l <= TUTORIAL_LEVELS;
+}
+
+// How hard things are (ball speed, alien strength, boss toughness...): the tutorial is the easiest
+function curveLevel(l = level) {
+    return Math.max(1, l - TUTORIAL_LEVELS);
+}
+
+// What's unlocked (drops, weird events, ghost rows...): in the tutorial, what it has shown so far; after it,
+// everything it showed, and the main game's later unlocks at their usual curve levels
+function unlockLevel(l = level) {
+    return isTutorial(l) ? TUTORIAL[l - 1].unlock : Math.max(TUTORIAL[TUTORIAL_LEVELS - 1].unlock, curveLevel(l));
+}
+
 function isBossLevel(l = level) {
-    return l % UNLOCK.boss === 0;
+    return !isTutorial(l) && curveLevel(l) % UNLOCK.boss === 0;
 }
 
 // Ghost rows: introduced on level 7, then on about 3 levels in 10, never two in a row and never on a boss level.
@@ -238,8 +268,8 @@ function isBossLevel(l = level) {
 
 // Cheat-code bricks get rarer with level: CHEAT_CHANCE_START right when they unlock, decaying toward
 // CHEAT_CHANCE_FLOOR (never below it, however high the level climbs) so there's always at least some chance.
-function cheatChance(l) {
-    const decay = Math.pow(0.97, l - UNLOCK.cheat);
+function cheatChance(l = curveLevel()) {
+    const decay = Math.pow(0.97, Math.max(0, l - UNLOCK.cheat));
     return CHEAT_CHANCE_FLOOR + (CHEAT_CHANCE_START - CHEAT_CHANCE_FLOOR) * decay;
 }
 
@@ -251,7 +281,7 @@ function cheatChance(l) {
 function maybeDropBossCheatCapsule(x, y) {
     if (!plan.cheatEligible || boss.cheatRolled) return;
     boss.cheatRolled = true;
-    if (Math.random() < cheatChance(level)) spawnCheatCapsule(x, y);
+    if (Math.random() < cheatChance()) spawnCheatCapsule(x, y);
 }
 
 function planLevel(l) {
@@ -260,22 +290,29 @@ function planLevel(l) {
     // it's delivered: a gold brick, a ghost row clearing, or a boss nearing defeat) happens at runtime,
     // deliberately NOT seeded like the rest of this plan, so replaying — or reloading the same ?level=N —
     // can go either way each time; see placeCheatBrick, clearRows and maybeDropBossCheatCapsule.
-    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null, cheatEligible: l >= UNLOCK.cheat };
+    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null, cheatEligible: unlockLevel(l) >= UNLOCK.cheat, tutorial: null };
+    if (isTutorial(l)) { // exactly what that tutorial level shows, quickly: aliens and events come early
+        const t = TUTORIAL[l - 1];
+        p.tutorial = t;
+        p.tnt = t.tnt || 0;
+        p.walls = t.walls || 0;
+        p.aliens = t.aliens ? { max: 1, grace: 3 } : null;
+        p.chaos = t.chaos ? { events: 1 } : null;
+        p.cheatEligible = !!t.code;
+        return p;
+    }
     if (p.boss) return p; // a boss arena has no bricks, walls or random visitors: the boss brings its own
 
-    if (l >= UNLOCK.tnt) {
-        // Introduced with a couple; after that 0 to a few (never many on early levels)
-        p.tnt = l === UNLOCK.tnt ? 2 : (rand() < 0.2 ? 0 : 1 + Math.floor(rand() * Math.min(1 + Math.floor(l / 2), 5)));
+    // The tutorial has shown TNT, walls, aliens and weird events: from here each is on some levels, more often later
+    const s = curveLevel(l);
+    p.tnt = rand() < 0.2 ? 0 : 1 + Math.floor(rand() * Math.min(1 + Math.floor(s / 2), 5));
+    p.walls = rand() < 0.65 ? 1 : 0;
+    if (p.walls && s >= 8 && rand() < 0.5) p.walls = 2;
+    if (rand() < Math.min(0.7, 0.4 + 0.04 * Math.max(0, s - UNLOCK.aliens))) {
+        p.aliens = { max: alienMax(s), grace: 10 };
     }
-    if (l >= UNLOCK.walls) {
-        p.walls = (l === UNLOCK.walls || rand() < 0.65) ? 1 : 0;
-        if (p.walls && l >= 8 && rand() < 0.5) p.walls = 2;
-    }
-    if (l >= UNLOCK.aliens && (l === UNLOCK.aliens || rand() < Math.min(0.7, 0.4 + 0.04 * (l - UNLOCK.aliens)))) {
-        p.aliens = { max: alienMax(l), grace: 10 };
-    }
-    if (l >= UNLOCK.chaos && (l === UNLOCK.chaos || rand() < Math.min(0.55, 0.3 + 0.04 * (l - UNLOCK.chaos)))) {
-        p.chaos = { events: 1 + (l >= 9 && rand() < 0.5 ? 1 : 0) };
+    if (rand() < Math.min(0.55, 0.3 + 0.04 * Math.max(0, s - UNLOCK.chaos))) {
+        p.chaos = { events: 1 + (s >= 9 && rand() < 0.5 ? 1 : 0) };
     }
     // Ghost rows replace the bricks, so no TNT or sliding walls — but cheatEligible stays: see clearRows()
     // in ghostRows.js for how a ghost level delivers one instead of a gold brick (a roll per row cleared).
@@ -370,7 +407,8 @@ function placeTnt() {
 // catching an already-known one just pays out in score instead (see revealLevelCode). No neighbour
 // requirement like TNT has — it doesn't chain, so any live cell works.
 function placeCheatBrick() {
-    if (!plan.cheatEligible || Math.random() >= cheatChance(level)) return;
+    if (!plan.cheatEligible) return;
+    if (!plan.tutorial && Math.random() >= cheatChance()) return; // the tutorial's code level always has one
     const rand = seededRandom(level * 293503 + 11);
     for (let attempt = 0; attempt < 40; attempt++) {
         const c = Math.floor(rand() * BRICK_COLS);
@@ -389,7 +427,7 @@ function buildWalls() {
     const walls = [];
     if (plan.walls >= 1) {
         const y = BRICK_OFFSET_TOP + BRICK_ROWS * BRICK_H + 35; // floats below the brick grid
-        const speed = Math.min(2.2 + (level - 3) * 0.5, 6.5);
+        const speed = Math.min(2.2 + Math.max(0, curveLevel() - 3) * 0.5, 6.5);
         walls.push({ x: CANVAS_W / 2 - 60, y: y, w: 120, h: 14, vx: speed, hits: 0 });
         if (plan.walls >= 2) {
             walls.push({ x: 60, y: y + 50, w: 90, h: 14, vx: -speed, hits: 0 });
@@ -409,7 +447,9 @@ function spawnLevel() {
     portalTimer = 60 * (12 + Math.random() * 10); // the first pair of a level opens 12-22s in
     movingWalls = buildWalls(); // built before spawnBoss() so the snake boss can add its own wall to it
     const layout = currentLayout();
-    const isSteel = buildSteelMask(layout, STEEL_STYLES[(level - 1) % STEEL_STYLES.length]);
+    const isSteel = plan.tutorial
+        ? (c, r) => !!(plan.tutorial.steel && plan.tutorial.steel(c, r))
+        : buildSteelMask(layout, STEEL_STYLES[(curveLevel() - 1) % STEEL_STYLES.length]);
 
     bricksLeft = 0;
     for (let c = 0; c < BRICK_COLS; c++) {
@@ -471,7 +511,7 @@ function makeBall(x, y, vx, vy) {
 // big version.
 
 function currentSpeed() {
-    const base = Math.min(5 + (level - 1) * 0.4, 8);
+    const base = Math.min(5 + (curveLevel() - 1) * 0.4, 8);
     let progress = 0;
     if (levelBricksTotal > 0) progress = 1 - bricksLeft / levelBricksTotal;
     else if (boss && boss.kind === 'snake') progress = 1 - boss.segments.length / boss.startLength;
@@ -490,6 +530,16 @@ function buildBackground() {
 }
 
 
+function updateStars() {
+    for (const s of stars) {
+        s.y += (0.06 + s.z * 0.3) * timeScale; // the stars are a speedometer
+        if (s.y > CANVAS_H) {
+            s.y = 0;
+            s.x = Math.random() * CANVAS_W;
+        }
+    }
+}
+
 function drawBackground() {
     ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -503,11 +553,6 @@ function drawBackground() {
         ctx.beginPath();
         for (const s of stars) {
             if (s.layer !== layer) continue;
-            s.y += (0.06 + s.z * 0.3) * timeScale; // the stars are a speedometer
-            if (s.y > CANVAS_H) {
-                s.y = 0;
-                s.x = Math.random() * CANVAS_W;
-            }
             const x =(((s.x - parallax * s.z) % CANVAS_W) + CANVAS_W) % CANVAS_W;
             const size = 0.7 + s.z * 1.5;
             ctx.rect(x, s.y, size, size);

@@ -123,6 +123,7 @@ function keyCaught(k) {
 }
 
 function freeKey(x, y, id) {
+    bossTip('dropKey', "DON'T DROP IT: THE FIELD STARTS OVER!", 380);
     boss.freed.push({ x: Math.max(20, Math.min(CANVAS_W - 20, x)), y, t: 0, id });
     addPopup(x, y - 20, KEY_NAMES[id] + ' KEY! CATCH IT!', KEY_COLORS[id], { size: 20, life: 1.3, rise: 0.4, pop: true });
     tone(880, 0.12, { type: 'triangle', vol: 0.2, key: 'keyFree', force: true });
@@ -230,6 +231,7 @@ function vaultBallCollision(b) {
         const t = touch(l.x, l.y);
         if (!t) continue;
         bounceOffBrick(b, l.x, l.y, t.dx, t.dy);
+        bossTip('lock', 'LOCKED! ITS KEY IS HIDDEN IN A ROCK');
         beep(300, 'lockClank');
         spawnParticles(b.x, b.y, '#ffd319', 3);
         return true;

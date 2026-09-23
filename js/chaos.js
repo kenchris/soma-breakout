@@ -18,7 +18,7 @@ function mapMirror() {
 
 
 function chaosPool() {
-    return Object.keys(CHAOS).filter(k => level >= CHAOS[k].unlock && !(reduceMotion && CHAOS[k].visual));
+    return Object.keys(CHAOS).filter(k => unlockLevel() >= CHAOS[k].unlock && !(reduceMotion && CHAOS[k].visual));
 }
 
 
@@ -105,7 +105,8 @@ function endChaos(reschedule) {
 function initChaos() {
     endChaos(false);
     chaosEventsLeft = plan.chaos ? plan.chaos.events : 0;
-    if (plan.chaos) scheduleChaos(22, 18); // the first one arrives 22-40 seconds in
+    if (plan.chaos && plan.tutorial) scheduleChaos(5, 4); // a tutorial level is short: show it straight away
+    else if (plan.chaos) scheduleChaos(22, 18); // the first one arrives 22-40 seconds in
     else chaosTimer = Infinity;
 }
 

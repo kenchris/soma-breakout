@@ -26,7 +26,7 @@ function noteMoment(weight, label, delayFrames = 10) {
 
 // Called right after each rendered frame
 function captureMomentIfDue() {
-    if (!pendingMoment || --pendingMoment.delay > 0) return;
+    if (!pendingMoment || pendingMoment.delay > 0) return; // counted down per step in tickFx
     copyCanvasToMoment();
     momentInfo = { weight: pendingMoment.weight, label: pendingMoment.label };
     pendingMoment = null;
@@ -173,11 +173,11 @@ function shareRun() {
 // --- Cheat codes ---
 function shareCheatCode(lvl, code) {
     const url = gameUrl() + '?code=' + encodeURIComponent(code);
-    const text = 'I cracked a secret Breakout cheat code: ' + code + '. It warps you straight to level ' + lvl + '.';
+    const text = 'I found a secret Breakout level code: ' + code + '. It unlocks level ' + lvl + '.';
     if (navigator.share) {
-        navigator.share({ title: 'Breakout cheat code', text, url }).catch(() => {});
+        navigator.share({ title: 'Breakout level code', text, url }).catch(() => {});
     } else {
-        copyText(text + ' ' + url, 'Cheat code link copied!', 'Copy failed. The code is ' + code);
+        copyText(text + ' ' + url, 'Level code link copied!', 'Copy failed. The code is ' + code);
     }
 }
 

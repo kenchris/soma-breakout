@@ -79,7 +79,7 @@ function collapseCheatCodeEntry() {
     const entry = document.getElementById('level-code-entry');
     const toggleBtn = document.getElementById('cheat-code-toggle');
     if (entry) entry.style.display = 'none';
-    if (toggleBtn) toggleBtn.textContent = 'Enter Cheat Code';
+    if (toggleBtn) toggleBtn.textContent = 'Enter Level Code';
 }
 
 function toggleCheatCodeEntry() {
@@ -149,7 +149,7 @@ function revealLevelCode() {
     foundCodes[level] = code;
     saveFoundCodes();
     renderFoundCodesPanel(code);
-    noteMoment(60, 'CHEAT CODE FOUND!', 20);
+    noteMoment(60, 'LEVEL CODE FOUND!', 20);
     addPopup(CANVAS_W / 2, CANVAS_H * 0.4, 'CODE FOUND: ' + code + '!', '#ffe58a', { size: 26, life: 2, rise: 0.3, pop: true });
     addShake(6);
     haptic([20, 20, 20, 20, 60], true);
@@ -184,8 +184,8 @@ function renderFoundCodesPanel(justFound) {
         const share = document.createElement('button');
         share.type = 'button';
         share.className = 'found-code-share';
-        share.title = 'Share this cheat code';
-        share.setAttribute('aria-label', 'Share cheat code ' + foundCodes[lvl]);
+        share.title = 'Share this level code';
+        share.setAttribute('aria-label', 'Share level code ' + foundCodes[lvl]);
         share.innerHTML = SHARE_ICON_SVG;
         share.addEventListener('click', () => shareCheatCode(lvl, foundCodes[lvl]));
         const item = document.createElement('span');
@@ -290,16 +290,19 @@ function handleOverlayAction() {
 
 // --- Fullscreen & Orientation Lock ---
 
-async function lockLandscape() {
+// Phones play in portrait: the canvas on top and the thumb pad below it, in reach of the thumb. (Desktops
+// have nothing to lock, and the browser would reject it anyway.)
+async function lockPortrait() {
+    if (!isTouchDevice()) return;
     try {
         if (screen.orientation && typeof screen.orientation.lock === 'function') {
-            await screen.orientation.lock('landscape');
+            await screen.orientation.lock('portrait');
         } else if (screen.lockOrientation) {
-            screen.lockOrientation('landscape');
+            screen.lockOrientation('portrait');
         } else if (screen.mozLockOrientation) {
-            screen.mozLockOrientation('landscape');
+            screen.mozLockOrientation('portrait');
         } else if (screen.msLockOrientation) {
-            screen.msLockOrientation('landscape');
+            screen.msLockOrientation('portrait');
         }
     } catch (e) {
         // Ignored if browser/device doesn't support programmatic orientation lock without fullscreen/PWA
@@ -334,7 +337,7 @@ async function toggleFullscreen() {
             if (!request) throw new Error('not supported by this browser');
             if (doc.fullscreenEnabled === false) throw new Error('not allowed on this page (embedded or blocked)');
             await request.call(docEl);
-            await lockLandscape();
+            await lockPortrait();
         } else {
             if (doc.exitFullscreen) {
                 await doc.exitFullscreen();
@@ -357,7 +360,7 @@ function updateFullscreenBtn() {
     if (!btn) return;
     const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
     btn.classList.toggle('active', isFS);
-    btn.title = isFS ? 'Exit fullscreen (F)' : 'Fullscreen & Lock Landscape (F)';
+    btn.title = isFS ? 'Exit fullscreen (F)' : 'Fullscreen (F)';
 }
 
 
@@ -372,9 +375,9 @@ function launchGame() {
     hideOverlay();
     showLevelIntro();
 
-    // If currently in fullscreen, ensure landscape orientation lock
+    // If currently in fullscreen, keep phones locked to portrait
     if (document.fullscreenElement || document.webkitFullscreenElement) {
-        lockLandscape();
+        lockPortrait();
     }
 }
 
@@ -407,12 +410,17 @@ function updateComboMeter() {
 }
 
 
+let shownLives = null;
+
 function updateHUD() {
     setText('score', score);
     setText('level', level);
     setText('best', bestScore);
-    const heartsEl = document.getElementById('hud-lives');
-    if (heartsEl) heartsEl.querySelectorAll('svg').forEach((el, i) => el.classList.toggle('on', i < Math.max(0, lives)));
+    if (lives !== shownLives) { // runs on every frame drawn: only touch the hearts when lives change
+        shownLives = lives;
+        const heartsEl = document.getElementById('hud-lives');
+        if (heartsEl) heartsEl.querySelectorAll('svg').forEach((el, i) => el.classList.toggle('on', i < Math.max(0, lives)));
+    }
     updateComboMeter();
 }
 
@@ -540,6 +548,7 @@ function showModal(id) {
 }
 
 function hideModal() {
+    if (openModalId === 'warp-dialog') declineWarp(); // closed without choosing Warp: that's a no
     const dlg = openModalId && document.getElementById(openModalId);
     const backdrop = document.getElementById('modal-backdrop');
     if (dlg) dlg.classList.remove('open');

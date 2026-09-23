@@ -9,7 +9,7 @@ function dropPowerup(type, x, y) {
 
 
 function spawnCrates() {
-    const pool = POWERUP_TYPES.filter(p => level >= (POWERUP_UNLOCK[p.type] || 1));
+    const pool = POWERUP_TYPES.filter(p => unlockLevel() >= (POWERUP_UNLOCK[p.type] || 1));
     const pickFrom = names => {
         const list = pool.filter(p => names.includes(p.type));
         return list[Math.floor(Math.random() * list.length)];
@@ -57,7 +57,7 @@ function respawnCrate() {
     const spot = freeCrateSpot();
     if (!spot) return false;
     const taken = crates.filter(c => c.alive).map(c => c.type);
-    const options = POWERUP_TYPES.filter(p => level >= (POWERUP_UNLOCK[p.type] || 1) && !taken.includes(p.type));
+    const options = POWERUP_TYPES.filter(p => unlockLevel() >= (POWERUP_UNLOCK[p.type] || 1) && !taken.includes(p.type));
     let roll = Math.random() * options.reduce((sum, p) => sum + p.weight, 0);
     let def = options[options.length - 1];
     for (const p of options) {

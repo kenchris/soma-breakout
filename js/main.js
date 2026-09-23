@@ -125,9 +125,12 @@ function drawShield() {
         ctx.save();
         ctx.font = termFont(18);
         ctx.textAlign = 'center';
+        // A cyan outline for the glow: a canvas shadowBlur costs a blur pass on every frame
+        ctx.strokeStyle = 'rgba(51, 221, 255, 0.55)';
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.strokeText('×' + shield, CANVAS_W / 2, CANVAS_H - 8);
         ctx.fillStyle = '#dffcff';
-        ctx.shadowColor = '#33ddff';
-        ctx.shadowBlur = 4;
         ctx.fillText('×' + shield, CANVAS_W / 2, CANVAS_H - 8);
         ctx.restore();
     }
@@ -159,11 +162,10 @@ function drawBricks() {
                 ctx.fillStyle = cheatPulse;
                 ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
             }
-            // Brief white flash on impact (a steel brick cracking)
+            // Brief white flash on impact (a steel brick cracking; counted down in tickFx)
             if (brick.flash > 0) {
                 ctx.fillStyle = 'rgba(255, 255, 255, ' + (brick.flash / 6) * 0.6 + ')';
                 ctx.fillRect(x, y, w, h);
-                brick.flash--;
             }
         }
     }
@@ -731,12 +733,7 @@ function render() {
     drawBackground();
 
     ctx.save();
-    if (shake > 0.3) {
-        ctx.translate((Math.random() * 2 - 1) * shake, (Math.random() * 2 - 1) * shake);
-        shake *= 0.86;
-    } else {
-        shake = 0;
-    }
+    if (shake > 0) ctx.translate((Math.random() * 2 - 1) * shake, (Math.random() * 2 - 1) * shake); // decays in tickFx
     drawBricks();
     drawGhostGrid();
     drawCrates();
@@ -776,6 +773,78 @@ function keyboardStepSpeed() {
     return 10 * (currentSpeed() / 5) * timeScale;
 }
 
+// Everything that animates frame by frame (particles, popups, blasts, shake, stars, the intro card, brick
+// flashes) advances here, once per simulation step, so it runs at the same speed however often the
+// screen is redrawn.
+function tickFx() {
+    updateStars();
+    updateParticles();
+    updateBlasts();
+    updatePopups();
+    updateIntroCard();
+    shake = shake > 0.3 ? shake * 0.86 : 0;
+    for (const col of bricks) for (const brick of col) if (brick.flash > 0) brick.flash--;
+    if (boss && boss.kind === 'pong') tickPongWallFade();
+    if (pendingMoment && pendingMoment.delay > 0) pendingMoment.delay--;
+}
+
+// --- Smooth motion on any display ---
+// The simulation runs at exactly 60 steps a second, but PC monitors refresh at 75, 100, 144, 165 Hz...
+// Drawing only after a step left each picture on screen for an uneven time (at 144 Hz alternately 14
+// and 21 ms, at 75 Hz every 4th one twice as long): a steady judder. So the game draws on every
+// refresh, with moving things placed part-way between where the last step started and ended them.
+// Just before each step, snapshotMovers() notes where they are; around a draw, lerpMovers() moves
+// them to the in-between position and unlerpMovers() puts them back, so no game code ever sees it.
+const interpMovers = [];
+const INTERP_MAX_JUMP = 60; // further than this in one step is a teleport (portal, wrap-around): no blend
+let paddleStepX = 0;
+
+function snapshotMovers() {
+    interpMovers.length = 0;
+    const add = o => {
+        o._ix = o.x;
+        o._iy = o.y;
+        interpMovers.push(o);
+    };
+    if (gameState === 'playing' && !introHold()) for (const b of balls) if (!b.stuck) add(b); // a ball on the paddle rides it exactly
+    for (const p of powerups) add(p);
+    for (const a of aliens) add(a);
+    for (const s of alienBullets) add(s);
+    for (const w of movingWalls) add(w);
+    if (boss) {
+        if (boss.kind === 'mothership') add(boss);
+        if (boss.paddles) boss.paddles.forEach(add);
+        if (boss.rocks) boss.rocks.forEach(add);
+        if (boss.freed) boss.freed.forEach(add);
+    }
+    paddleStepX = paddle.x;
+}
+
+function lerpAxis(from, to, t) {
+    return typeof to === 'number' && Math.abs(to - from) < INTERP_MAX_JUMP ? from + (to - from) * t : to;
+}
+
+function lerpMovers(t) {
+    for (const o of interpMovers) {
+        o._sx = o.x;
+        o._sy = o.y;
+        o.x = lerpAxis(o._ix, o.x, t);
+        if (o._sy !== undefined) o.y = lerpAxis(o._iy, o.y, t); // (the Rival's paddles have no y)
+    }
+    // The paddle only when the step moves it (keys, touch follow); a mouse or drag sets it directly, and
+    // drawing that anywhere but where it is would just add lag
+    paddle._sx = paddle.x;
+    if (keys.left || keys.right || followTarget !== null) paddle.x = lerpAxis(paddleStepX, paddle.x, t);
+}
+
+function unlerpMovers() {
+    for (const o of interpMovers) {
+        o.x = o._sx;
+        if (o._sy !== undefined) o.y = o._sy;
+    }
+    paddle.x = paddle._sx;
+}
+
 function fixedStep() {
     // Track the paddle "throw" velocity per step. Normally this is just paddle.x's own delta, but a fast
     // swipe pushed further into a screen edge than the paddle can follow leaves paddle.x unable to move
@@ -798,15 +867,15 @@ function fixedStep() {
         if (keys.right) paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + step * dir));
         if (keys.left || keys.right) paddleTargetX = paddle.x;
     }
-    // Before launch the ball rides on the paddle
-    if (gameState === 'ready') {
+    // Before launch, and while a level's intro card is up, the ball rides on the paddle
+    if (gameState === 'ready' || introHold()) {
         for (const b of balls) {
             b.x = paddle.x + paddle.w / 2;
             b.y = paddle.y - b.r;
             b.trail.length = 0;
         }
     }
-    if (gameState === 'playing') {
+    if (gameState === 'playing' && !introHold()) {
         update();
     }
 }
@@ -829,18 +898,20 @@ function gameLoop(now) {
 
     let steps = 0;
     while (stepAccumulator >= STEP_MS && steps < MAX_STEPS_PER_FRAME) {
+        snapshotMovers();
         fixedStep();
+        tickFx();
         stepAccumulator -= STEP_MS;
         steps++;
     }
     if (steps === MAX_STEPS_PER_FRAME) stepAccumulator = 0;
-    // Render once per 60 Hz tick too: on a 90/120 Hz screen the in-between refreshes are skipped, which
-    // keeps the particle/popup/shake animations (advanced in render) at the same speed as the simulation
-    if (steps > 0) {
-        const t0 = PERF ? performance.now() : 0;
-        render();
-        if (PERF) perfRender(steps, performance.now() - t0);
-    }
+    // Draw on every refresh (see snapshotMovers): the leftover time decides how far between the last two
+    // steps everything is shown
+    const t0 = PERF ? performance.now() : 0;
+    lerpMovers(stepAccumulator / STEP_MS);
+    render();
+    unlerpMovers();
+    if (PERF) perfRender(steps, performance.now() - t0);
 }
 
 // --- ?perf readout ---

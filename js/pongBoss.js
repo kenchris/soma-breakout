@@ -188,6 +188,7 @@ function pongWallCollision(b) {
         if (dx * dx + dy * dy >= b.r * b.r) continue;
         w.alive = false;
         w.fade = 16;
+        bossTip('oneway', 'ITS BRICKS ONLY BLOCK YOUR SHOTS!');
         addScore(PONG_WALL_POINTS * (doubleTimer > 0 ? 2 : 1));
         spawnParticles(w.x + BRICK_W / 2, w.y + BRICK_H / 2, '#9a6bff', 10);
         beep(560, 'rivalWall');
@@ -356,6 +357,10 @@ let oneWaySprite = null;
 
 // The game's own bevelled brick in violet, marked with one crisp pixel arrow pointing down: "only this way
 // through". Fading while it hops; sinking away when broken.
+function tickPongWallFade() {
+    for (const w of boss.wall) if (!w.alive && w.fade > 0) w.fade--;
+}
+
 function drawPongWall(B) {
     if (!oneWaySprite) {
         oneWaySprite = makeSprite(BRICK_W, BRICK_H, g => {
@@ -380,8 +385,7 @@ function drawPongWall(B) {
             ctx.globalAlpha = a;
             ctx.drawImage(oneWaySprite, w.x, w.y);
             ctx.restore();
-        } else if (w.fade > 0) {
-            w.fade--;
+        } else if (w.fade > 0) { // counted down in tickPongWallFade
             ctx.save();
             ctx.globalAlpha = w.fade / 16;
             ctx.drawImage(oneWaySprite, w.x, w.y + (16 - w.fade));

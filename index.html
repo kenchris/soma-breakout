@@ -435,8 +435,9 @@
                with, which squeezes the dialog into a tall, narrow column on a phone. */
             width: min(90%, 460px);
             max-height: 94%;
-            overflow-y: auto; /* content that doesn't fit scrolls inside the box instead of being clipped */
+            overflow-y: auto; /* content that doesn't fit scrolls inside the box instead of being clipped... */
             overflow-x: hidden;
+            scrollbar-width: none; /* ...by wheel or swipe, without a bar spoiling the panel */
             padding: 28px 26px 26px;
             text-align: center;
             font-size: 20px;
@@ -446,6 +447,7 @@
             user-select: none;
             -webkit-user-select: none;
         }
+        #overlay::-webkit-scrollbar { display: none; }
         #overlay-message { margin: 0; }
         #overlay-message .ov-title {
             display: block;
@@ -486,14 +488,14 @@
         #overlay-stats {
             display: none; /* becomes a grid when there is a summary to show */
             grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
-            gap: 10px;
-            margin: 20px 0 0;
+            gap: 8px;
+            margin: 16px 0 0;
         }
         #overlay-stats .stat {
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 12px 6px 10px;
+            padding: 8px 6px 7px;
             border: 1px solid rgba(154, 140, 192, 0.3);
             background: rgba(255, 255, 255, 0.03);
         }
@@ -513,7 +515,7 @@
         }
         #overlay-button {
             display: inline-block;
-            margin-top: 22px;
+            margin-top: 18px;
             padding: 14px 30px;
             background: var(--yellow);
             color: #2a0a3d;
@@ -535,14 +537,17 @@
             flex-direction: column;
             align-items: center;
             gap: 12px;
-            margin-top: 22px;
-            padding-top: 18px;
+            margin-top: 18px;
+            padding-top: 14px;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
         /* Your unlocked levels as one-tap jumps inside the dialog itself: the found-codes panel under the
            canvas is out of reach while a dialog is up (and entirely covered by it on a phone) */
         #overlay-codes { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; max-width: 340px; }
         #overlay-codes:empty { display: none; }
+        /* ...but on a big screen that panel stays in reach beside the dialog (its chips jump too), so the dialog
+           doesn't repeat them there and stays short enough to fit */
+        @media (min-width: 601px) and (min-height: 501px) { #overlay-codes { display: none; } }
         #overlay-codes .lbl { width: 100%; font-family: var(--px); font-size: 9px; letter-spacing: 1px; color: var(--dim); margin-bottom: 2px; }
         .jump-chip {
             min-width: 38px;
@@ -684,6 +689,16 @@
             pointer-events: none;
         }
         #toast.show { opacity: 1; transform: translate(-50%, 0); }
+        /* A small canvas (a narrow or short window) has less room for the dialog: tighten everything a notch */
+        @media (max-width: 760px), (max-height: 720px) {
+            #overlay { padding: 18px 16px 16px; }
+            #overlay-message .ov-hint { margin-top: 8px; }
+            #overlay-stats { margin-top: 10px; gap: 5px; }
+            #overlay-stats .stat { padding: 5px 2px 4px; }
+            #overlay-button { margin-top: 12px; }
+            #cheat-code-area { margin-top: 10px; padding-top: 8px; gap: 8px; }
+            #share-area { margin-top: 10px; }
+        }
         /* --- Dialogs behind the HUD buttons: how to play (help) and sound settings (speaker) --- */
         #modal-backdrop {
             display: none;
@@ -738,6 +753,17 @@
         .sound-note { margin: 12px 0 0; font-size: 16px; color: var(--dim); }
         #now-playing { margin: 14px 0 0; font-family: var(--px); font-size: 9px; letter-spacing: 1px; color: var(--cyan); }
         #now-playing:empty { display: none; }
+        /* Warp dialog: jump ahead or stay */
+        #warp-dialog { width: min(90%, 440px); }
+        #warp-text { margin: 0 0 8px; font-size: 22px; color: var(--ink); }
+        #warp-bonus { margin: 0; color: var(--yellow); }
+        .warp-choices { display: flex; gap: 14px; justify-content: center; margin-top: 24px; }
+        .warp-choices button { min-width: 130px; padding: 14px 18px; border-radius: 0; font-family: var(--px); font-size: 11px; letter-spacing: 1px; cursor: pointer; }
+        #warp-go { background: var(--cyan); border: 1px solid var(--cyan); color: var(--bg-0); }
+        #warp-stay { background: rgba(10, 5, 22, 0.85); border: 1px solid var(--magenta); color: var(--magenta); }
+        .warp-choices button:focus-visible { outline: 2px solid var(--yellow); outline-offset: 3px; }
+        .warp-note { margin: 16px 0 0; font-size: 16px; color: var(--dim); }
+        body.touch .warp-note { display: none; }
         #legend-dialog h3 {
             margin: 26px 0 14px;
             font-family: var(--px);
@@ -926,7 +952,7 @@
                     <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /><path d="M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /></svg>
                     <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13 -8l-13 -8" /></svg>
                 </button>
-                <button id="fullscreen-btn" class="hud-btn icon-btn" title="Fullscreen & Lock Landscape (F)">
+                <button id="fullscreen-btn" class="hud-btn icon-btn" title="Fullscreen (F)">
                     <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8v-2a2 2 0 0 1 2 -2h2" /><path d="M4 16v2a2 2 0 0 0 2 2h2" /><path d="M16 4h2a2 2 0 0 1 2 2v2" /><path d="M16 20h2a2 2 0 0 0 2 -2v-2" /></svg>
                     <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19v-2a2 2 0 0 1 2 -2h2" /><path d="M15 5v2a2 2 0 0 0 2 2h2" /><path d="M5 15h2a2 2 0 0 1 2 2v2" /><path d="M5 9h2a2 2 0 0 0 2 -2v-2" /></svg>
                 </button>
@@ -951,16 +977,16 @@
                 </div>
                 <div id="cheat-code-area">
                     <div id="overlay-codes"></div>
-                    <button id="cheat-code-toggle" type="button">Enter Cheat Code</button>
+                    <button id="cheat-code-toggle" type="button">Enter Level Code</button>
                     <div id="level-code-entry">
-                        <input id="level-code-input" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" pattern="[0-9A-Za-z]*" maxlength="6" placeholder="e.g. 4F2A" aria-label="Enter a cheat code" />
+                        <input id="level-code-input" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" pattern="[0-9A-Za-z]*" maxlength="6" placeholder="e.g. 4F2A" aria-label="Enter a level code" />
                         <button id="level-code-go" type="button">Go</button>
                     </div>
                 </div>
             </div>
         </div>
         <div id="found-codes">
-            <div id="found-codes-empty">Break a golden <b>?</b> brick and catch what falls out to find a cheat code &mdash; it'll show up here.</div>
+            <div id="found-codes-empty">Break a golden <b>?</b> brick and catch what falls out to find a level code &mdash; it'll show up here.</div>
             <div id="found-codes-list"></div>
         </div>
         <div id="touchpad" aria-hidden="true">
@@ -983,6 +1009,16 @@
             <button id="mute-all" type="button">MUTE ALL (M)</button>
             <p class="sound-note">Mute all silences vibration too</p>
             <p id="now-playing"></p>
+        </div>
+        <div id="warp-dialog" class="modal" role="dialog" aria-modal="true" aria-label="Warp rift">
+            <h2>WARP RIFT</h2>
+            <p id="warp-text"></p>
+            <p id="warp-bonus"></p>
+            <div class="warp-choices">
+                <button id="warp-go" type="button">WARP</button>
+                <button id="warp-stay" type="button">STAY</button>
+            </div>
+            <p class="warp-note keys">Enter: warp &middot; Esc: stay</p>
         </div>
         <div id="legend-dialog" class="modal" role="dialog" aria-modal="true" aria-label="How to play">
             <button class="modal-close" type="button" aria-label="Close">&times;</button>

@@ -351,6 +351,14 @@ function sfxAlienHurt() {
     tone(360, 0.1, { type: 'square', vol: 0.14, slideTo: 180, delay: 0.06, force: true });
 }
 
+// A tough alien's shield shattering: a bright glassy crack with a falling shimmer
+function sfxShieldBreak() {
+    if (sfxThrottled('shieldBreak', 70)) return;
+    noise(0.18, { vol: 0.28, type: 'highpass', from: 4000, to: 7000, q: 0.8, force: true });
+    tone(1800, 0.2, { type: 'square', vol: 0.07, slideTo: 600, force: true });
+    tone(2600, 0.15, { type: 'triangle', vol: 0.08, slideTo: 1200, delay: 0.03, force: true });
+}
+
 // The mothership's crew groaning over the clang of the hull: a low alien warble
 function sfxMothershipHurt(crit) {
     if (sfxThrottled('shipHurt', 90)) return;

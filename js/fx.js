@@ -48,16 +48,19 @@ function spawnParticles(x, y, color, count = 12) {
 }
 
 
-function drawParticles() {
+// Particles, blasts, popups and the intro card advance once per simulation step (see tickFx in main.js)
+// and are only drawn here, since the game draws on every display refresh, not every step.
+function updateParticles() {
     for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
-        p.life--;  // p.life--
-        if (p.life <= 0) {
-            particles.splice(i, 1);
-            continue;
-        }
+        if (--p.life <= 0) particles.splice(i, 1);
+    }
+}
+
+function drawParticles() {
+    for (const p of particles) {
         ctx.fillStyle = p.color;
         ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
     }
@@ -88,17 +91,19 @@ function addBlast(x, y) {
 
 // Shockwave rings: expand and fade (frame-based, like popups and particles)
 
-function drawBlasts() {
-    if (!blasts.length) return;
-    ctx.save();
+function updateBlasts() {
     for (let i = blasts.length - 1; i >= 0; i--) {
         const b = blasts[i];
         b.r += 5;
         b.life -= 0.06;
-        if (b.life <= 0) {
-            blasts.splice(i, 1);
-            continue;
-        }
+        if (b.life <= 0) blasts.splice(i, 1);
+    }
+}
+
+function drawBlasts() {
+    if (!blasts.length) return;
+    ctx.save();
+    for (const b of blasts) {
         ctx.globalAlpha = b.life * 0.8;
         ctx.strokeStyle = '#ffb347';
         ctx.lineWidth = 2 + b.life * 5;
@@ -130,7 +135,9 @@ function addPopup(x, y, text, color, { life = 1, size = 16, rise = 1.5, pop = fa
 // Drawn under the ball and drops (see render in main.js) so it never hides the play while it's up.
 // A panel rather than loose popups: over a busy playfield bare text was hard to read, and long lines ran
 // off the canvas.
-const INTRO_CARD_FRAMES = 60 * 4.5;
+// The game waits while it's up (the ball stays on the paddle, see fixedStep), until it times out or a tap
+// or Space skips it (skipIntroCard)
+const INTRO_CARD_FRAMES = 60 * 6;
 const INTRO_CARD_MAX_W = 620;
 
 function showIntroCard(title, lines, y) {
@@ -153,25 +160,38 @@ function wrapText(text, maxW) {
     return out;
 }
 
+function introHold() {
+    return gameState === 'playing' && introCard !== null;
+}
+
+function skipIntroCard() {
+    if (introCard) introCard.life = Math.min(introCard.life, 12); // a quick fade, then play
+}
+
+function updateIntroCard() {
+    if (introCard && --introCard.life <= 0) introCard = null;
+}
+
 function drawIntroCard() {
     const card = introCard;
     if (!card) return;
-    if (--card.life <= 0) {
-        introCard = null;
-        return;
-    }
     const age = INTRO_CARD_FRAMES - card.life;
     ctx.save();
     ctx.globalAlpha = Math.min(1, age / 12, card.life / 30); // quick fade in, gentler fade out
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = termFont(24);
-    const rows = card.lines.flatMap(l => wrapText(l, INTRO_CARD_MAX_W - 48));
-    let textW = Math.max(...rows.map(r => ctx.measureText(r).width));
+    if (!card.rows) { // word-wrapped and measured once, not on every frame it's up
+        ctx.font = termFont(24);
+        card.rows = card.lines.flatMap(l => wrapText(l, INTRO_CARD_MAX_W - 48));
+        let textW = Math.max(...card.rows.map(r => ctx.measureText(r).width));
+        ctx.font = pixelFont(15);
+        textW = Math.max(textW, ctx.measureText(card.title).width);
+        card.w = Math.min(INTRO_CARD_MAX_W, Math.max(340, textW + 48));
+    }
     ctx.font = pixelFont(15);
-    textW = Math.max(textW, ctx.measureText(card.title).width);
-    const w = Math.min(INTRO_CARD_MAX_W, Math.max(340, textW + 48));
-    const h = 72 + rows.length * 28;
+    const rows = card.rows;
+    const w = card.w;
+    const h = 100 + rows.length * 28;
     const x = (CANVAS_W - w) / 2;
     const y = Math.round(card.y - h / 2);
     ctx.fillStyle = 'rgba(8, 4, 20, 0.86)';
@@ -186,6 +206,11 @@ function drawIntroCard() {
     ctx.font = termFont(24);
     ctx.fillStyle = '#ece8ff';
     rows.forEach((r, i) => ctx.fillText(r, CANVAS_W / 2, y + 66 + i * 28));
+    if (Math.floor(age / 30) % 2 === 0) { // blinking, like an arcade's PRESS START
+        ctx.font = pixelFont(11);
+        ctx.fillStyle = '#2de2e6';
+        ctx.fillText(isTouchDevice() ? 'TAP TO START' : 'PRESS SPACE TO START', CANVAS_W / 2, y + h - 20);
+    }
     ctx.restore();
 }
 
@@ -204,15 +229,17 @@ function comboShout(mult, x, y) {
 }
 
 
-function drawPopups() {
+function updatePopups() {
     for (let i = popups.length - 1; i >= 0; i--) {
         const p = popups[i];
         p.y -= p.rise;
         p.life -= 0.02;
-        if (p.life <= 0) {
-            popups.splice(i, 1);
-            continue;
-        }
+        if (p.life <= 0) popups.splice(i, 1);
+    }
+}
+
+function drawPopups() {
+    for (const p of popups) {
         const age = p.maxLife - p.life;
         const scale = p.pop ? 1 + 0.8 * Math.max(0, 1 - age / 0.12) : 1;
         ctx.save();
