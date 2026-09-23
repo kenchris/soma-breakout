@@ -1,8 +1,8 @@
 // Service worker: makes the game installable and playable offline. Bump CACHE_VERSION whenever the file
-// list below changes (a new js/*.js file added/removed) or you want to force clients to pick up new code —
-// this is a static site with no build step, so this list is maintained by hand, same as the <script> tags
-// in index.html.
-const CACHE_VERSION = 'v18';
+// list below changes (a new js/*.js file added/removed); code changes reach players on their next load
+// anyway (see the network-first fetch handler below). This is a static site with no build step, so this
+// list is maintained by hand, same as the <script> tags in index.html.
+const CACHE_VERSION = 'v24';
 const CACHE_NAME = 'breakout-' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -22,6 +22,7 @@ const APP_SHELL = [
     './js/input.js',
     './js/level.js',
     './js/main.js',
+    './js/music.js',
     './js/pongBoss.js',
     './js/portals.js',
     './js/powerups.js',
@@ -52,21 +53,23 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Stale-while-revalidate: serve from cache instantly (so it works offline and loads fast), and refresh the
-// cache from the network in the background so the next launch has whatever changed. Only same-origin GET
-// requests are handled; everything else (e.g. a cross-origin request) just falls through to the network.
+// Network-first: online, every load gets the latest files, revalidated against the server so neither this
+// cache nor the browser's HTTP cache can hand back a stale script; offline, the cached copy. Each successful
+// fetch refreshes the cache for the next offline launch. (Stale-while-revalidate, used before, always
+// served the previous version and only picked changes up on the load after.) Only same-origin GET requests
+// are handled; everything else (e.g. a cross-origin request) just falls through to the network.
 self.addEventListener('fetch', (event) => {
     const req = event.request;
     if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
 
-    event.respondWith(
-        caches.open(CACHE_NAME).then(async (cache) => {
-            const cached = await cache.match(req);
-            const network = fetch(req).then((res) => {
-                if (res.ok) cache.put(req, res.clone());
-                return res;
-            }).catch(() => cached); // offline and not cached: nothing more we can do
-            return cached || network;
-        })
-    );
+    event.respondWith((async () => {
+        const cache = await caches.open(CACHE_NAME);
+        try {
+            const res = await fetch(req, { cache: 'no-cache' });
+            if (res.ok) cache.put(req, res.clone());
+            return res;
+        } catch (e) {
+            return (await cache.match(req)) || Response.error(); // offline and never cached: nothing to give
+        }
+    })());
 });

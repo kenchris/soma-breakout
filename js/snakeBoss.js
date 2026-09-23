@@ -291,6 +291,7 @@ function snakeMove(grow) {
     // Keep going the same way when possible (reads as purposeful movement, not a jittery random walk)
     const keepGoing = dirs.some(([dc, dr]) => dc === B.dir[0] && dr === B.dir[1]);
     const pick = (keepGoing && Math.random() < 0.8) ? B.dir : dirs[Math.floor(Math.random() * dirs.length)];
+    sfxSlither(pick[0] !== B.dir[0] || pick[1] !== B.dir[1], grow);
     B.dir = pick;
     const head = B.segments[0];
     const newHead = { c: head.c + pick[0], r: head.r + pick[1] };
@@ -420,10 +421,11 @@ function snakeBallCollision(b) {
         haptic(i === 0 ? [25, 25, 40] : 15, i === 0);
         if (i === 0) {
             noteMoment(45, 'HEAD SHOT!');
+            sfxSnakeHurt(true);
             tone(700, 0.1, { type: 'triangle', vol: 0.22, key: 'snakeCrit' });
             tone(1050, 0.14, { type: 'triangle', vol: 0.22, delay: 0.06, force: true });
         } else {
-            clink();
+            sfxSnakeHurt(false);
         }
         if (fireTimer <= 0) {
             if (Math.abs(dx) > Math.abs(dy)) {
@@ -454,6 +456,7 @@ function killSnake() {
     addShake(10);
     haptic([50, 30, 50, 30, 100], true);
     tone(380, 0.5, { type: 'sawtooth', vol: 0.28, slideTo: 40, key: 'bossDie', force: true });
+    sfxSnakeDie();
     noteMoment(100, 'SNAKE DEFEATED!', 30);
     addPopup(CANVAS_W / 2, 250, 'SNAKE DEFEATED!', '#8dffab', { size: 28, life: 2, rise: 0.2, pop: true });
 }

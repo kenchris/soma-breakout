@@ -454,7 +454,7 @@ function collisionDetection(b) {
                     }
 
                     if (wasBlast) {
-                        boom();
+                        boom(tnt >= 2); // a TNT chain gets the big, rumbling version
                     } else if (brick.steel) {
                         clink();
                     } else {

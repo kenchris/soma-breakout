@@ -314,13 +314,15 @@ function showLevelIntro() {
 // Clearing a level (bricks gone, or the boss beaten): on to the next one with a fresh ball
 
 function completeLevel() {
+    const bossBeaten = plan.boss; // read before spawnLevel replaces the plan
     level++;
     gameState = 'won';
     powerups.length = 0;
     clearTimedEffects();
     combo = 0;
     spawnLevel();
-    playWinJingle();
+    if (bossBeaten) sfxVictory();
+    else playWinJingle();
     addShake(6);
     haptic([30, 60, 30, 60, 80], true);
     const sp = currentSpeed();

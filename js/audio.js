@@ -2,13 +2,12 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
+// Mute everything at once (the M key, or the sound dialog's Mute all): music, effects and vibration
 function toggleMute() {
     isMuted = !isMuted;
-    const btn = document.getElementById('mute-btn');
-    if (btn) {
-        btn.classList.toggle('active', isMuted);
-        btn.title = isMuted ? 'Unmute sound and vibration (M)' : 'Mute sound and vibration (M)';
-    }
+    saveAudioSettings();
+    applyAudioSettings();
+    syncSoundDialog();
 }
 
 // Create/resume the AudioContext. Browsers (notably Chrome on Android) start it suspended until
@@ -16,29 +15,101 @@ function toggleMute() {
 
 function ensureAudio() {
     try {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            // Music and effects each get their own bus, so each has its own switch and volume
+            musicGain = audioCtx.createGain();
+            sfxGain = audioCtx.createGain();
+            musicGain.gain.value = musicLevel();
+            sfxGain.gain.value = sfxLevel();
+            musicGain.connect(audioCtx.destination);
+            sfxGain.connect(audioCtx.destination);
+        }
         if (audioCtx.state === 'suspended') audioCtx.resume();
+        startMusic();
     } catch (e) {
         return null; // Audio not available; ignore
     }
     return audioCtx.state === 'running' ? audioCtx : null;
 }
 
+// Whether an effect may sound now: effects on, the tab visible, and (unless `force`) under the voice cap
+// and not a too-quick repeat of the same `key`. Returns the running AudioContext, or null.
+function sfxVoice(key, force) {
+    if (sfxLevel() === 0 || document.hidden) return null;
+    const ac = ensureAudio();
+    if (!ac) return null;
+    if (!force) {
+        const now = performance.now();
+        if (activeVoices >= MAX_VOICES) return null;
+        if (key !== null) {
+            if (now - (lastPlayedAt[key] || 0) < MIN_GAP_MS) return null;
+            lastPlayedAt[key] = now;
+        }
+    }
+    return ac;
+}
+
+// A throttle for the layered effects below: true if `key` sounded less than `gapMs` ago
+function sfxThrottled(key, gapMs) {
+    const now = performance.now();
+    if (now - (lastPlayedAt[key] || 0) < gapMs) return true;
+    lastPlayedAt[key] = now;
+    return false;
+}
+
+// Half a second of white noise, shared by every noisy sound (explosions, swooshes, the music's drums)
+let noiseBufferCache = null;
+function getNoiseBuffer(ac) {
+    if (!noiseBufferCache || noiseBufferCache.sampleRate !== ac.sampleRate) {
+        noiseBufferCache = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.5), ac.sampleRate);
+        const data = noiseBufferCache.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
+    return noiseBufferCache;
+}
+
+// One-shot noise burst through a filter whose cutoff can sweep from `from` to `to`: the raw material for
+// explosions, whooshes and crackles. Same gating and options as tone().
+function noise(dur, { vol = 0.2, type = 'lowpass', from = 2000, to = null, q = 1, delay = 0, key = null, force = false } = {}) {
+    const ac = sfxVoice(key, force);
+    if (!ac) return;
+    try {
+        const t0 = ac.currentTime + delay;
+        const src = ac.createBufferSource();
+        const filter = ac.createBiquadFilter();
+        const gain = ac.createGain();
+        src.buffer = getNoiseBuffer(ac);
+        src.loop = true;
+        filter.type = type;
+        filter.Q.value = q;
+        filter.frequency.setValueAtTime(from, t0);
+        if (to) filter.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+        gain.gain.setValueAtTime(vol, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(sfxGain);
+        activeVoices++;
+        src.onended = () => {
+            activeVoices--;
+            src.disconnect();
+            filter.disconnect();
+            gain.disconnect();
+        };
+        src.start(t0);
+        src.stop(t0 + dur);
+    } catch (e) {
+        // Audio not available; ignore
+    }
+}
+
 // One-shot tone: optional pitch slide and start delay (seconds).
 // `key` throttles repeats of the same sound; `force` (jingles, fanfares) bypasses throttle and cap.
 
 function tone(freq, dur, { type = 'square', vol = 0.15, slideTo = null, delay = 0, key = null, force = false } = {}) {
-    if (isMuted || document.hidden) return;
-    const ac = ensureAudio();
+    const ac = sfxVoice(key, force);
     if (!ac) return;
-    if (!force) {
-        const now = performance.now();
-        if (activeVoices >= MAX_VOICES) return;
-        if (key !== null) {
-            if (now - (lastPlayedAt[key] || 0) < MIN_GAP_MS) return;
-            lastPlayedAt[key] = now;
-        }
-    }
     try {
         const t0 = ac.currentTime + delay;
         const osc = ac.createOscillator();
@@ -49,7 +120,7 @@ function tone(freq, dur, { type = 'square', vol = 0.15, slideTo = null, delay = 
         gain.gain.setValueAtTime(vol, t0);
         gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
         osc.connect(gain);
-        gain.connect(ac.destination);
+        gain.connect(sfxGain);
         activeVoices++;
         osc.onended = () => {
             activeVoices--;
@@ -126,18 +197,185 @@ function clink() {
     tone(1100, 0.07, { type: 'triangle', vol: 0.2, slideTo: 600, key: 'clink' });
 }
 
-// Short explosion boom (low, thuddy)
+// --- The sound kit: designed effects layered from tone() and noise() ---
 
-function boom() {
-    tone(90, 0.25, { type: 'sawtooth', vol: 0.3, slideTo: 30, key: 'boom' });
+// An explosion: a deep thump, a roar of noise whose filter closes down as it dies, and a crack on top. A
+// chain (big) adds a rolling rumble tail. Throttled as a whole, so a blast that sets off TNT on the same
+// frame doesn't stack a dozen of them.
+function boom(big = false) {
+    if (sfxThrottled('boom', 90)) return;
+    const k = big ? 1.6 : 1;
+    tone(125, 0.45 * k, { type: 'sine', vol: 0.6, slideTo: 30, force: true });
+    noise(0.65 * k, { vol: 0.5, type: 'lowpass', from: 3200, to: 110, force: true });
+    noise(0.1, { vol: 0.22, type: 'highpass', from: 2500, force: true });
+    if (big) noise(1.1, { vol: 0.28, type: 'lowpass', from: 500, to: 60, delay: 0.15, force: true });
 }
 
-// Win jingle: cheerful rising arpeggio (C5, E5, G5, C6)
+// A struck bell: a sine plus two inharmonic overtones that die away faster, which is what makes it ring
+function bell(freq, vol, dur, delay = 0) {
+    tone(freq, dur, { type: 'sine', vol, delay, force: true });
+    tone(freq * 2.76, dur * 0.6, { type: 'sine', vol: vol * 0.35, delay, force: true });
+    tone(freq * 5.4, dur * 0.3, { type: 'sine', vol: vol * 0.12, delay, force: true });
+}
+
+// Catching a powerup: a quick rising chirp with a bell sparkle on top
+function sfxPowerup() {
+    if (sfxThrottled('powerup', 60)) return;
+    tone(440, 0.12, { type: 'square', vol: 0.1, slideTo: 1320, force: true });
+    bell(1760, 0.1, 0.4, 0.07);
+}
+
+// An extra life: a bouncy rising run that lands on a held high note
+function sfxOneUp() {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.09, { type: 'square', vol: 0.1, delay: i * 0.07, force: true }));
+    tone(1318.5, 0.35, { type: 'square', vol: 0.09, delay: 0.3, force: true });
+    bell(2093, 0.08, 0.6, 0.3);
+}
+
+// A cheat code found: treasure. A cascade of bells up a major chord, a shimmer, and a warm low chord under it
+function sfxCodeFound() {
+    [783.99, 1046.5, 1318.5, 1567.98, 2093].forEach((f, i) => bell(f, 0.14, 1.0, i * 0.08));
+    noise(1.2, { vol: 0.05, type: 'highpass', from: 7000, delay: 0.25, force: true });
+    tone(261.63, 1.0, { type: 'triangle', vol: 0.12, delay: 0.35, force: true });
+    tone(392, 1.0, { type: 'triangle', vol: 0.08, delay: 0.35, force: true });
+}
+
+// A key caught in the asteroid field: a two-bell chime
+function sfxKey() {
+    bell(1318.5, 0.16, 0.6);
+    bell(1975.5, 0.13, 0.7, 0.09);
+}
+
+// Locks opening: a latch clicking over, then a ringing chord
+function sfxUnlock() {
+    noise(0.05, { vol: 0.25, type: 'highpass', from: 1500, force: true });
+    tone(220, 0.08, { type: 'square', vol: 0.12, force: true });
+    [523.25, 659.25, 783.99].forEach(f => bell(f, 0.09, 0.8, 0.08));
+}
+
+// A boss beaten: a fanfare up to a held major chord, with a bell and a shimmer on the landing
+function sfxVictory() {
+    [392, 523.25, 659.25].forEach((f, i) => tone(f, 0.1, { type: 'square', vol: 0.12, delay: i * 0.1, force: true }));
+    tone(783.99, 0.22, { type: 'square', vol: 0.12, delay: 0.3, force: true });
+    [523.25, 659.25, 783.99, 1046.5].forEach(f => tone(f, 1.2, { type: 'triangle', vol: 0.09, delay: 0.55, force: true }));
+    tone(1046.5, 0.6, { type: 'square', vol: 0.07, delay: 0.55, force: true });
+    bell(2093, 0.1, 1.0, 0.55);
+    noise(1.0, { vol: 0.05, type: 'highpass', from: 6000, delay: 0.55, force: true });
+}
+
+// A new high score: the level-clear run in bells, a little brighter
+function sfxHighScore() {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => bell(f, 0.15, i === 3 ? 0.9 : 0.4, i * 0.09));
+    noise(0.8, { vol: 0.04, type: 'highpass', from: 7000, delay: 0.27, force: true });
+}
+
+// Through a portal: a swoop, a filtered whoosh sweeping up while the pitch glides up and back down
+function sfxPortal() {
+    if (sfxThrottled('portal', 120)) return;
+    noise(0.35, { vol: 0.25, type: 'bandpass', from: 400, to: 3000, q: 4, force: true });
+    tone(260, 0.18, { type: 'sine', vol: 0.16, slideTo: 1100, force: true });
+    tone(1100, 0.22, { type: 'sine', vol: 0.12, slideTo: 420, delay: 0.16, force: true });
+}
+
+// A portal pair or warp rift opening: a swirling rise
+function sfxWarpOpen() {
+    noise(0.8, { vol: 0.12, type: 'bandpass', from: 300, to: 1200, q: 3, force: true });
+    tone(220, 0.6, { type: 'sine', vol: 0.16, slideTo: 660, force: true });
+}
+
+// Sucked into a warp rift: the big version, a long deep swoop up and a trailing fall
+function sfxWarpJump() {
+    noise(0.9, { vol: 0.35, type: 'bandpass', from: 200, to: 4000, q: 3, force: true });
+    tone(90, 0.8, { type: 'sine', vol: 0.22, slideTo: 1400, force: true });
+    tone(1400, 0.5, { type: 'sine', vol: 0.15, slideTo: 300, delay: 0.7, force: true });
+}
+
+// --- Space invaders ---
+// The march: the four descending bass notes of the arcade classic's heartbeat, one per step. aliens.js
+// steps it faster the more of them are on screen.
+const INVADER_MARCH = [110, 98, 92.5, 82.4];
+let invaderMarchStep = 0;
+function sfxInvaderStep() {
+    tone(INVADER_MARCH[invaderMarchStep], 0.09, { type: 'square', vol: 0.2, force: true });
+    invaderMarchStep = (invaderMarchStep + 1) % INVADER_MARCH.length;
+}
+
+// The snake slithering one cell: a soft scaly swish whose pitch alternates step to step (the body
+// rasping side to side), a low retro blip when it turns, and a rising gulp when it regrows a segment.
+let slitherStep = 0;
+function sfxSlither(turned, grew) {
+    slitherStep ^= 1;
+    const from = slitherStep ? 2800 : 2100;
+    noise(0.1, { vol: 0.3, type: 'bandpass', from, to: from * 0.55, q: 1, force: true });
+    tone(slitherStep ? 196 : 175, 0.035, { type: 'square', vol: 0.07, force: true }); // the step's tick
+    if (turned) tone(slitherStep ? 98 : 110, 0.07, { type: 'square', vol: 0.16, force: true });
+    if (grew) tone(180, 0.14, { type: 'triangle', vol: 0.22, slideTo: 420, force: true });
+}
+
+// An alien warping in: a warbling UFO siren
+function sfxUfo() {
+    if (sfxThrottled('ufo', 400)) return;
+    for (let i = 0; i < 8; i++) tone(i % 2 ? 880 : 660, 0.07, { type: 'sine', vol: 0.14, delay: i * 0.06, force: true });
+}
+
+// An alien's shot: a pew, a bright square dropping fast
+function sfxAlienShot() {
+    tone(1500, 0.12, { type: 'square', vol: 0.1, slideTo: 300, key: 'laser' });
+}
+
+// An alien destroyed: a crunchy burst with a falling buzz
+function sfxAlienDie() {
+    noise(0.28, { vol: 0.3, type: 'bandpass', from: 1200, to: 200, q: 2, key: 'alienDie' });
+    tone(440, 0.28, { type: 'square', vol: 0.12, slideTo: 60, force: true });
+}
+
+// -- Hurt sounds: anything alive reacts when the ball hits it (throttled, since a fire ball can plough
+// through several in a row) --
+
+// The snake: an angry hiss with a squeal sliding down under it; a head shot squeals higher and longer
+function sfxSnakeHurt(head) {
+    if (sfxThrottled('snakeHurt', 70)) return;
+    noise(head ? 0.3 : 0.18, { vol: head ? 0.32 : 0.24, type: 'highpass', from: 3500, to: 5500, q: 0.7, force: true });
+    tone(head ? 900 : 620, head ? 0.25 : 0.14, { type: 'sawtooth', vol: head ? 0.14 : 0.1, slideTo: head ? 220 : 260, force: true });
+}
+
+// The snake's death throes: a long hiss fading out as it deflates
+function sfxSnakeDie() {
+    noise(1.2, { vol: 0.3, type: 'bandpass', from: 5000, to: 900, q: 0.8, force: true });
+}
+
+// An alien taking a hit but still standing: a squishy two-note "blorp" from its little invader voice
+function sfxAlienHurt() {
+    if (sfxThrottled('alienHurt', 70)) return;
+    tone(700, 0.06, { type: 'square', vol: 0.16, slideTo: 420, force: true });
+    tone(360, 0.1, { type: 'square', vol: 0.14, slideTo: 180, delay: 0.06, force: true });
+}
+
+// The mothership's crew groaning over the clang of the hull: a low alien warble
+function sfxMothershipHurt(crit) {
+    if (sfxThrottled('shipHurt', 90)) return;
+    const f = crit ? 170 : 130;
+    for (let i = 0; i < 3; i++) tone(f - i * 18, 0.08, { type: 'sawtooth', vol: 0.13, slideTo: f - i * 18 - 30, delay: i * 0.06, force: true });
+}
+
+// The Rival conceding a goal: an indignant "ugh!", a nasal grunt dropping in pitch
+function sfxRivalGrunt() {
+    tone(260, 0.2, { type: 'square', vol: 0.14, slideTo: 120, delay: 0.3, force: true });
+    tone(390, 0.2, { type: 'sawtooth', vol: 0.06, slideTo: 180, delay: 0.3, force: true });
+}
+
+// The Rival losing its temper: a growling roar rising, rough with noise
+function sfxRivalRage() {
+    tone(70, 0.7, { type: 'sawtooth', vol: 0.22, slideTo: 150, force: true });
+    tone(73, 0.7, { type: 'square', vol: 0.1, slideTo: 155, force: true });
+    noise(0.7, { vol: 0.18, type: 'lowpass', from: 400, to: 1400, q: 3, force: true });
+}
+
+// Win jingle: cheerful rising bells (C5, E5, G5, C6) settling on a soft chord
 
 function playWinJingle() {
-    [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
-        tone(freq, 0.25, { type: 'sine', vol: 0.2, delay: idx * 0.1, force: true });
-    });
+    [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => bell(freq, 0.15, 0.6, idx * 0.09));
+    [523.25, 659.25, 783.99].forEach(f => tone(f, 0.7, { type: 'triangle', vol: 0.06, delay: 0.36, force: true }));
 }
 
 // Lose jingle: descending sad tones (G4, F4, Eb4, C4)

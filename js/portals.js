@@ -28,7 +28,7 @@ function spawnPortals() {
     portals = { a: { ...a, color: '#ff9a1f', tint: '255, 154, 31' }, b: { ...b, color: '#2de2e6', tint: '45, 226, 230' },
         warn: PORTAL_WARN_FRAMES, life: PORTAL_LIFE_FRAMES, t: 0 };
     addPopup(CANVAS_W / 2, 100, 'PORTALS OPENING…', '#ffb347', { size: 20, life: 1.6, rise: 0.2, pop: true });
-    tone(330, 0.3, { type: 'sine', vol: 0.18, slideTo: 660, key: 'portalWarn', force: true });
+    sfxWarpOpen();
     haptic([15, 30, 15], true);
 }
 
@@ -76,7 +76,7 @@ function portalBallCollision(b) {
             b.trail.length = 0; // no comet tail streaked across the screen between the two
             b.portalCool = 30;  // can't dive straight back in
             spawnParticles(to.x, to.y, to.color, 10);
-            tone(520, 0.08, { type: 'sine', vol: 0.18, slideTo: 1040, key: 'portal', force: true });
+            sfxPortal();
             haptic(12);
             return;
         }

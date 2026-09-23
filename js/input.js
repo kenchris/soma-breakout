@@ -20,7 +20,7 @@ function followPaddleTarget(clientX) {
 // neither steer the paddle nor count as a "tap anywhere" to launch / resume / restart
 
 function isControlTarget(target) {
-    return !!(target && target.closest && target.closest('button, #overlay, a, #found-codes, #legend-dialog, #legend-backdrop'));
+    return !!(target && target.closest && target.closest('button, #overlay, a, #found-codes, .modal, #modal-backdrop'));
 }
 
 // Displayed pixels -> canvas coordinate space, mirrored when the view is flipped or controls are reversed
@@ -185,8 +185,8 @@ function handlePointerUp(e) {
 
 
 function handleKeyDown(e) {
-    // While the how-to-play dialog is up, only its own keys work: Space/P/R would act on the game behind it
-    if (legendOpen() && e.key !== 'h' && e.key !== 'H' && e.key !== 'Escape') return;
+    // While a dialog is up, only H, M and Escape work: Space/P/R would act on the game behind it
+    if (modalOpen() && !['h', 'H', 'm', 'M', 'Escape'].includes(e.key)) return;
     if (e.key === 'r' || e.key === 'R') {
         // Restart from ready, won, or lost (after a game over, from your furthest unlocked level: see restartLevel)
         if ((gameState === 'ready' || gameState === 'won' || gameState === 'lost') && !endScreenLocked()) {
@@ -216,11 +216,11 @@ function handleKeyDown(e) {
     }
     if (e.key === 'h' || e.key === 'H') {
         // Toggle the how-to-play / powerup legend dialog
-        toggleLegend();
+        toggleModal('legend-dialog');
         return;
     }
-    if (e.key === 'Escape' && legendOpen()) {
-        hideLegend();
+    if (e.key === 'Escape' && modalOpen()) {
+        hideModal();
         return;
     }
     if (e.key === ' ' || e.key === 'Spacebar') {
@@ -282,7 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const muteBtn = document.getElementById('mute-btn');
     if (muteBtn) {
-        muteBtn.addEventListener('click', toggleMute);
+        muteBtn.addEventListener('click', () => toggleModal('sound-dialog'));
     }
 
     const pauseBtn = document.getElementById('pause-btn');
@@ -307,16 +307,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const helpBtn = document.getElementById('help-btn');
     if (helpBtn) {
-        helpBtn.addEventListener('click', toggleLegend);
+        helpBtn.addEventListener('click', () => toggleModal('legend-dialog'));
     }
-    const legendClose = document.getElementById('legend-close');
-    if (legendClose) {
-        legendClose.addEventListener('click', hideLegend);
+    for (const btn of document.querySelectorAll('.modal-close')) btn.addEventListener('click', hideModal);
+    const modalBackdrop = document.getElementById('modal-backdrop');
+    if (modalBackdrop) {
+        modalBackdrop.addEventListener('click', hideModal);
     }
-    const legendBackdrop = document.getElementById('legend-backdrop');
-    if (legendBackdrop) {
-        legendBackdrop.addEventListener('click', hideLegend);
-    }
+    initSoundDialog();
 
     // Cheat code: toggle/go both need stopPropagation, same reason the overlay-button does — otherwise
     // the click bubbles up to #overlay's own "tap anywhere to launch/continue/restart" listener.

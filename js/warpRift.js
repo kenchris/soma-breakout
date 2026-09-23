@@ -27,7 +27,7 @@ function spawnWarpRift() {
         t: 0
     };
     addPopup(CANVAS_W / 2, 100, '⚡ WARP RIFT OPENING…', '#7be8ff', { size: 20, life: 1.6, rise: 0.2, pop: true });
-    tone(220, 0.4, { type: 'sine', vol: 0.2, slideTo: 600, key: 'warpWarn', force: true });
+    sfxWarpOpen();
     haptic([20, 40, 20, 40], true);
 }
 
@@ -50,8 +50,7 @@ function triggerWarp() {
     inputLockUntil = performance.now() + 700;
     addShake(8);
     haptic([30, 20, 30, 20, 60], true);
-    tone(300, 0.12, { type: 'sine', vol: 0.22, key: 'warpJump', force: true });
-    tone(900, 0.35, { type: 'sine', vol: 0.22, slideTo: 1800, delay: 0.1, force: true });
+    sfxWarpJump();
     showOverlay('WARP!\nJumped from level ' + from + ' to ' + level, 'Continue');
 }
 

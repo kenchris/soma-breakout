@@ -10,8 +10,8 @@
 // enough to break in and every other one just makes it easier. Drop a key and you die: it costs a life and
 // the whole field starts over. Meanwhile the regular aliens keep warping in to shoot holes in your paddle
 // (a hole never swallows a key, though): one at a time at first, two at once from halfway through,
-// arriving faster on later encounters. Portal pairs are open from the start and keep
-// coming back (see portals.js), their gravity bending the ball around the rocks.
+// arriving faster on later encounters. Portal pairs are open from the start and keep coming back (see
+// portals.js), their gravity bending the ball around the rocks.
 // boss.hp is the total number of rock hits still needed; it drives the ball's speed-up and the cheat roll.
 
 // Hits needed to clear a rock of this tier completely: itself, plus both halves it splits into
@@ -135,9 +135,7 @@ function catchKey(k) {
     addScore(250 * (doubleTimer > 0 ? 2 : 1));
     spawnParticles(k.x, paddle.y, KEY_COLORS[k.id], 14);
     haptic([15, 20, 30], true);
-    tone(660, 0.1, { type: 'square', vol: 0.18, key: 'keyGet', force: true });
-    tone(990, 0.1, { type: 'square', vol: 0.18, delay: 0.08, force: true });
-    tone(1320, 0.16, { type: 'square', vol: 0.18, delay: 0.16, force: true });
+    sfxKey();
     addPopup(k.x, paddle.y - 30, KEY_NAMES[k.id] + ' KEY ' + B.keys + ' / ' + FIELD_KEYS + '!', KEY_COLORS[k.id], { size: 22, life: 1.3, rise: 0.5, pop: true });
     noteMoment(45, 'KEY FOUND!');
     unlockGroup(k.id);
@@ -156,7 +154,7 @@ function unlockGroup(group) {
     addPopup(mid.x + BRICK_W / 2, mid.y + BRICK_H + 26, KEY_NAMES[group] + ' LOCKS OPEN!', KEY_COLORS[group],
         { size: 20, life: 1.6, rise: 0.3, pop: true });
     addShake(5);
-    tone(520, 0.3, { type: 'triangle', vol: 0.2, slideTo: 1040, key: 'unlock', force: true });
+    sfxUnlock();
 }
 
 // A dropped key is fatal: a life gone, and (if that wasn't the last one) the whole field starts over:

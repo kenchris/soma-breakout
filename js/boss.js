@@ -291,6 +291,7 @@ function bossBallCollision(b) {
         } else {
             clink();
         }
+        sfxMothershipHurt(crit);
         addShake(crit ? 6 : 3);
         haptic(crit ? [20, 20, 40] : 20, crit);
         if (fireTimer <= 0) { // a fire ball goes straight through; anything else bounces off

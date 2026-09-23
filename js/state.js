@@ -110,6 +110,10 @@ let shownCombo = -1;
 
 let audioCtx = null;
 
+let musicGain = null; // the music bus (see music.js)
+
+let sfxGain = null;   // the sound-effects bus
+
 let activeVoices = 0;
 
 const lastPlayedAt = {};
@@ -160,6 +164,8 @@ let aliens = [];
 let alienBullets = [];
 
 let alienTimer = 0;       // frames until the next alien may warp in
+
+let invaderMarchIn = 0;   // frames until the invaders' march takes its next step (see updateAliens)
 
 let paddleHoles = [];     // { x: hole centre in paddle-local px, w, life: seconds left }
 

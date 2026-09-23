@@ -418,8 +418,8 @@
             max-height: calc(100dvh - 230px); /* room for the thumb pad as well */
         }
 
-        /* --- Shared arcade panel look: the game overlay and the how-to-play dialog --- */
-        #overlay, #legend-dialog {
+        /* --- Shared arcade panel look: the game overlay and the dialogs --- */
+        #overlay, .modal {
             box-sizing: border-box;
             background: var(--panel);
             border: 2px solid var(--cyan);
@@ -684,17 +684,16 @@
             pointer-events: none;
         }
         #toast.show { opacity: 1; transform: translate(-50%, 0); }
-        /* --- How-to-play dialog: reference info tucked behind the help button instead of permanently
-           taking up space below the canvas --- */
-        #legend-backdrop {
+        /* --- Dialogs behind the HUD buttons: how to play (help) and sound settings (speaker) --- */
+        #modal-backdrop {
             display: none;
             position: fixed;
             inset: 0;
             background: rgba(5, 2, 12, 0.75);
             z-index: 19;
         }
-        #legend-backdrop.open { display: block; }
-        #legend-dialog {
+        #modal-backdrop.open { display: block; }
+        .modal {
             display: none;
             position: fixed;
             top: 50%;
@@ -711,8 +710,8 @@
             user-select: none;
             z-index: 20;
         }
-        #legend-dialog.open { display: block; }
-        #legend-dialog h2 {
+        .modal.open { display: block; }
+        .modal h2 {
             margin: 0 0 22px;
             font-family: var(--px);
             font-size: 15px;
@@ -720,6 +719,25 @@
             color: var(--yellow);
             text-shadow: 3px 3px 0 #7a1560;
         }
+        /* Sound dialog: a switch and a slider per channel, in the same quiet retro style */
+        #sound-dialog { width: min(90%, 420px); }
+        .sound-row { display: flex; align-items: center; gap: 16px; margin: 0 0 18px; }
+        .sound-switch { display: flex; align-items: center; gap: 10px; min-width: 150px; cursor: pointer; }
+        .sound-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .sound-switch .knob { position: relative; flex: none; width: 36px; height: 18px; border: 1px solid rgba(154, 140, 192, 0.6); background: rgba(10, 5, 22, 0.85); }
+        .sound-switch .knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; background: var(--dim); transition: left 0.15s, background 0.15s; }
+        .sound-switch input:checked + .knob { border-color: var(--cyan); }
+        .sound-switch input:checked + .knob::after { left: 20px; background: var(--cyan); }
+        .sound-switch input:focus-visible + .knob { outline: 2px solid var(--yellow); outline-offset: 2px; }
+        .sound-switch .name { font-family: var(--px); font-size: 10px; letter-spacing: 1px; color: var(--ink); }
+        .sound-row input[type=range] { flex: 1; min-width: 0; accent-color: var(--cyan); touch-action: pan-x; }
+        .sound-row input[type=range]:disabled { opacity: 0.35; }
+        #mute-all { margin-top: 6px; padding: 10px 18px; background: rgba(10, 5, 22, 0.85); border: 1px solid var(--magenta); border-radius: 0; color: var(--magenta); font-family: var(--px); font-size: 10px; letter-spacing: 1px; cursor: pointer; }
+        #sound-dialog.muted #mute-all { background: var(--magenta); color: var(--bg-0); }
+        #sound-dialog.muted .sound-row { opacity: 0.4; }
+        .sound-note { margin: 12px 0 0; font-size: 16px; color: var(--dim); }
+        #now-playing { margin: 14px 0 0; font-family: var(--px); font-size: 9px; letter-spacing: 1px; color: var(--cyan); }
+        #now-playing:empty { display: none; }
         #legend-dialog h3 {
             margin: 26px 0 14px;
             font-family: var(--px);
@@ -729,7 +747,7 @@
             color: var(--magenta);
         }
         #legend-dialog h2 + h3 { margin-top: 0; }
-        #legend-close {
+        .modal-close {
             position: absolute;
             top: 10px;
             right: 12px;
@@ -792,7 +810,7 @@
             #overlay-button:hover { background: #ffe25c; }
             #cheat-code-toggle:hover { color: var(--ink); border-color: var(--cyan); }
             #level-code-go:hover { background: rgba(45, 226, 230, 0.2); }
-            #legend-close:hover { color: #ffffff; }
+            .modal-close:hover { color: #ffffff; }
         }
 
         /* Responsive overrides go LAST so they beat the base rules above */
@@ -821,8 +839,8 @@
             #overlay-button { margin-top: 14px; padding: 11px 20px; font-size: 11px; }
             #cheat-code-area { margin-top: 12px; padding-top: 10px; }
             #level-code-input { width: 140px; padding: 8px; font-size: 11px; }
-            #legend-dialog { font-size: 17px; padding: 26px 18px; }
-            #legend-dialog h2 { font-size: 12px; }
+            .modal { font-size: 17px; padding: 26px 18px; }
+            .modal h2 { font-size: 12px; }
             #found-codes-empty { font-size: 16px; }
             #touchpad { font-size: 16px; }
         }
@@ -900,7 +918,7 @@
                     <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -6" /><path d="M11 16a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8 11v-5a4 4 0 0 1 8 0" /></svg>
                     <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6" /><path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0" /><path d="M8 11v-4a4 4 0 1 1 8 0v4" /></svg>
                 </button>
-                <button id="mute-btn" class="hud-btn icon-btn" title="Mute sound and vibration (M)">
+                <button id="mute-btn" class="hud-btn icon-btn" title="Sound &amp; music (M mutes all)">
                     <svg class="ico-a" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8a5 5 0 0 1 0 8" /><path d="M17.7 5a9 9 0 0 1 0 14" /><path d="M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5" /></svg>
                     <svg class="ico-b" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8a5 5 0 0 1 1.912 4.934m-1.377 2.602a5 5 0 0 1 -.535 .464" /><path d="M17.7 5a9 9 0 0 1 2.362 11.086m-1.676 2.299a9 9 0 0 1 -.686 .615" /><path d="M9.069 5.054l.431 -.554a.8 .8 0 0 1 1.5 .5v2m0 4v8a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l1.294 -1.664" /><path d="M3 3l18 18" /></svg>
                 </button>
@@ -950,9 +968,24 @@
             <i id="touchpad-dot"></i>
         </div>
         <div id="toast" role="status" aria-live="polite"></div>
-        <div id="legend-backdrop"></div>
-        <div id="legend-dialog" role="dialog" aria-modal="true" aria-label="How to play">
-            <button id="legend-close" type="button" aria-label="Close">&times;</button>
+        <div id="modal-backdrop"></div>
+        <div id="sound-dialog" class="modal" role="dialog" aria-modal="true" aria-label="Sound">
+            <button class="modal-close" type="button" aria-label="Close">&times;</button>
+            <h2>SOUND</h2>
+            <div class="sound-row">
+                <label class="sound-switch"><input type="checkbox" id="music-on"><span class="knob"></span><span class="name">MUSIC</span></label>
+                <input type="range" id="music-vol" min="0" max="100" step="5" aria-label="Music volume">
+            </div>
+            <div class="sound-row">
+                <label class="sound-switch"><input type="checkbox" id="sfx-on"><span class="knob"></span><span class="name">SOUND FX</span></label>
+                <input type="range" id="sfx-vol" min="0" max="100" step="5" aria-label="Sound effects volume">
+            </div>
+            <button id="mute-all" type="button">MUTE ALL (M)</button>
+            <p class="sound-note">Mute all silences vibration too</p>
+            <p id="now-playing"></p>
+        </div>
+        <div id="legend-dialog" class="modal" role="dialog" aria-modal="true" aria-label="How to play">
+            <button class="modal-close" type="button" aria-label="Close">&times;</button>
             <h2>HOW TO PLAY</h2>
             <h3 class="keys">CONTROLS</h3>
             <div class="row keys">
@@ -999,6 +1032,7 @@
     <script src="js/constants.js"></script>
     <script src="js/state.js"></script>
     <script src="js/audio.js"></script>
+    <script src="js/music.js"></script>
     <script src="js/fx.js"></script>
     <script src="js/sprites.js"></script>
     <script src="js/level.js"></script>

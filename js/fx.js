@@ -19,8 +19,7 @@ function addScore(points) {
         addPopup(CANVAS_W / 2, CANVAS_H * 0.55, 'New high score!', '#FFD700', { size: 30, life: 1.6, rise: 0.5, pop: true });
         addShake(4);
         haptic([20, 40, 20, 40, 60], true);
-        [523, 659, 784, 1047].forEach((f, i) =>
-            tone(f, i === 3 ? 0.25 : 0.12, { type: 'triangle', vol: 0.2, delay: i * 0.09, force: true }));
+        sfxHighScore();
     }
 }
 

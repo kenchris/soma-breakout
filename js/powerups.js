@@ -26,6 +26,7 @@ function applyPowerup(type) {
 
     if (type === 'life') {
         lives = Math.min(lives + 1, 5);
+        sfxOneUp();
     } else if (type === 'slow') {
         slowTimer = 6;
     } else if (type === 'wide') {
@@ -96,8 +97,8 @@ function updatePowerups() {
             spawnParticles(p.x, p.y, p.color);
             if (p.type === 'poison') {
                 tone(200, 0.3, { type: 'sawtooth', vol: 0.2, slideTo: 70, key: 'poisonCatch', force: true });
-            } else {
-                beep();
+            } else if (p.type !== 'cheatcode' && p.type !== 'life') { // those two have their own fanfares
+                sfxPowerup();
             }
             haptic(15);
             powerups.splice(i, 1);

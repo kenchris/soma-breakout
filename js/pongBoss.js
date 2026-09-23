@@ -213,6 +213,7 @@ function pongGoal(b) {
     haptic([20, 30, 40], true);
     tone(660, 0.1, { type: 'square', vol: 0.2, key: 'goal', force: true });
     tone(990, 0.18, { type: 'square', vol: 0.2, delay: 0.1, force: true });
+    sfxRivalGrunt();
     if (B.hp <= 0) {
         killPong();
         return;
@@ -243,6 +244,7 @@ function pongGoal(b) {
         B.paddles = [{ x: CANVAS_W / 4 - w / 2, w }, { x: (CANVAS_W * 3) / 4 - w / 2, w }];
         // Losing, it loses its temper: shakes with rage, then calls in three aliens to wreck your paddle
         B.rage = 90;
+        sfxRivalRage();
         B.backup = 3;
         B.backupIn = 60;
         addPopup(CANVAS_W / 2, 215, 'THE RIVAL IS FURIOUS!', '#ff4d4d', { size: 26, life: 1.6, rise: 0.3, pop: true });

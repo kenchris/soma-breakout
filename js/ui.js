@@ -153,9 +153,7 @@ function revealLevelCode() {
     addPopup(CANVAS_W / 2, CANVAS_H * 0.4, 'CODE FOUND: ' + code + '!', '#ffe58a', { size: 26, life: 2, rise: 0.3, pop: true });
     addShake(6);
     haptic([20, 20, 20, 20, 60], true);
-    tone(660, 0.1, { type: 'triangle', vol: 0.22, key: 'codeFound', force: true });
-    tone(990, 0.14, { type: 'triangle', vol: 0.22, delay: 0.09, force: true });
-    tone(1320, 0.2, { type: 'triangle', vol: 0.22, delay: 0.18, force: true });
+    sfxCodeFound();
 }
 
 // Rebuilds the found-codes strip below the canvas from scratch, sorted by level. Each chip loads that
@@ -516,40 +514,44 @@ function togglePause() {
     }
 }
 
-// The keys/powerup legend: reference material, not something that needs its own permanent strip of
-// screen — a dialog opened on demand instead (see #legend-dialog in index.html). Opening it mid-play
-// pauses the game so the ball doesn't fall through an empty paddle while it's read; legendPausedGame
-// tracks that so closing it only resumes play it itself paused, never overriding a manual P pause.
-let legendPausedGame = false;
+// The dialogs behind the HUD's help and speaker buttons (#legend-dialog, #sound-dialog in index.html),
+// one open at a time over a shared backdrop. Opening one mid-play pauses the game so the ball doesn't
+// fall through an empty paddle meanwhile; modalPausedGame tracks that so closing it only resumes play it
+// itself paused, never overriding a manual P pause.
+let openModalId = null;
+let modalPausedGame = false;
 
-function legendOpen() {
-    const dlg = document.getElementById('legend-dialog');
-    return !!dlg && dlg.classList.contains('open');
+function modalOpen() {
+    return openModalId !== null;
 }
 
-function showLegend() {
+function showModal(id) {
+    if (openModalId) hideModal();
     if (gameState === 'playing') {
         gameState = 'paused';
-        legendPausedGame = true;
+        modalPausedGame = true;
     }
-    const dlg = document.getElementById('legend-dialog');
-    const backdrop = document.getElementById('legend-backdrop');
+    const dlg = document.getElementById(id);
+    const backdrop = document.getElementById('modal-backdrop');
     if (dlg) dlg.classList.add('open');
     if (backdrop) backdrop.classList.add('open');
+    openModalId = id;
+    if (id === 'sound-dialog') syncSoundDialog();
 }
 
-function hideLegend() {
-    const dlg = document.getElementById('legend-dialog');
-    const backdrop = document.getElementById('legend-backdrop');
+function hideModal() {
+    const dlg = openModalId && document.getElementById(openModalId);
+    const backdrop = document.getElementById('modal-backdrop');
     if (dlg) dlg.classList.remove('open');
     if (backdrop) backdrop.classList.remove('open');
-    if (legendPausedGame) {
-        legendPausedGame = false;
+    openModalId = null;
+    if (modalPausedGame) {
+        modalPausedGame = false;
         if (gameState === 'paused') gameState = 'playing';
     }
 }
 
-function toggleLegend() {
-    if (legendOpen()) hideLegend(); else showLegend();
+function toggleModal(id) {
+    if (openModalId === id) hideModal(); else showModal(id);
 }
 

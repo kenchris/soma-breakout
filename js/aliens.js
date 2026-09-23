@@ -142,8 +142,7 @@ function spawnAlien() {
         t: Math.floor(Math.random() * 100)
     });
     if (!boss) addPopup(CANVAS_W / 2, 46, 'ALIEN INCOMING!', ALIEN_COLOR, { size: 24, life: 1.4, rise: 0.2, pop: true }); // (a boss's summons need no banner over its health bar)
-    tone(330, 0.15, { type: 'triangle', vol: 0.2, key: 'warn' });
-    tone(440, 0.2, { type: 'triangle', vol: 0.2, delay: 0.15, force: true });
+    sfxUfo();
     haptic([15, 40, 15], true);
 }
 
@@ -153,7 +152,7 @@ function fireAlien(a) {
     const y0 = a.y + a.h / 2;
     const travel = Math.max(1, (paddle.y - y0) / speed);
     alienBullets.push({ x: a.x, y: y0, vx: (alienAimX() - a.x) / travel, vy: speed });
-    tone(1200, 0.1, { type: 'square', vol: 0.12, slideTo: 420, key: 'laser' });
+    sfxAlienShot();
 }
 
 
@@ -169,7 +168,7 @@ function killAlien(i, a) {
     spawnPowerup(a.x, a.y + 14); // guaranteed drop
     addShake(6);
     haptic([30, 30, 50], true);
-    tone(520, 0.3, { type: 'sawtooth', vol: 0.25, slideTo: 60, key: 'alienDown' });
+    sfxAlienDie();
     alienKillBonus();
 }
 
@@ -203,6 +202,16 @@ function updateAliens() {
     if (plan.aliens && aliens.length < plan.aliens.max && bricksLeft > 3 && --alienTimer <= 0) {
         spawnAlien();
         alienTimer = alienInterval();
+    }
+
+    // The invaders' march: one bass step at a time while any are on screen, quicker the more there are
+    if (aliens.some(a => a.entered)) {
+        if (--invaderMarchIn <= 0) {
+            sfxInvaderStep();
+            invaderMarchIn = Math.max(14, 34 - 6 * aliens.length);
+        }
+    } else {
+        invaderMarchIn = 0;
     }
 
     for (let i = aliens.length - 1; i >= 0; i--) {
@@ -296,7 +305,7 @@ function alienBallCollision(b) {
         if (a.hp <= 0) {
             killAlien(i, a);
         } else {
-            clink();
+            sfxAlienHurt();
             addShake(2);
             haptic(15);
             spawnParticles(b.x, b.y, ALIEN_COLOR, 6);
