@@ -214,14 +214,14 @@ function currentLayout() {
     return LAYOUTS[deck[n % LAYOUTS.length]];
 }
 
-// How many brick levels (not a boss, not ghost rows) come after the fixed opening run and before level l
+// How many brick levels (not a boss, ghost rows or a maze) come after the fixed opening run and before level l
 const brickLevelCounts = {};
 function brickLevelsBefore(l) {
     const first = TUTORIAL_LEVELS + LAYOUT_FIXED + 1;
     if (l <= first) return 0;
     if (brickLevelCounts[l] === undefined) {
         const prev = l - 1;
-        brickLevelCounts[l] = brickLevelsBefore(prev) + (isBossLevel(prev) || isGhostLevel(prev) ? 0 : 1);
+        brickLevelCounts[l] = brickLevelsBefore(prev) + (isBossLevel(prev) || isGhostLevel(prev) || isMazeLevel(prev) ? 0 : 1);
     }
     return brickLevelCounts[l];
 }
@@ -360,7 +360,7 @@ function planLevel(l) {
         p.chain = true;
         p.tnt = 0;
     }
-    // Dot Maze: the maze is the whole level, and its ghosts are the only visitors
+    // Space Mice: the maze is the whole level, and its cats are the only visitors
     if (isMazeLevel(l)) {
         p.maze = true;
         p.tnt = 0;
@@ -386,10 +386,10 @@ function showLevelIntro() {
         ghostIntroSeen = true;
     }
     if (plan.maze) {
-        title = 'DOT MAZE';
+        title = 'SPACE MICE';
         lines = mazeIntroSeen
-            ? ['Eat every dot. Big dots turn the ghosts blue']
-            : ['Fly the ball over every dot to clear the maze', 'Big dots turn the ghosts blue: ram them!'];
+            ? ['Hit the mouse to steer it to the cheese. Bop the cats!']
+            : ['Hit the mouse: it zooms off the way the ball was going', 'It eats the cheese. Bop the cats to keep it safe!'];
         mazeIntroSeen = true;
     }
     if (plan.chain) {
