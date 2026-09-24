@@ -803,21 +803,21 @@ function drawChomper(m) {
     if (zoom) { // a glow and speed lines behind it
         ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
         ctx.beginPath();
-        ctx.arc(0, 2, R + 6, 0, Math.PI * 2);
+        ctx.arc(0, -5, R + 6, 0, Math.PI * 2); // (round the body, which sits above its mouth)
         ctx.fill();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         for (const off of [-6, 0, 6]) {
-            ctx.moveTo(-m.dir[0] * (R + 3) + (m.dir[1] ? off : 0), 4 - m.dir[1] * (R + 3) + (m.dir[0] ? off : 0));
-            ctx.lineTo(-m.dir[0] * (R + 15) + (m.dir[1] ? off : 0), 4 - m.dir[1] * (R + 15) + (m.dir[0] ? off : 0));
+            ctx.moveTo(-m.dir[0] * (R + 3) + (m.dir[1] ? off : 0), -5 - m.dir[1] * (R + 3) + (m.dir[0] ? off : 0));
+            ctx.lineTo(-m.dir[0] * (R + 15) + (m.dir[1] ? off : 0), -5 - m.dir[1] * (R + 15) + (m.dir[0] ? off : 0));
         }
         ctx.stroke();
     }
     // Chomping away: faster while zooming
     const step = Math.floor(maze.t / (zoom ? 3 : 6)) % SLIME_OPENINGS.length;
     const frame = chomperFrame(m.color, m.face || 1, chomperDirIndex(m.dir), step);
-    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2 - 6);
+    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2 - JELLY_MOUTH_Y);
     ctx.restore();
     if (!m.pushed && Math.floor(maze.t / 20) % 2 === 0) {
         ctx.font = pixelFont(9);
@@ -825,9 +825,9 @@ function drawChomper(m) {
         ctx.lineWidth = 3;
         ctx.lineJoin = 'round';
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.strokeText('HIT ME!', m.x, m.y + R + 16);
+        ctx.strokeText('HIT ME!', m.x, m.y + R + 8);
         ctx.fillStyle = m.color;
-        ctx.fillText('HIT ME!', m.x, m.y + R + 16);
+        ctx.fillText('HIT ME!', m.x, m.y + R + 8);
     }
 }
 
@@ -837,6 +837,8 @@ function drawChomper(m) {
 // frame (colour x facing x gaze x mouth opening) is painted once and cached, so drawing one is one drawImage.
 const SLIME_OPENINGS = [0, 0.55, 1, 0.55]; // the chomp cycle
 const SLIME_SIZE = 46;                      // the frame canvas (the jelly is about 34px wide)
+const JELLY_MOUTH_Y = 12;                   // how far below the frame's centre its mouth is (see paintJelly):
+                                            // it's drawn raised by that, so its mouth runs along the line of dots
 const SLIME_PALETTES = {
     '#ff9a1f': { body: '#ff9a1f', light: '#ffd49a', dark: '#c95a06', edge: '#7a3300' },
     '#7dea3c': { body: '#7dea3c', light: '#dcffb8', dark: '#3f9e14', edge: '#1f5208' }
@@ -963,12 +965,14 @@ function drawMaze() {
         ctx.drawImage(mazeLayer, lx, ly);
         ctx.restore();
     }
-    // Dots (one path); power pellets blink
+    // Dots (one path); power pellets blink. The dot a jelly is about to eat waits until after the jellies,
+    // so it's drawn in front of the jelly, going into its mouth, rather than disappearing behind it.
+    const aboutToEat = (c, r) => maze.chompers.some(m => m.tc === c && m.tr === r);
     ctx.fillStyle = MAZE_DOT_COLOR;
     ctx.beginPath();
     for (let r = 0; r < MAZE_ROWS; r++) {
         for (let c = 0; c < MAZE_COLS; c++) {
-            if (maze.dots[r][c] !== 1) continue;
+            if (maze.dots[r][c] !== 1 || aboutToEat(c, r)) continue;
             ctx.rect(mazeCX(c) - 4, mazeCY(r) - 4, 8, 8);
         }
     }
@@ -977,7 +981,7 @@ function drawMaze() {
         ctx.beginPath();
         for (let r = 0; r < MAZE_ROWS; r++) {
             for (let c = 0; c < MAZE_COLS; c++) {
-                if (maze.dots[r][c] !== 2) continue;
+                if (maze.dots[r][c] !== 2 || aboutToEat(c, r)) continue;
                 const x = mazeCX(c), y = mazeCY(r);
                 ctx.moveTo(x + 11, y);
                 ctx.arc(x, y, 11, 0, Math.PI * 2);
@@ -1005,6 +1009,20 @@ function drawMaze() {
         // Hopping for joy, taking turns
         const hop = Math.abs(Math.sin(maze.cleared / 7 + m.i * 1.5)) * 14;
         drawChomper({ ...m, y: m.y - hop, zoomT: 1, pushed: true, safe: 0 });
+    }
+    // ...and the dots the jellies are about to eat, in front of them
+    for (const m of maze.chompers) {
+        const k = maze.dots[m.tr][m.tc];
+        if (!k || maze.cleared) continue;
+        const x = mazeCX(m.tc), y = mazeCY(m.tr);
+        ctx.fillStyle = MAZE_DOT_COLOR;
+        if (k === 1) {
+            ctx.fillRect(x - 4, y - 4, 8, 8);
+        } else if (Math.floor(maze.t / 15) % 2 === 0) {
+            ctx.beginPath();
+            ctx.arc(x, y, 11, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
     // Ghosts
     const frame = Math.floor(maze.t / 8) % 2;
