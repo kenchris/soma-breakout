@@ -138,7 +138,12 @@ const BOSS_TUNES = {
         a: [[47, 50, 54], [43, 47, 50], [50, 54, 57], [45, 49, 52]], b: [[52, 55, 59], [47, 50, 54], [43, 47, 50], [42, 46, 49]],
         bass: 'drive16', bassType: 'sawtooth', bassVol: 0.25, bassCutoff: 600,
         arp: [0, 1, 2, 1], arpB: [1, 2, 0, 2], arpOctave: 24, arpType: 'square', arpVol: 0.035, pad: true,
-        kick: [0, 3, 8, 11], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], hatVol: 0.045, lead: BOSS_LEAD, fx: true }
+        kick: [0, 3, 8, 11], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], hatVol: 0.045, lead: BOSS_LEAD, fx: true },
+    kong: { name: 'Girders', bpm: 118, // C minor stomp: a heavy four-on-the-floor for a heavy ape
+        a: [[48, 51, 55], [48, 51, 55], [44, 48, 51], [46, 50, 53]], b: [[53, 56, 60], [51, 55, 58], [44, 48, 51], [43, 47, 50]],
+        bass: 'octaves8', bassType: 'square', bassVol: 0.24, bassCutoff: 550,
+        arp: [0, 2, 1, 2], arpB: [2, 1, 0, 1], arpOctave: 24, arpType: 'square', arpVol: 0.035, pad: false,
+        kick: [0, 4, 8, 12], snare: [4, 12], hat: [2, 6, 10, 14], hatVol: 0.05, lead: BOSS_LEAD, fx: true }
 };
 const TUNE_FORM = ['a', 'a', 'b', 'a']; // which section each group of 4 bars plays
 
@@ -246,9 +251,8 @@ function wantedTune() {
 // How far through the fight the boss is (1 = fresh, 0 = beaten), for the final-stretch lead
 function bossHealth() {
     if (!boss) return 1;
-    if (boss.kind === 'snake') return boss.segments.length / boss.startLength;
-    if (boss.kind === 'asteroids') return boss.vault.left / boss.vault.targets.length;
-    return boss.hp / boss.maxHp;
+    const hooks = bossHooks();
+    return hooks.health ? hooks.health() : boss.hp / boss.maxHp;
 }
 
 function scheduleMusic() {

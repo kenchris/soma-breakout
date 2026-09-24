@@ -71,3 +71,34 @@ function keepWhere(arr, keep) {
     }
     arr.length = j;
 }
+
+// Distance from (px, py) to the segment (x0, y0)-(x1, y1)
+function pointSegmentDistance(px, py, x0, y0, x1, y1) {
+    const dx = x1 - x0, dy = y1 - y0;
+    const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(px - (x0 + t * dx), py - (y0 + t * dy));
+}
+
+// Ball vs a thick line segment (a sloped girder): when they touch, push the ball clear and, if it was
+// heading in, reflect it off the surface. Returns whether they touched. The segment's ends are rounded,
+// so a ball clipping the very end of a girder glances off it naturally.
+function bounceOffSegment(b, x0, y0, x1, y1, half) {
+    const dx = x1 - x0, dy = y1 - y0;
+    const t = Math.max(0, Math.min(1, ((b.x - x0) * dx + (b.y - y0) * dy) / (dx * dx + dy * dy || 1)));
+    const cx = x0 + t * dx, cy = y0 + t * dy;
+    const ox = b.x - cx, oy = b.y - cy;
+    const reach = b.r + half;
+    const d2 = ox * ox + oy * oy;
+    if (d2 >= reach * reach) return false;
+    const d = Math.sqrt(d2);
+    const nx = d > 0 ? ox / d : 0;
+    const ny = d > 0 ? oy / d : (b.vy > 0 ? -1 : 1);
+    const along = b.vx * nx + b.vy * ny;
+    if (along < 0) {
+        b.vx -= 2 * along * nx;
+        b.vy -= 2 * along * ny;
+    }
+    b.x = cx + nx * (reach + 0.5);
+    b.y = cy + ny * (reach + 0.5);
+    return true;
+}

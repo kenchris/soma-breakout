@@ -118,11 +118,11 @@ const TUTORIAL_LEVELS = TUTORIAL.length;
 // Each boss debuts in this order, one per boss encounter (levels 10, 15, 20, 25); after that every boss
 // level picks one of them at random, seeded per level (see spawnBoss in boss.js). The mothership is the
 // gentlest, so it comes first; the snake is the toughest to read, so it waits until you've seen two.
-const BOSS_ORDER = ['mothership', 'pong', 'snake', 'asteroids'];
+const BOSS_ORDER = ['mothership', 'pong', 'snake', 'asteroids', 'kong'];
 // How tough each boss is on its debut, whatever encounter that is: the mothership and the snake at their
 // gentlest, the rival and the asteroid field at the strength they were tuned at (their old debut spots).
 // Past the debuts a boss's strength is simply the encounter number.
-const BOSS_DEBUT_STRENGTH = { mothership: 1, pong: 3, snake: 1, asteroids: 4 };
+const BOSS_DEBUT_STRENGTH = { mothership: 1, pong: 3, snake: 1, asteroids: 4, kong: 3 };
 
 // --- Pong boss: "The Rival" (pongBoss.js) ---
 const PONG_Y = 104;                // the rival paddle's top edge, just under the boss health bar
@@ -249,7 +249,8 @@ const BOSS_INTROS = {
     snake: { title: 'BOSS: THE SNAKE', lines: ['Chop it down to nothing!'] },
     mothership: { title: 'BOSS: MEGA INVADER', lines: ['Shoot it down!'] }, // (kind 'mothership': it was a flying saucer once)
     pong: { title: 'BOSS: THE RIVAL', lines: ['Score goals past its paddle!'] },
-    asteroids: { title: 'BOSS: ASTEROID FIELD', lines: ['Smash the vault bricks at the top!'] }
+    asteroids: { title: 'BOSS: ASTEROID FIELD', lines: ['Smash the vault bricks at the top!'] },
+    kong: { title: 'BOSS: BARREL KONG', lines: ['Get the ball up the tower and bash the ape!'] }
 };
 
 const CHAOS = {

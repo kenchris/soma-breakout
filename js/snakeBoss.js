@@ -638,3 +638,14 @@ function drawSnakeBossBar() {
     }
     ctx.restore();
 }
+
+BOSS_KINDS.snake = {
+    spawn: spawnSnakeBoss,
+    update: updateSnakeBoss,
+    collide: snakeBallCollision,
+    draw: drawSnakeBoss,
+    bar: drawSnakeBossBar,
+    rects: snakeRects,
+    breather: snakeBreather,
+    health: () => boss.segments.length / boss.startLength
+};

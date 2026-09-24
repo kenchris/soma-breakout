@@ -399,3 +399,20 @@ function drawPongBossBar() {
     const roman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][B.n] || B.n;
     drawSimpleBossBar('THE RIVAL ' + roman + '   GOALS TO WIN ' + B.hp, B.hp / B.maxHp);
 }
+
+// Its one-way bricks: the guided ball helps clear a way through
+function pongRects() {
+    return boss.wall.filter(pongBrickSolid).map(w => [w.x, w.y, w.x + BRICK_W, w.y + BRICK_H]);
+}
+
+BOSS_KINDS.pong = {
+    spawn: spawnPongBoss,
+    update: updatePongBoss,
+    collide: pongBallCollision,
+    draw: drawPongBoss,
+    bar: drawPongBossBar,
+    rects: pongRects,
+    breather: pongBreather,
+    tick: tickPongWallFade,
+    movers: () => boss.paddles
+};

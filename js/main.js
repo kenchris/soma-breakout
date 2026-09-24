@@ -217,7 +217,9 @@ function loseLife() {
     balls.length = 0;
     lives = Math.max(0, lives - 1);
     combo = 0;
-    powerups.length = 0;
+    // Drops go with the ball, except a level-code capsule: those are rare enough that losing one to an
+    // unrelated miss would sting. It hangs where it is while the ball waits, and falls on after the relaunch.
+    keepWhere(powerups, p => p.type === 'cheatcode');
     clearTimedEffects();
     // Aliens and an active weird event (mirrored view, reversed controls, ...) survive a lost ball: a
     // surprise event is often what causes the ball to be lost in the first place, and cutting it short
@@ -778,7 +780,7 @@ function tickFx() {
     tickBumpers();
     shake = shake > 0.3 ? shake * 0.86 : 0;
     for (const col of bricks) for (const brick of col) if (brick.flash > 0) brick.flash--;
-    if (boss && boss.kind === 'pong') tickPongWallFade();
+    if (boss && bossHooks().tick) bossHooks().tick();
     if (pendingMoment && pendingMoment.delay > 0) pendingMoment.delay--;
 }
 
@@ -805,12 +807,7 @@ function snapshotMovers() {
     for (const a of aliens) add(a);
     for (const s of alienBullets) add(s);
     for (const w of movingWalls) add(w);
-    if (boss) {
-        if (boss.kind === 'mothership') add(boss);
-        if (boss.paddles) boss.paddles.forEach(add);
-        if (boss.rocks) boss.rocks.forEach(add);
-        if (boss.freed) boss.freed.forEach(add);
-    }
+    if (boss && bossHooks().movers) bossHooks().movers().forEach(add);
     paddleStepX = paddle.x;
 }
 
