@@ -136,6 +136,7 @@ function resetGame(startLevel = 1) {
     score = 0;
     lives = START_LIVES;
     assistLosses = assistLevelLosses = 0;
+    resetSecretCode();
     easeHelpNeed(true);
     level = startLevel;
     gameState = 'ready';

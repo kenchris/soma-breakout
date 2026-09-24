@@ -24,6 +24,8 @@ test now passes. Tests that were added this way (do not remove them):
   play barrels are knocked back, not smashed.
 - **Warp rift never seen**: too rare, too small and too short-lived on a phone.
 - **Canvas jumping down on phones**: HUD chips re-wrapping when the score grew or the ASSIST chip appeared.
+- Secret code (keyboard and touch): opens a warp rift once per game; on touch the B/A taps must not resume
+  the paused game.
 - Assist tiers / score scaling, helpful drops, 5 lives + boss refill, level-code round-trip, Space Chomp
   clearable, every boss runs without errors.
 
