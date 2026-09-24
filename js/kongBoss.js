@@ -1,5 +1,5 @@
 // === kongBoss.js ===
-// --- Kong boss: "Space Kong" ---
+// --- Space Gorilla boss (kind 'kong' in the code) ---
 // A giant space gorilla in a bubble helmet stands on top of a Donkey Kong-style tower of space-station
 // girders and fights you with barrels. They roll down the sloped girders, drop off each end onto the next
 // one down (or, now and then, down a ladder gap), and finally fall at your paddle: one that lands on it
@@ -203,7 +203,7 @@ function updateBarrels() {
                     blockMirrorBolt(br.x);
                 } else {
                     punchHole(br.x, BOSS_HOLE_SECONDS);
-                    bossTip('smash', 'HIT THE BARRELS: THEY FLY BACK AT KONG!', 440);
+                    bossTip('smash', 'HIT THE BARRELS: THEY FLY BACK AT THE GORILLA!', 440);
                 }
                 spawnParticles(br.x, br.y, br.wild ? '#5b8cff' : '#c0782e', 10);
             }
@@ -314,7 +314,7 @@ function updateKongBoss() {
         return;
     }
     if (B.intro > 0) {
-        if (B.intro === 110) announceBoss('SPACE KONG IS ANGRY!', '#ff8a2a');
+        if (B.intro === 110) announceBoss('SPACE GORILLA IS ANGRY!', '#ff8a2a');
         B.intro--;
         // Drops in from the top and lands on its girder with a thud
         const k = Math.min(1, (110 - B.intro) / 50);
@@ -347,7 +347,7 @@ function updateKongBoss() {
     }
     updateBarrels();
     updateKongHammer();
-    if (B.t === 115) bossTip('ladder', 'HIT A LADDER: IT FIRES THE BALL AT KONG!', 470);
+    if (B.t === 115) bossTip('ladder', 'HIT A LADDER: IT FIRES THE BALL AT THE GORILLA!', 470);
     if (B.t === 115 + 60 * 8) bossTip('kick', 'HIT THE BARRELS: THEY FLY BACK AT HIM!', 470);
     if (B.ladderFlash && --B.ladderFlash.t <= 0) B.ladderFlash = null;
 }
@@ -570,8 +570,8 @@ function killKong() {
     addShake(12);
     haptic([60, 40, 60, 40, 120], true);
     tone(300, 0.7, { type: 'sawtooth', vol: 0.3, slideTo: 40, key: 'bossDie', force: true });
-    noteMoment(100, 'KONG IS DOWN!', 30);
-    addPopup(CANVAS_W / 2, 250, 'KONG IS DOWN!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
+    noteMoment(100, 'GORILLA DOWN!', 30);
+    addPopup(CANVAS_W / 2, 250, 'GORILLA DOWN!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
 }
 
 // It staggers, then topples off its girder and falls head over heels off the bottom of the screen
@@ -912,7 +912,7 @@ function drawKongBall(b) {
 
 function drawKongBossBar() {
     const B = boss;
-    drawSimpleBossBar('SPACE KONG   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
+    drawSimpleBossBar('SPACE GORILLA   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
     if (B.hammerTime > 0 && (B.hammerTime > 2 || Math.floor(B.t / 6) % 2 === 0)) {
         // HAMMER TIME, big and pulsing above the paddle (blinking as it runs out)
         const s = 1 + 0.08 * Math.sin(B.t / 4);

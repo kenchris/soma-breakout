@@ -1,7 +1,7 @@
 {
-  "name": "Breakout",
-  "short_name": "Breakout",
-  "description": "A classic-Breakout arcade game with bosses, powerups, and weird events.",
+  "name": "Neon Smash",
+  "short_name": "Neon Smash",
+  "description": "A neon brick-smashing arcade game with bosses, powerups, and weird events.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

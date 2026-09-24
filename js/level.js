@@ -382,7 +382,7 @@ function showLevelIntro() {
         title = 'GHOST ROWS';
         lines = ghostIntroSeen
             ? ['Fill whole rows to clear them']
-            : ['Fly the ball THROUGH ghost bricks to make them solid', 'Fill a whole row and it clears, like Tetris'];
+            : ['Fly the ball THROUGH ghost bricks to make them solid', 'Fill a whole row and it clears'];
         ghostIntroSeen = true;
     }
     if (plan.maze) {

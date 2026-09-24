@@ -114,7 +114,7 @@ const BOSS_H = 8 * BOSS_CELL;
 const BOSS_COLOR = '#a45cff';
 const BOSS_LIGHT = '#d4adff';
 const BOSS_DARK = '#6a2fc0';
-const BOSS_EYES = [[3, 3], [7, 3]]; // the empty cells in the face
+const BOSS_EYES = [[3, 3], [4, 3], [6, 3], [7, 3]]; // the empty cells in the face (two-cell eyes)
 const BOSS_HATCH = { x: -40, y: 16, w: 80, h: 16 }; // relative to the boss's origin: row 5, columns 3-7
 const BOSS_RUNS = (() => { // [row, firstCol, lastCol] for each unbroken run of solid cells in either frame
     const runs = [];

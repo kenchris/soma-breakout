@@ -75,13 +75,13 @@ const LAYOUTS = [
     { name: 'Diamond', alive: (c, r) => Math.abs(c - CENTER_COL) / 2 + Math.abs(r - (BRICK_ROWS - 1) / 2) <= 3 }
 ];
 
-const INVADER_ART = [
-    '..X......X..',
-    '...XXXXXX...',
-    '..XX.XX.XX..',
-    '.XXXXXXXXXX.',
-    '.X.XXXXXX.X.',
-    '...XX..XX...'
+const INVADER_ART = [ // the game's own invader (see ALIEN_SPRITES), redrawn to fit the 12 x 6 brick grid
+    '.....XX.....',
+    '..XXXXXXXX..',
+    '.XX..XX..XX.',
+    'XXXXXXXXXXXX',
+    'X.XX.XX.XX.X',
+    'X..X....X..X'
 ];
 
 const STEEL_STYLES = ['top row', 'clusters', 'diagonal'];
@@ -250,7 +250,7 @@ const BOSS_INTROS = {
     mothership: { title: 'BOSS: MEGA INVADER', lines: ['Shoot it down!'] }, // (kind 'mothership': it was a flying saucer once)
     pong: { title: 'BOSS: THE RIVAL', lines: ['Score goals past its paddle!'] },
     asteroids: { title: 'BOSS: ASTEROID FIELD', lines: ['Smash the vault bricks at the top!'] },
-    kong: { title: 'BOSS: SPACE KONG', lines: ['Hit a LADDER to fire the ball at him!', 'Hit the barrels: they fly back at him'] }
+    kong: { title: 'BOSS: SPACE GORILLA', lines: ['Hit a LADDER to fire the ball at him!', 'Hit the barrels: they fly back at him'] }
 };
 
 const CHAOS = {
@@ -386,9 +386,11 @@ const ALIEN_H = 24;
 
 const ALIEN_COLOR = '#5CFF7A';
 
+// Our own invader, in the classic two-frame arcade style (the same 11 x 8 grid): a squid-like alien with a
+// single antenna, big two-cell eyes and tentacles that wiggle between the frames
 const ALIEN_SPRITES = [
-    ['00100000100', '00010001000', '00111111100', '01101110110', '11111111111', '10111111101', '10100000101', '00011011000'],
-    ['00100000100', '10010001001', '10111111101', '11101110111', '11111111111', '01111111110', '00100000100', '01000000010']
+    ['00000100000', '00001110000', '00111111100', '01100100110', '11111111111', '11111111111', '10110101101', '10010001001'],
+    ['00000100000', '00001110000', '00111111100', '01100100110', '11111111111', '11111111111', '01011011010', '01000000010']
 ];
 
 // -- Paddle holes --

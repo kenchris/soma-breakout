@@ -18,6 +18,7 @@
 
 const MAZE_UNLOCK = 14;           // curve level of the first one (level 19), then about 1 level in 7
 const MAZE_CELL = 36;
+const MAZE_DOT_COLOR = '#aef3ff';   // pale cyan dots
 // # wall, B breakable brick (a wall until the ball smashes it), . dot, o power pellet, G the ghosts' pen,
 // M where a chomper starts (no dot)
 const MAZE_ART = [
@@ -42,7 +43,7 @@ const MAZE_TOP = 90;                       // under the goal bar
 const MAZE_PEN = { c: 11, r: 3 };          // the ghosts' pen, in the middle
 const MAZE_DOOR = { c: 11, r: 2 };         // the open cell above it they leave by
 const CHOMPER_HOMES = [{ c: 10, r: 8 }, { c: 12, r: 8 }];
-const CHOMPER_COLORS = ['#ffcf26', '#7dea3c'];
+const CHOMPER_COLORS = ['#ff9a1f', '#7dea3c']; // orange and lime
 const GHOST_R = 14;
 const CHOMPER_R = 13;
 const CHOMPER_HIT_R = 32;          // generous: brushing past a chomper counts
@@ -53,12 +54,15 @@ const CHOMPER_CAUGHT_DROP = 2;     // dots a caught chomper knocks loose
 const MAZE_GOAL = 100;             // dots to clear the level (of the maze's 140): a nice round number
 const MAZE_EXTRA_SECONDS = 40;     // the clock after running out once
 // Our own four ghosts (see ghostTarget for what each one is after)
+// Our own four space ghosts, in the game's neon colours, each with one big eye (see ghostTarget for what
+// each one is after)
 const GHOST_DEFS = [
-    { role: 'chaser', color: '#ff3b5c', release: 60 * 2 },
-    { role: 'ambusher', color: '#ff9ae8', release: 60 * 5 },
-    { role: 'patroller', color: '#3de0ff', release: 60 * 8 },
-    { role: 'shy', color: '#ffb852', release: 60 * 11 }
+    { role: 'chaser', color: '#ff2fb4', release: 60 * 2 },
+    { role: 'ambusher', color: '#a06cff', release: 60 * 5 },
+    { role: 'patroller', color: '#3d7bff', release: 60 * 8 },
+    { role: 'shy', color: '#20c997', release: 60 * 11 }
 ];
+const GHOST_SCARED_COLOR = '#dfe3ff';  // scared, they go pale and see-through
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const mazeLevelCache = {};
 
@@ -237,7 +241,7 @@ function chomperEat(m) {
     tone(maze.waka ? 220 : 330, 0.05, { type: 'triangle', vol: 0.12, slideTo: maze.waka ? 330 : 220, key: 'waka' });
     if (kind === 2) {
         addPopup(m.x, m.y - 18, 'POWER!', '#ffffff', { size: 18, life: 1, pop: true });
-        spawnParticles(m.x, m.y, '#ffb8ae', 10);
+        spawnParticles(m.x, m.y, MAZE_DOT_COLOR, 10);
         scareGhosts();
     }
     if (bricksLeft <= 0) mazeGoalReached();
@@ -714,7 +718,7 @@ const MAZE_LAYER_H = MAZE_ROWS * MAZE_CELL + 2 * MAZE_LAYER_PAD;
 // fill: they're lines the chomper can't cross, not blocks, and the ball flies over them)
 function paintMaze(g) {
     const S = MAZE_CELL;
-    for (const [inset, color, width] of [[6, '#2d4dff', 2.5], [11, '#2d4dff', 1.2]]) {
+    for (const [inset, color, width] of [[6, '#2de2e6', 2.5], [11, '#a06cff', 1.2]]) { // cyan outside, violet inside
         g.strokeStyle = color;
         g.lineWidth = width;
         g.lineCap = 'round';
@@ -771,18 +775,19 @@ function ghostBody(color, frame) {
 }
 
 // Big round eyes, pupils looking the way it's going
-function drawGhostEyes(x, y, dir) {
-    for (const s of [-1, 1]) {
-        const ex = x + s * 5.5, ey = y - 3;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.ellipse(ex, ey, 4.5, 5.5, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#1b2cff';
-        ctx.beginPath();
-        ctx.arc(ex + dir[0] * 2, ey + dir[1] * 2.5, 2.6, 0, Math.PI * 2);
-        ctx.fill();
-    }
+// One big round eye, its pupil looking the way it's going, with a glint
+function drawGhostEye(x, y, dir) {
+    const ey = y - 3;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(x, ey, 7, 7.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1040';
+    ctx.beginPath();
+    ctx.arc(x + dir[0] * 3, ey + dir[1] * 3, 3.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + dir[0] * 3 - 2.5, ey + dir[1] * 3 - 2.5, 1.6, 1.6);
 }
 
 // A chomper: a disc with a wedge mouth that opens and closes as it goes, facing its way (one yellow, one
@@ -936,7 +941,7 @@ function drawMaze() {
         ctx.restore();
     }
     // Dots (one path); power pellets blink
-    ctx.fillStyle = '#ffb8ae';
+    ctx.fillStyle = MAZE_DOT_COLOR;
     ctx.beginPath();
     for (let r = 0; r < MAZE_ROWS; r++) {
         for (let c = 0; c < MAZE_COLS; c++) {
@@ -984,21 +989,27 @@ function drawMaze() {
         if (ghost.popped) continue;
         let x = ghost.x, y = ghost.y;
         if (ghost.mode === 'dive' && ghost.warn > 0) x += Math.sin(ghost.warn * 1.8) * 3; // shivering before the swoop
-        if (ghost.mode === 'home') { // just its eyes, zipping back to the pen
-            drawGhostEyes(x, y, [0, -1]);
+        if (ghost.mode === 'home') { // just its eye, zipping back to the pen
+            drawGhostEye(x, y, [0, -1]);
             continue;
         }
         const scared = ghostScared(ghost);
         const blink = scared && maze.fright < 120 && Math.floor(maze.t / 10) % 2 === 0;
-        ctx.drawImage(ghostBody(scared ? (blink ? '#ffffff' : '#3b4bff') : ghost.color, frame), x - GHOST_R - 2, y - GHOST_R - 1);
-        if (scared) { // scared: two small, worried eyes
-            ctx.fillStyle = blink ? '#ff3b5c' : '#ffe0f0';
+        if (scared) {
+            // Scared: pale and see-through, its eye squeezed shut to a worried little line (flashing its
+            // colour back as the scare runs out)
+            ctx.globalAlpha = 0.6;
+            ctx.drawImage(ghostBody(blink ? ghost.color : GHOST_SCARED_COLOR, frame), x - GHOST_R - 2, y - GHOST_R - 1);
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = '#1a1040';
+            ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(x - 5, y - 3, 2.6, 0, Math.PI * 2);
-            ctx.arc(x + 5, y - 3, 2.6, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.moveTo(x - 5, y - 2);
+            ctx.quadraticCurveTo(x, y - 6, x + 5, y - 2);
+            ctx.stroke();
         } else {
-            drawGhostEyes(x, y, ghost.mode === 'dive' || ghost.mode === 'rise' ? [0, ghost.mode === 'dive' ? 1 : -1] : ghost.dir);
+            ctx.drawImage(ghostBody(ghost.color, frame), x - GHOST_R - 2, y - GHOST_R - 1);
+            drawGhostEye(x, y, ghost.mode === 'dive' || ghost.mode === 'rise' ? [0, ghost.mode === 'dive' ? 1 : -1] : ghost.dir);
         }
         if (ghost.mode === 'dive' && ghost.warn > 0 && Math.floor(ghost.warn / 5) % 2 === 0) {
             ctx.font = pixelFont(12);
@@ -1063,6 +1074,6 @@ function prewarmMazeSprites() {
     for (const color of CHOMPER_COLORS) {
         for (let dir = 0; dir < 4; dir++) for (let step = 0; step < CHOMPER_MOUTH_STEPS; step++) chomperFrame(color, dir, step);
     }
-    for (const color of GHOST_DEFS.map(d => d.color).concat(['#3b4bff', '#ffffff'])) for (const f of [0, 1]) ghostBody(color, f);
+    for (const color of GHOST_DEFS.map(d => d.color).concat([GHOST_SCARED_COLOR])) for (const f of [0, 1]) ghostBody(color, f);
     mazeBrickSprite();
 }
