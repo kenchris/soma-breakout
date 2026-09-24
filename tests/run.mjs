@@ -232,32 +232,35 @@ test('secret code (keyboard): opens a warp rift once per game', '?level=8', asyn
     check(!again, 'a new game gets the code back');
 });
 
-test('secret code (touch): pause, swipe, tap B then A; the taps do not resume', '?level=8', async (page, check) => {
-    const r = await page.evaluate(() => {
-        installHelpers();
-        T.play(3, () => false, { immortal: true });
-        warpRift = null; portals = null;
-        togglePause();
-        const W = window.innerWidth, H = window.innerHeight;
-        const fire = (type, x, y, id) => document.body.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: id, pointerType: 'touch', clientX: x, clientY: y, isPrimary: true }));
-        let id = 10;
-        const swipe = (dx, dy) => { const x = W / 2, y = H / 2; id++; fire('pointerdown', x, y, id); fire('pointermove', x + dx, y + dy, id); fire('pointerup', x + dx, y + dy, id); };
-        const tap = (x) => { id++; fire('pointerdown', x, H / 2, id); fire('pointerup', x, H / 2, id); document.getElementById('overlay').click(); };
-        for (const [dx, dy] of [[0, -90], [0, -90], [0, 90], [0, 90], [-90, 0], [90, 0], [-90, 0], [90, 0]]) swipe(dx, dy);
-        const stillPausedAfterSwipes = gameState === 'paused';
-        tap(W * 0.2); // B
-        tap(W * 0.8); // A
-        return { stillPausedAfterSwipes, rift: !!warpRift, paused: gameState === 'paused' };
-    });
-    check(r.stillPausedAfterSwipes, 'swipes must not resume the game');
-    check(r.rift, 'the touch code should open a warp rift');
-    check(r.paused, 'the B/A taps must not resume the game');
-    const resumed = await page.evaluate(async () => {
-        await new Promise(r => setTimeout(r, 600));
-        document.getElementById('overlay').click(); // an ordinary tap afterwards resumes as usual
-        return gameState;
-    });
-    check(resumed === 'playing', 'a normal tap afterwards should resume, got ' + resumed);
+test('secret code (touch): pause, swipe, tap B then A, from anywhere on the screen', '?level=8', async (page, check) => {
+    // Real touch input through the browser (CDP), not synthetic events: a swipe that starts on the pause
+    // dialog gets its pointer events cancelled by the browser (the dialog can scroll), which synthetic
+    // events never show. Each area of the screen is tried: HUD, canvas, the pause dialog, below, thumb pad.
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const swipe = async (x, y, dx, dy) => {
+        await touch('touchStart', x, y);
+        for (let i = 1; i <= 6; i++) { await touch('touchMove', x + dx * i / 6, y + dy * i / 6); await wait(16); }
+        await touch('touchEnd');
+        await wait(30);
+    };
+    const tap = async (x, y) => { await touch('touchStart', x, y); await wait(40); await touch('touchEnd'); await wait(80); };
+    await page.evaluate(() => { installHelpers(); T.play(3, () => false, { immortal: true }); });
+    for (const [name, y] of [['HUD', 60], ['canvas', 170], ['pause dialog', 420], ['below the canvas', 560], ['thumb pad', 800]]) {
+        await page.evaluate(() => { hideOverlay(); gameState = 'playing'; warpRift = null; portals = null; secretUsed = false; secretProgress = 0; togglePause(); });
+        for (const [dx, dy] of [[0, -80], [0, -80], [0, 80], [0, 80], [-80, 0], [80, 0], [-80, 0], [80, 0]]) await swipe(195, y, dx, dy);
+        const afterSwipes = await page.evaluate(() => ({ p: secretProgress, s: gameState }));
+        await tap(60, y);  // B: left half
+        await tap(330, y); // A: right half
+        const r = await page.evaluate(() => ({ rift: !!warpRift, s: gameState }));
+        check(afterSwipes.p === 8 && afterSwipes.s === 'paused', name + ': swipes should all count and keep the game paused (' + JSON.stringify(afterSwipes) + ')');
+        check(r.rift, name + ': the code should open a warp rift');
+        check(r.s === 'paused', name + ': the B/A taps must not resume the game');
+    }
+    await wait(600);
+    await tap(195, 420); // an ordinary tap afterwards resumes as usual
+    check(await page.evaluate(() => gameState) === 'playing', 'a normal tap afterwards should resume');
 }, { width: 390, height: 844, isMobile: true, hasTouch: true });
 
 test('secret code: not used up where no rift can open (tutorial)', '?level=2', async (page, check) => {
@@ -265,6 +268,24 @@ test('secret code: not used up where no rift can open (tutorial)', '?level=2', a
     for (const k of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a']) await page.keyboard.press(k);
     const r = await page.evaluate(() => ({ rift: !!warpRift, used: secretUsed }));
     check(!r.rift && !r.used, 'tutorial: no rift, code not spent');
+});
+
+test('warp rift: never on a boss level (random, alien bonus or secret code)', '', async (page, check) => {
+    for (const lv of [10, 15, 20, 25, 30]) {
+        await page.goto(page.baseUrl + '?level=' + lv);
+        await page.waitForFunction(READY);
+        const r = await page.evaluate(() => {
+            installHelpers();
+            let seen = false;
+            warpTimer = 1; // due right away
+            T.play(180, () => { if (warpRift) seen = true; return seen || !plan.boss; }, { immortal: true });
+            const canAlien = plan.boss ? canSpawnWarp() : false;
+            return { seen, canAlien, secretOk: plan.boss ? canOpenSecretRift() : false };
+        });
+        check(!r.seen, 'level ' + lv + ': a warp rift opened in the boss fight');
+        check(!r.canAlien, 'level ' + lv + ': a downed alien could open a rift');
+        check(!r.secretOk, 'level ' + lv + ': the secret code could open a rift');
+    }
 });
 
 test('space chomp: autopilot clears level 19', '?level=19', async (page, check) => {
