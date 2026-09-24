@@ -3,6 +3,7 @@
 // here needed import/export changes. See index.html for the required load order.)
 
 function hitValue(c, r) {
+    if (plan.chain && !explosiveReady && fireTimer <= 0) return chainHitValue(c, r);
     const t = bricks[c][r];
     const worth = q => (q.steel ? (q.hitsLeft > 1 ? 8 : 20) : q.points);
     if (explosiveReady || t.tnt) {
@@ -55,6 +56,7 @@ function castRay(x, y, dx, dy) {
             if (x > w.x - 4 && x < w.x + w.w + 4 && y > w.y - 4 && y < w.y + w.h + 4) return 'wall';
         }
         if (bumpers.length && nearBumper(x, y, BALL_RADIUS)) return 'wall'; // it'd glance off somewhere unplanned
+        if (boss && bossHooks().blocks && bossHooks().blocks(x, y)) return 'wall'; // an arena's own walls
         for (const a of aliens) {
             if (a.x > 0 && a.x < CANVAS_W && Math.abs(x - a.x) < a.w / 2 + 4 && Math.abs(y - a.y) < a.h / 2 + 4) return { alien: a, x, y };
         }
@@ -78,6 +80,7 @@ function castRay(x, y, dx, dy) {
 
 function bestAim(x, y) {
     if (ghost) return bestAimGhost(x, y);
+    if (maze) return bestAimMaze(x, y);
     const speed = currentSpeed();
     let best = null;
     let bestValue = 0;

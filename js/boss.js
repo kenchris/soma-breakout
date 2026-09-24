@@ -26,6 +26,24 @@ function bossTip(key, text, y = 300) {
     addPopup(CANVAS_W / 2, y, text, '#ffffff', { size: 20, life: 2.4, rise: 0.15, pop: true });
 }
 
+// --- The boss registry ---
+// Every boss kind registers its hooks here (the mothership at the bottom of this file, every other boss at
+// the bottom of its own file), and the game only ever talks to a boss through them, so adding a boss is
+// one new file plus one entry in BOSS_ORDER. Hooks:
+//   spawn(strength)  set up `boss` (kind, n, hp, maxHp, intro, dying, ...)
+//   update()         one simulation step, intro and death animation included
+//   collide(b)       ball b vs the boss and anything it brought into the arena
+//   draw()           the arena and boss (under the ball); bar() its health readout (over everything)
+//   rects()          [x0, y0, x1, y1] boxes the guided ball may aim for
+// Optional: breather() after you lose a ball, tick() per-step cosmetics, movers() objects to draw
+// interpolated between steps, health() 1..0 for the music (default hp / maxHp), blocks(x, y) whether
+// a guided-ball ray is stopped at that point.
+const BOSS_KINDS = {};
+
+function bossHooks() {
+    return boss ? BOSS_KINDS[boss.kind] : null;
+}
+
 function spawnBoss() {
     const n = Math.floor(curveLevel() / UNLOCK.boss);
     const debut = n <= BOSS_ORDER.length;
@@ -33,18 +51,10 @@ function spawnBoss() {
         ? BOSS_ORDER[n - 1]
         : BOSS_ORDER[Math.floor(seededRandom(level * 11113 + 5)() * BOSS_ORDER.length)];
     const strength = debut ? BOSS_DEBUT_STRENGTH[kind] : n;
-    if (kind === 'snake') {
-        spawnSnakeBoss(strength);
-        return;
-    }
-    if (kind === 'pong') {
-        spawnPongBoss(strength);
-        return;
-    }
-    if (kind === 'asteroids') {
-        spawnAsteroidsBoss(strength);
-        return;
-    }
+    BOSS_KINDS[kind].spawn(strength);
+}
+
+function spawnMothership(strength) {
     const hp = 6 + 8 * strength; // 14, 22, 30, 38 ... (a chain multiplies damage, so later bosses need to grow faster)
     boss = {
         kind: 'mothership', n: strength, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 150, t: 0, mt: 0, intro: 100,
@@ -57,11 +67,10 @@ function spawnBoss() {
 // Hull and dome as two rectangles (x0, y0, x1, y1)
 
 function bossRects() {
-    if (boss.kind === 'snake') return snakeRects(); // used for guided-ball targeting; see snakeBoss.js
-    if (boss.kind === 'asteroids') return asteroidsRects();
-    if (boss.kind === 'pong') { // its one-way bricks: the guided ball helps clear a way through
-        return boss.wall.filter(pongBrickSolid).map(w => [w.x, w.y, w.x + BRICK_W, w.y + BRICK_H]);
-    }
+    return bossHooks().rects();
+}
+
+function mothershipRects() {
     const B = boss; // the giant invader's solid outline (see BOSS_RUNS in sprites.js)
     const x0 = B.x - BOSS_W / 2, y0 = B.y - BOSS_H / 2;
     return BOSS_RUNS.map(([r, c0, c1]) => [x0 + c0 * BOSS_CELL, y0 + r * BOSS_CELL, x0 + (c1 + 1) * BOSS_CELL, y0 + (r + 1) * BOSS_CELL]);
@@ -184,20 +193,11 @@ function updateBossAttacks() {
 
 
 function updateBoss() {
+    if (boss) bossHooks().update();
+}
+
+function updateMothership() {
     const B = boss;
-    if (!B) return;
-    if (B.kind === 'snake') {
-        updateSnakeBoss();
-        return;
-    }
-    if (B.kind === 'pong') {
-        updatePongBoss();
-        return;
-    }
-    if (B.kind === 'asteroids') {
-        updateAsteroidsBoss();
-        return;
-    }
     B.t++;
     if (B.dying > 0) {
         updateBossDeath();
@@ -247,20 +247,11 @@ function checkBossPhase() {
 
 
 function bossBallCollision(b) {
+    if (boss) bossHooks().collide(b);
+}
+
+function mothershipBallCollision(b) {
     const B = boss;
-    if (!B) return;
-    if (B.kind === 'snake') {
-        snakeBallCollision(b);
-        return;
-    }
-    if (B.kind === 'pong') {
-        pongBallCollision(b);
-        return;
-    }
-    if (B.kind === 'asteroids') {
-        asteroidsBallCollision(b);
-        return;
-    }
     if (B.intro > 0 || B.dying > 0 || B.cool > 0) return;
     for (const [x0, y0, x1, y1] of bossRects()) {
         const cx = Math.max(x0, Math.min(b.x, x1));
@@ -356,15 +347,11 @@ function drawSimpleBossBar(label, ratio) {
 
 function bossBreather() {
     if (!boss || boss.dying > 0) return;
-    if (boss.kind === 'snake') {
-        snakeBreather();
-        return;
-    }
-    if (boss.kind === 'pong') {
-        pongBreather();
-        return;
-    }
-    if (boss.kind === 'asteroids') return; // rocks don't regroup; nothing to reset
+    const hooks = bossHooks();
+    if (hooks.breather) hooks.breather(); // (the asteroid field has none: rocks don't regroup)
+}
+
+function mothershipBreather() {
     boss.atk = null;
     boss.atkIn = 150;
     boss.beamFx = 0;
@@ -456,20 +443,11 @@ function drawBossTelegraph(B) {
 
 
 function drawBoss() {
+    if (boss) bossHooks().draw();
+}
+
+function drawMothership() {
     const B = boss;
-    if (!B) return;
-    if (B.kind === 'snake') {
-        drawSnakeBoss();
-        return;
-    }
-    if (B.kind === 'pong') {
-        drawPongBoss();
-        return;
-    }
-    if (B.kind === 'asteroids') {
-        drawAsteroidsBoss();
-        return;
-    }
     if (B.atk) drawBossTelegraph(B);
     if (!bossSprite) bossSprite = [0, 1].map(f => makeSprite(BOSS_W, BOSS_H, g => paintBossSprite(g, f)));
     const frame = bossSprite[Math.floor(B.t / 30) % 2]; // the legs march, like the little ones
@@ -509,20 +487,12 @@ function drawBoss() {
 
 
 function drawBossBar() {
+    if (boss && boss.dying <= 0) bossHooks().bar();
+}
+
+// Health bar with phase notches, plus the damage-chain meter under it while a chain is running
+function drawMothershipBar() {
     const B = boss;
-    if (!B || B.dying > 0) return;
-    if (B.kind === 'snake') {
-        drawSnakeBossBar();
-        return;
-    }
-    if (B.kind === 'pong') {
-        drawPongBossBar();
-        return;
-    }
-    if (B.kind === 'asteroids') {
-        drawAsteroidsBossBar();
-        return;
-    }
     const w = 460;
     const x = (CANVAS_W - w) / 2;
     const y = 64; // below the event banner, which can appear over the top of the playfield
@@ -566,3 +536,14 @@ function drawBossBar() {
 // Getting sucked in jumps you forward 1-5 levels (randomly, never more), so a run stuck on a hard level
 // always has an escape hatch. It skips boss intros/deaths so it can't interrupt those, and killing an
 // alien has a 50% chance of opening one on the spot, as a bonus for the fight.
+
+BOSS_KINDS.mothership = {
+    spawn: spawnMothership,
+    update: updateMothership,
+    collide: mothershipBallCollision,
+    draw: drawMothership,
+    bar: drawMothershipBar,
+    rects: mothershipRects,
+    breather: mothershipBreather,
+    movers: () => [boss]
+};

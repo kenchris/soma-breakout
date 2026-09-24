@@ -86,6 +86,8 @@ let ghost = null;        // { rows, cells[c][r] = { state, dy } }; state 0 none,
 let ghostFlashes = [];   // row-clear flashes: { y, t }
 
 let ghostIntroSeen = false;
+let chainIntroSeen = false;
+let mazeIntroSeen = false;
 const bossIntroSeen = {}; // boss kind -> its tips were shown this session
 let introCard = null;       // { title, lines, y, life } while a level intro card is up
 

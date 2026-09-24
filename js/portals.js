@@ -16,7 +16,7 @@ function portalInterval() {
 
 function canSpawnPortals() {
     const arenaOk = !boss || (boss.kind === 'asteroids' && boss.intro <= 0 && boss.dying <= 0);
-    return gameState === 'playing' && !portals && !warpRift && arenaOk && !isTutorial() && unlockLevel() >= PORTAL_UNLOCK &&
+    return gameState === 'playing' && !portals && !warpRift && !maze && arenaOk && !isTutorial() && unlockLevel() >= PORTAL_UNLOCK &&
         !(ghost && ghostCount() <= 6) && !(!ghost && !boss && bricksLeft <= 3);
 }
 

@@ -149,7 +149,8 @@ function drawBricks() {
         for (let r = 0; r < BRICK_ROWS; r++) {
             const brick = bricks[c][r];
             if (!brick.alive) continue;
-            const { x, y, w, h } = brick;
+            const { x, w, h } = brick;
+            const y = brick.dy ? brick.y - brick.dy : brick.y; // (a Colour Chain brick sliding down into place)
             ctx.drawImage(brick.sprite || brickSprite(brick), x, y);
 
             if (brick.tnt) {
@@ -217,12 +218,15 @@ function loseLife() {
     balls.length = 0;
     lives = Math.max(0, lives - 1);
     combo = 0;
-    powerups.length = 0;
+    // Drops go with the ball, except a level-code capsule: those are rare enough that losing one to an
+    // unrelated miss would sting. It hangs where it is while the ball waits, and falls on after the relaunch.
+    keepWhere(powerups, p => p.type === 'cheatcode');
     clearTimedEffects();
     // Aliens and an active weird event (mirrored view, reversed controls, ...) survive a lost ball: a
     // surprise event is often what causes the ball to be lost in the first place, and cutting it short
     // right then would mean never really getting to react to it
     bossBreather();
+    mazeBreather(); // the ghosts go home
     addShake(7);
     haptic(70, true);
     if (lives === 0) {
@@ -369,6 +373,7 @@ function collisionDetection(b) {
 }
 
 function hitBrick(b, c, r, hit, onFire) {
+    if (plan.chain && chainBallHit(b, c, r, hit)) return; // Colour Chain's own rules (see colourChain.js)
     const brick = bricks[c][r];
     // Check if hit brick is a two-hit steel brick with hits left
     const wasExplosive = explosiveReady;
@@ -484,6 +489,8 @@ function hitBrick(b, c, r, hit, onFire) {
     } else if (Math.random() < POWERUP_CHANCE) {
         spawnPowerup(brick.x + brick.w / 2, brick.y + brick.h / 2);
     }
+
+    if (plan.chain && bricksLeft > 0) settleChain(); // Fire and Explosive leave gaps for the wall to fall into
 
     // Check for win condition
     if (bricksLeft <= 0) completeLevel();
@@ -610,7 +617,9 @@ function update() {
                     if (balls.length < 4) {
                         const mag = Math.hypot(b.vx, b.vy);
                         const f = 0.7 * mag;
-                        balls.push(makeBall(b.x, b.y, b.vx + f, b.vy));
+                        const twin = makeBall(b.x, b.y, b.vx + f, b.vy);
+                        twin.chain = b.chain; // (Colour Chain: the split ball carries the same colour)
+                        balls.push(twin);
                     }
                 }
             } else if (b.y + b.r > CANVAS_H && (shield > 0 || (boss && boss.dying > 0))) {
@@ -697,6 +706,7 @@ function update() {
     updateCrates();
     updateWarpRift();
     updatePortals();
+    updateMaze();
 
     // 3. Brick collisions for each ball
     for (const b of balls) {
@@ -710,6 +720,7 @@ function update() {
         if (gameState === 'playing') warpRiftBallCollision(b);
         if (gameState === 'playing') portalBallCollision(b);
         if (gameState === 'playing') bumperBallCollision(b);
+        if (gameState === 'playing') mazeBallCollision(b);
     }
     if (gameState === 'playing') updateGhostGrid();
 }
@@ -728,6 +739,7 @@ function render() {
     if (shake > 0) ctx.translate((Math.random() * 2 - 1) * shake, (Math.random() * 2 - 1) * shake); // decays in tickFx
     drawBricks();
     drawGhostGrid();
+    drawMaze();
     drawCrates();
     drawWarpRift();
     drawPortals();
@@ -739,6 +751,7 @@ function render() {
     drawAlienBullets();
     drawIntroCard(); // over the bricks and boss, but under the ball, drops and popups so play stays visible
     drawBall();
+    if (plan.chain) drawChainRings();
     drawPaddle();
     drawPowerups();
     drawBlasts();
@@ -776,9 +789,10 @@ function tickFx() {
     updatePopups();
     updateIntroCard();
     tickBumpers();
+    if (plan.chain) tickChainFall();
     shake = shake > 0.3 ? shake * 0.86 : 0;
     for (const col of bricks) for (const brick of col) if (brick.flash > 0) brick.flash--;
-    if (boss && boss.kind === 'pong') tickPongWallFade();
+    if (boss && bossHooks().tick) bossHooks().tick();
     if (pendingMoment && pendingMoment.delay > 0) pendingMoment.delay--;
 }
 
@@ -805,12 +819,8 @@ function snapshotMovers() {
     for (const a of aliens) add(a);
     for (const s of alienBullets) add(s);
     for (const w of movingWalls) add(w);
-    if (boss) {
-        if (boss.kind === 'mothership') add(boss);
-        if (boss.paddles) boss.paddles.forEach(add);
-        if (boss.rocks) boss.rocks.forEach(add);
-        if (boss.freed) boss.freed.forEach(add);
-    }
+    if (boss && bossHooks().movers) bossHooks().movers().forEach(add);
+    if (maze) maze.ghosts.forEach(add);
     paddleStepX = paddle.x;
 }
 

@@ -467,3 +467,14 @@ function drawAsteroidsBossBar() {
     const V = B.vault;
     drawSimpleBossBar('ASTEROID FIELD ' + roman + '   KEYS ' + B.keys + ' / ' + FIELD_KEYS + '   VAULT ' + V.left, V.left / V.targets.length);
 }
+
+BOSS_KINDS.asteroids = {
+    spawn: spawnAsteroidsBoss,
+    update: updateAsteroidsBoss,
+    collide: asteroidsBallCollision,
+    draw: drawAsteroidsBoss,
+    bar: drawAsteroidsBossBar,
+    rects: asteroidsRects,
+    movers: () => boss.rocks.concat(boss.freed),
+    health: () => boss.vault.left / boss.vault.targets.length
+};
