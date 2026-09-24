@@ -84,8 +84,41 @@ function assistOnLifeLost() {
 // A level was cleared: without losing a ball, the help eases off one tier
 function assistOnLevelCleared() {
     if (assistAuto && assistLevelLosses === 0 && assistTier > 0) setAssistTier(assistTier - 1);
+    easeHelpNeed(assistLevelLosses === 0);
     assistLosses = 0;
     assistLevelLosses = 0;
+}
+
+// --- Helpful drops ---
+// Short on hearts, +Life drops come more often. And each lost ball is looked at for why it was missed:
+// a near miss (the ball came down just past the paddle's end) makes Wide more likely, a far miss or a
+// ball too fast to reach makes Slow more likely. Each repeat of the same kind of miss boosts that drop
+// further (up to 4x); a clean level clear forgets it all, any other clear forgets one step.
+const MISS_NEAR_PX = 70;     // a ball landing within this of the paddle's end was a near miss
+const MISS_FAST = 1.15;      // a ball this much faster than the level's normal speed was too fast to reach
+const HELP_NEED_MAX = 3;
+const helpNeed = { wide: 0, slow: 0 };
+
+function noteMiss(b) {
+    if (!assistAuto) return;
+    // Where the ball crossed the paddle's line on its way down
+    const x = b.vy > 0 ? b.x - b.vx * (b.y - paddle.y) / b.vy : b.x;
+    const gap = Math.max(0, paddle.x - x, x - (paddle.x + paddle.w));
+    const fast = Math.hypot(b.vx, b.vy) > currentSpeed() * MISS_FAST;
+    const kind = gap <= MISS_NEAR_PX && !fast ? 'wide' : 'slow';
+    helpNeed[kind] = Math.min(HELP_NEED_MAX, helpNeed[kind] + 1);
+}
+
+function easeHelpNeed(clean) {
+    for (const k in helpNeed) helpNeed[k] = clean ? 0 : Math.max(0, helpNeed[k] - 1);
+}
+
+// A drop's weight in the random pick, with the help above folded in
+function helpWeight(p) {
+    if (!assistAuto) return p.weight;
+    if (p.type === 'life') return p.weight * (lives <= 1 ? 5 : lives <= 3 ? 3 : 1);
+    if (p.type in helpNeed) return p.weight * (1 + helpNeed[p.type]);
+    return p.weight;
 }
 
 function setAssistAuto(on) {

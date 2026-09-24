@@ -649,6 +649,7 @@ function update() {
                     haptic(25);
                     continue;
                 }
+                noteMiss(b);
                 loseLife();
             }
         }

@@ -2,10 +2,10 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
-// The powerups this level can drop
+// The powerups this level can drop, weighted for the player's situation (see helpWeight in assist.js)
 function unlockedPowerups() {
     const unlocked = unlockLevel();
-    return POWERUP_TYPES.filter(p => unlocked >= (POWERUP_UNLOCK[p.type] || 1));
+    return POWERUP_TYPES.filter(p => unlocked >= (POWERUP_UNLOCK[p.type] || 1)).map(p => ({ ...p, weight: helpWeight(p) }));
 }
 
 // A falling capsule of one particular powerup (bricks, crates, rocks and row clears all drop the same kind)
