@@ -627,10 +627,10 @@ function update() {
                         balls.push(twin);
                     }
                 }
-            } else if (b.y + b.r > CANVAS_H && (shield > 0 || (boss && boss.dying > 0))) {
+            } else if (b.y + b.r > CANVAS_H && (shield > 0 || (boss && boss.dying > 0) || mazeCelebrating())) {
                 // Shield: shields compound, so this consumes just one banked miss and any others carry over.
                 // (While a boss is blowing up you can't lose a life to it: the edge bounces for free.)
-                const free = !!(boss && boss.dying > 0);
+                const free = !!(boss && boss.dying > 0) || mazeCelebrating(); // (no life lost in a victory lap)
                 if (!free) shield--;
                 b.y = CANVAS_H - b.r;
                 b.vy = -Math.abs(b.vy);

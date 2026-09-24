@@ -137,11 +137,11 @@ function saveFoundCodes() {
 // A level you've already cracked can still roll a cheat brick on a later replay (the game restarts from
 // level 1 every run, so nothing is permanently excluded just because you found it once) — that capsule
 // pays out in score instead of repeating the fanfare for a code you already have.
-function revealLevelCode() {
+function revealLevelCode(y = CANVAS_H * 0.4) {
     if (foundCodes[level]) {
         const bonus = 200 * (doubleTimer > 0 ? 2 : 1);
         addScore(bonus);
-        addPopup(CANVAS_W / 2, CANVAS_H * 0.4, 'CODE ALREADY KNOWN +' + bonus, '#ffe58a', { size: 22, life: 1.6, rise: 0.3, pop: true });
+        addPopup(CANVAS_W / 2, y, 'CODE ALREADY KNOWN +' + bonus, '#ffe58a', { size: 22, life: 1.6, rise: 0.3, pop: true });
         beep(720, 'codeKnown');
         return;
     }
@@ -150,7 +150,7 @@ function revealLevelCode() {
     saveFoundCodes();
     renderFoundCodesPanel(code);
     noteMoment(60, 'LEVEL CODE FOUND!', 20);
-    addPopup(CANVAS_W / 2, CANVAS_H * 0.4, 'CODE FOUND: ' + code + '!', '#ffe58a', { size: 26, life: 2, rise: 0.3, pop: true });
+    addPopup(CANVAS_W / 2, y, 'CODE FOUND: ' + code + '!', '#ffe58a', { size: 26, life: 2, rise: 0.3, pop: true });
     addShake(6);
     haptic([20, 20, 20, 20, 60], true);
     sfxCodeFound();
@@ -328,7 +328,7 @@ function unlockOrientation() {
 async function toggleFullscreen() {
     const doc = document;
     const docEl = doc.documentElement;
-    const isFS = !!(doc.fullscreenElement || doc.webkitFullscreenElement);
+    const isFS = inFullscreen();
 
     if (!isFS && !fullscreenApi()) {
         // iPhone Safari has no Fullscreen API for pages at all: the way to play fullscreen there is to
@@ -369,10 +369,17 @@ function fullscreenApi() {
     return el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen || null;
 }
 
-// Already running as an installed app (home screen), so it's as fullscreen as it gets
+// Whether the page is fullscreen now, in any browser's spelling (old Safari: webkitCurrentFullScreenElement)
+function inFullscreen() {
+    const d = document;
+    return !!(d.fullscreenElement || d.webkitFullscreenElement || d.webkitCurrentFullScreenElement);
+}
+
+// Running as an installed app (from the home screen). Only 'standalone': a browser tab in fullscreen (F11,
+// or this button) also matches display-mode: fullscreen, and must keep its button to get back out.
 function runningStandalone() {
     return window.navigator.standalone === true ||
-        !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches));
+        !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
 }
 
 function showFullscreenHelp() {
@@ -387,11 +394,8 @@ function updateFullscreenBtn() {
     const btn = document.getElementById('fullscreen-btn');
     if (!btn) return;
     // Installed to the home screen: already fullscreen, and nothing more the button could do
-    if (runningStandalone()) {
-        btn.style.display = 'none';
-        return;
-    }
-    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    btn.style.display = runningStandalone() ? 'none' : '';
+    const isFS = inFullscreen();
     btn.classList.toggle('active', isFS);
     btn.title = isFS ? 'Exit fullscreen (F)' : 'Fullscreen (F)';
 }
@@ -409,7 +413,7 @@ function launchGame() {
     showLevelIntro();
 
     // If currently in fullscreen, keep phones locked to portrait
-    if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (inFullscreen()) {
         lockPortrait();
     }
 }

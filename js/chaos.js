@@ -18,6 +18,7 @@ function mapMirror() {
 
 
 function chaosPool() {
+    if (plan.maze) return []; // a Space Chomp level never gets a weird event, however one would be triggered
     return Object.keys(CHAOS).filter(k => unlockLevel() >= CHAOS[k].unlock && !(reduceMotion && CHAOS[k].visual));
 }
 

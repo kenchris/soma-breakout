@@ -32,6 +32,8 @@ const MAZE_ART = [
     'o.........M.M.........o'
 ];
 const MAZE_BRICK_REBUILD = 60 * 12;  // frames until a smashed brick rebuilds (later if something's in the way)
+const MAZE_LOW_BRICK_ROW = 5;       // bricks from this row down shatter and let the ball straight through: a
+                                     // bounce off one that low sent the ball back down too fast to react to
 const MAZE_BRICK_ZOOM = 15;          // the little nudge of ZOOM every smashed brick gives both chompers
 const MAZE_COLS = MAZE_ART[0].length;
 const MAZE_ROWS = MAZE_ART.length;
@@ -220,10 +222,11 @@ function dotPath(c, r, avoid) {
 
 function chomperEat(m) {
     const kind = maze.dots[m.r][m.c];
-    if (!kind) return;
+    if (!kind || maze.cleared) return;
     maze.dots[m.r][m.c] = 0;
     bricksLeft--;
     runStats.bricks++;
+    maybeDropMazeCheatCapsule();
     addScore((kind === 2 ? 50 : 10) * (m.zoomT > 0 ? 2 : 1) * (doubleTimer > 0 ? 2 : 1)); // boosted eating pays double
     maze.waka = !maze.waka;
     tone(maze.waka ? 220 : 330, 0.05, { type: 'triangle', vol: 0.12, slideTo: maze.waka ? 330 : 220, key: 'waka' });
@@ -235,14 +238,60 @@ function chomperEat(m) {
     if (bricksLeft <= 0) mazeGoalReached();
 }
 
+// A maze has no gold brick to hide a level code in: instead it gets one roll, at the normal per-level chance,
+// once half the quota's eaten, dropping the capsule from the bottom of the maze toward the paddle
+function maybeDropMazeCheatCapsule() {
+    if (!plan.cheatEligible || maze.cheatRolled || bricksLeft > maze.goal / 2) return;
+    maze.cheatRolled = true;
+    if (Math.random() < cheatChance()) spawnCheatCapsule(CANVAS_W / 2, mazeCellY(MAZE_ROWS) + 10);
+}
+
 // Quota eaten: the level's done, with a bonus for the time left on the clock
+// Quota eaten: a victory lap before the next level. Play freezes (the clock stops, nothing can be lost: the
+// ball just bounces off the bottom), the maze flashes like the arcade's level clear, the ghosts pop one by
+// one for a bonus each, the chompers hop for joy under fireworks, and then it's on to the next level.
+const MAZE_CELEBRATION_FRAMES = 60 * 3;
+
 function mazeGoalReached() {
+    if (maze.cleared) return;
+    maze.cleared = 1;
     const secs = Math.ceil(maze.time / 60);
     const bonus = 50 * secs * (doubleTimer > 0 ? 2 : 1);
     addScore(bonus);
-    addPopup(CANVAS_W / 2, 250, 'TIME BONUS +' + bonus, '#ffe14d', { size: 22, life: 2, rise: 0.3, pop: true });
+    addPopup(CANVAS_W / 2, 230, 'MAZE CLEARED!', '#ffe14d', { size: 32, life: 2.6, rise: 0.15, pop: true });
+    addPopup(CANVAS_W / 2, 290, secs + 's LEFT: TIME BONUS +' + bonus, '#ffffff', { size: 20, life: 2.6, rise: 0.15, pop: true });
     noteMoment(60, 'MAZE CLEARED!');
-    completeLevel();
+    playWinJingle();
+    addShake(6);
+    haptic([30, 60, 30, 60, 80], true);
+    keepWhere(powerups, p => p.type === 'cheatcode'); // (a level code in the air still gets its chance)
+}
+
+function mazeCelebrating() {
+    return !!(maze && maze.cleared);
+}
+
+function updateMazeCelebration() {
+    const t = maze.cleared++;
+    // The ghosts pop, one every quarter second
+    const live = maze.ghosts.filter(g => !g.popped);
+    if (t % 15 === 10 && live.length) {
+        const g = live[0];
+        g.popped = true;
+        const pts = 200 * (doubleTimer > 0 ? 2 : 1);
+        addScore(pts);
+        addBlast(g.x, g.y);
+        spawnParticles(g.x, g.y, g.color, 16);
+        addPopup(g.x, g.y - 16, '+' + pts, g.color, { size: 18, life: 1, pop: true });
+        tone(500 + 150 * (4 - live.length), 0.12, { type: 'square', vol: 0.16, key: 'ghostPop', force: true });
+    }
+    // Fireworks
+    if (t % 12 === 0) {
+        const x = 90 + Math.random() * (CANVAS_W - 180), y = 110 + Math.random() * 280;
+        addBlast(x, y);
+        spawnParticles(x, y, ['#ffe14d', '#ff2fb4', '#2de2e6', '#7dea3c'][Math.floor(Math.random() * 4)], 14);
+    }
+    if (t >= MAZE_CELEBRATION_FRAMES) completeLevel();
 }
 
 function updateChomper(m) {
@@ -293,7 +342,7 @@ function catchChomper(m, ghost) {
     haptic([30, 30, 50], true);
     Object.assign(m, { x: p.x, y: p.y, c: m.home.c, r: m.home.r, tc: m.home.c, tr: m.home.r, zoomT: 0, safe: 180 });
     const empty = [];
-    maze.dots.forEach((row, r) => row.forEach((k, c) => { if (!k && MAZE_ART[r][c] !== '#' && MAZE_ART[r][c] !== 'G' && MAZE_ART[r][c] !== 'M') empty.push([c, r]); }));
+    maze.dots.forEach((row, r) => row.forEach((k, c) => { if (!k && '.o'.includes(MAZE_ART[r][c])) empty.push([c, r]); })); // (never under a brick or on a start)
     for (let i = 0; i < CHOMPER_CAUGHT_DROP && empty.length; i++) {
         const [c, r] = empty.splice(Math.floor(Math.random() * empty.length), 1)[0];
         maze.dots[r][c] = 1;
@@ -428,7 +477,7 @@ function updateGhost(ghost) {
         // Pounces down at where the paddle was, weaving a little and homing in gently
         ghost.aimX += Math.sign(paddle.x + paddle.w / 2 - ghost.aimX) * 0.8 * timeScale;
         ghost.vy = Math.min(ghost.vy + 0.12 * timeScale, ghostSpeed(ghost));
-        ghost.y += ghost.vy * timeScale;
+        ghost.y += ghost.vy; // (vy already includes timeScale, via ghostSpeed)
         ghost.x += (ghost.aimX + Math.sin(maze.t / 9) * 26 - ghost.x) * 0.06 * timeScale;
         if (ghost.y > paddle.y - GHOST_R && ghost.y < paddle.y + paddle.h + GHOST_R) {
             const hit = paddleHit(ghost.x, ghost.y, GHOST_R);
@@ -493,7 +542,12 @@ function eatGhost(ghost) {
 }
 
 function updateMaze() {
-    if (!maze) return;
+    if (!maze || gameState !== 'playing') return; // (a ball lost earlier this step may already have ended play)
+    if (maze.cleared) {
+        maze.t++;
+        updateMazeCelebration();
+        return;
+    }
     maze.t++;
     if (maze.fright > 0 && --maze.fright === 0) {
         for (const ghost of maze.ghosts) if (ghost.mode === 'fright') ghost.mode = 'chase';
@@ -523,7 +577,7 @@ function updateMaze() {
     // With every power pellet gone, a new one turns up now and then, so the ghosts can always be turned
     if (!maze.dots.some(row => row.includes(2)) && --maze.powerIn <= 0) {
         const free = [];
-        maze.dots.forEach((row, r) => row.forEach((k, c) => { if (!k && MAZE_ART[r][c] !== '#' && MAZE_ART[r][c] !== 'G') free.push([c, r]); }));
+        maze.dots.forEach((row, r) => row.forEach((k, c) => { if (!k && '.oM'.includes(MAZE_ART[r][c])) free.push([c, r]); })); // (never under a brick)
         if (free.length) {
             const [c, r] = free[Math.floor(Math.random() * free.length)];
             maze.dots[r][c] = 2;
@@ -545,7 +599,7 @@ function updateMaze() {
 
 // --- The ball in the maze ---
 function mazeBallCollision(b) {
-    if (!maze) return;
+    if (!maze || maze.cleared) return;
     // (The walls only steer the chompers and the ghosts: the ball flies straight over them)
     // Bricks: the ball bounces off the one it's deepest into, and smashes it
     const c0 = Math.floor((b.x - b.r - MAZE_LEFT) / MAZE_CELL), c1 = Math.floor((b.x + b.r - MAZE_LEFT) / MAZE_CELL);
@@ -560,7 +614,7 @@ function mazeBallCollision(b) {
         }
     }
     if (best) {
-        if (fireTimer <= 0) bounceOffRect(b, mazeCellX(best.br.c) + 3, mazeCellY(best.br.r) + 3, MAZE_CELL - 6, MAZE_CELL - 6, best.hit);
+        if (fireTimer <= 0 && best.br.r < MAZE_LOW_BRICK_ROW) bounceOffRect(b, mazeCellX(best.br.c) + 3, mazeCellY(best.br.r) + 3, MAZE_CELL - 6, MAZE_CELL - 6, best.hit);
         smashMazeBrick(best.br);
     }
     // A chomper: any touch boosts it, and the ball flies on through (no bounce to aim)
@@ -839,6 +893,13 @@ function drawMaze() {
     if (!maze) return;
     if (!mazeLayer) mazeLayer = makeSprite(CANVAS_W, CANVAS_H, paintMaze);
     ctx.drawImage(mazeLayer, 0, 0);
+    if (maze.cleared && Math.floor(maze.cleared / 10) % 2 === 0) { // cleared: the walls flash white
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(mazeLayer, 0, 0);
+        ctx.drawImage(mazeLayer, 0, 0);
+        ctx.restore();
+    }
     // Dots (one path); power pellets blink
     ctx.fillStyle = '#ffb8ae';
     ctx.beginPath();
@@ -873,10 +934,19 @@ function drawMaze() {
         const half = (brickImg.width / 2) * s;
         ctx.drawImage(brickImg, p.x - half, p.y - half, half * 2, half * 2);
     }
-    for (const m of maze.chompers) drawChomper(m);
+    for (const m of maze.chompers) {
+        if (!maze.cleared) {
+            drawChomper(m);
+            continue;
+        }
+        // Hopping for joy, taking turns
+        const hop = Math.abs(Math.sin(maze.cleared / 7 + m.i * 1.5)) * 14;
+        drawChomper({ ...m, y: m.y - hop, zoomT: 1, pushed: true, safe: 0 });
+    }
     // Ghosts
     const frame = Math.floor(maze.t / 8) % 2;
     for (const ghost of maze.ghosts) {
+        if (ghost.popped) continue;
         let x = ghost.x, y = ghost.y;
         if (ghost.mode === 'dive' && ghost.warn > 0) x += Math.sin(ghost.warn * 1.8) * 3; // shivering before the swoop
         if (ghost.mode === 'home') { // just its eyes, zipping back to the pen
@@ -907,7 +977,7 @@ function drawMaze() {
 // The goal bar across the top (over everything, like a boss's health bar): dots eaten toward the quota,
 // and the clock, which turns red and pulses for the last ten seconds
 function drawMazeBar() {
-    if (!maze || gameState === 'won') return;
+    if (!maze || gameState === 'won' || maze.cleared) return;
     const w = 460, x = (CANVAS_W - w) / 2, y = 64, h = 14;
     const eaten = maze.goal - bricksLeft;
     const secs = Math.max(0, Math.ceil(maze.time / 60));
