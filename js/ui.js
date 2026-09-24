@@ -283,7 +283,7 @@ function handleOverlayAction() {
         resetGame(restartLevel());
     } else if (gameState === 'ready' || gameState === 'won') {
         launchGame();
-    } else if (gameState === 'paused') {
+    } else if (gameState === 'paused' && !secretSwallowsTap()) { // (a tap spent on the secret code: see secretCode.js)
         togglePause();
     }
 }

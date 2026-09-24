@@ -180,7 +180,7 @@ function handlePointerUp(e) {
         } else if (gameState === 'ready' || gameState === 'won') {
             launchGame();
             lastTapAt = 0;
-        } else if (gameState === 'paused') {
+        } else if (gameState === 'paused' && !secretSwallowsTap()) {
             togglePause();
             lastTapAt = 0;
         }
@@ -303,6 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     updateFullscreenBtn(); // (hidden when already running installed, fullscreen)
     initRotateHint();
+    initSecretCode();
     initHudReserve();
     // Safari can still start a selection from a long press or a double tap despite the CSS; nothing here but
     // the level-code box is text to select
