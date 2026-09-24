@@ -37,7 +37,7 @@ function applyPowerup(type) {
     explainDrop(def);
 
     if (type === 'life') {
-        lives = Math.min(lives + 1, 5);
+        lives = Math.min(lives + 1, MAX_LIVES);
         sfxOneUp();
     } else if (type === 'slow') {
         slowTimer = 6;
@@ -46,17 +46,17 @@ function applyPowerup(type) {
         splitTimer = 0;
         wideTimer = 8;
         // W stacks: each W widens the paddle further (1.4x -> 1.7x -> 2.0x, capped)
-        const ratio = paddle.w / PADDLE_W;
+        const ratio = paddle.w / paddleBaseW();
         const steps = [1.4, 1.7, 2.0];
         const next = steps.find(s => s > ratio);
-        if (next) paddle.w = Math.round(PADDLE_W * next);
+        if (next) paddle.w = Math.round(paddleBaseW() * next);
         paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
         paddleHoles.length = 0; // the new, wider paddle is welded whole
     } else if (type === 'split') {
         wideTimer = 0;
         narrowTimer = 0;
         splitTimer = SPLIT_SECONDS;
-        paddle.w = Math.round(PADDLE_W * SPLIT_HALF_RATIO);
+        paddle.w = Math.round(paddleBaseW() * SPLIT_HALF_RATIO);
         paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
         paddleHoles.length = 0;
     } else if (type === 'explosive') {

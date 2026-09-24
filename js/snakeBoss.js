@@ -262,9 +262,9 @@ function applyPoison(debuff, scale = 1) {
         wideTimer = 0; // shrink, wide and split all fight over paddle.w; whichever was just caught wins
         splitTimer = 0;
         narrowTimer = SNAKE_POISON_SHRINK_SECONDS * scale;
-        const ratio = paddle.w / PADDLE_W;
+        const ratio = paddle.w / paddleBaseW();
         if (ratio > 0.55) {
-            paddle.w = Math.round(PADDLE_W * 0.55);
+            paddle.w = Math.round(paddleBaseW() * 0.55);
             paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
             paddleHoles.length = 0;
         }

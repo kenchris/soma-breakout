@@ -88,6 +88,7 @@ function declineWarp() {
 function triggerWarp(steps) {
     const from = level;
     level += steps;
+    assistLosses = assistLevelLosses = 0; // (a jump ahead neither counts as a clean clear nor carries the old level's lost balls)
     gameState = 'ready';
     runStats.warps++;
     powerups.length = 0;

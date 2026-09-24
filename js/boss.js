@@ -398,15 +398,16 @@ function finishBoss() {
     winBossLevel('#ffd23f');
 }
 
-// Every boss's victory: points, an extra life, the level's code (always: see level.js), and on to the next level
+// Every boss's victory: points, lives refilled to the start's full set (or +1 if already there), the level's code (always: see level.js), and on to the next level
 function winBossLevel(color) {
     const points = 1500 * boss.n * (doubleTimer > 0 ? 2 : 1);
     addScore(points);
     runStats.bosses++;
-    lives = Math.min(lives + 1, 5);
+    const healed = lives < START_LIVES;
+    lives = healed ? START_LIVES : Math.min(lives + 1, MAX_LIVES); // lives refilled (or one extra if already full)
     boss = null;
     addPopup(CANVAS_W / 2, 210, 'BOSS DEFEATED! +' + points, color, { size: 26, life: 2.4, rise: 0.2, pop: true });
-    addPopup(CANVAS_W / 2, 245, '+1 LIFE', '#33cc33', { size: 20, life: 2.4, rise: 0.2 });
+    addPopup(CANVAS_W / 2, 245, healed ? 'LIVES REFILLED' : '+1 LIFE', '#33cc33', { size: 20, life: 2.4, rise: 0.2 });
     if (plan.cheatEligible) revealLevelCode(310); // (before completeLevel moves on: it's this level's code)
     completeLevel();
 }

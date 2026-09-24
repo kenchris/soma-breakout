@@ -4,7 +4,7 @@
 
 let canvas, ctx;
 
-let balls, paddle, bricks, score = 0, lives = 3, level = 1;
+let balls, paddle, bricks, score = 0, lives = START_LIVES, level = 1;
 
 let gameState = 'ready'; // ready, playing, won, lost
 
