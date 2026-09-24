@@ -3,7 +3,7 @@
 // here needed import/export changes. See index.html for the required load order.)
 
 function warpInterval() {
-    const base = Math.max(38, 75 - curveLevel() * 0.6);
+    const base = Math.max(24, 40 - curveLevel() * 0.5); // about every 20-55s of play: often enough to actually meet
     return Math.round(60 * base * (0.75 + Math.random() * 0.6));
 }
 
@@ -34,7 +34,7 @@ function spawnWarpRift() {
         life: WARP_LIFE_FRAMES,
         t: 0
     };
-    addPopup(CANVAS_W / 2, 100, '⚡ WARP RIFT OPENING…', '#7be8ff', { size: 20, life: 1.6, rise: 0.2, pop: true });
+    addPopup(CANVAS_W / 2, 100, '⚡ WARP RIFT: HIT IT TO JUMP AHEAD!', '#7be8ff', { size: 20, life: 1.6, rise: 0.2, pop: true });
     sfxWarpOpen();
     haptic([20, 40, 20, 40], true);
 }
@@ -153,6 +153,25 @@ function drawWarpRift() {
     if (!warpRift) return;
     const r = warpRift;
     drawVortex(r.x, r.y, r.r, r.pullR, r.t, r.warn, WARP_WARN_FRAMES, r.life, WARP_TINT, '#7be8ff');
+    if (r.warn > 0) return;
+    // A pulsing dashed ring round it and a WARP label, so it can't be mistaken for background on a small screen
+    ctx.save();
+    if (r.life < 90 && Math.floor(r.life / 6) % 2 === 0) ctx.globalAlpha = 0.35;
+    const pulse = 0.5 + 0.5 * Math.sin(r.t / 8);
+    ctx.strokeStyle = '#7be8ff';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([8, 6]);
+    ctx.lineDashOffset = -r.t * 0.6;
+    ctx.globalAlpha *= 0.55 + 0.4 * pulse;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r + 10 + 4 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = termFont(20);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#b9f4ff';
+    ctx.fillText('WARP ' + Math.ceil(r.life / 60) + 's', r.x, r.y + r.r + 34);
+    ctx.restore();
 }
 
 // The space-anomaly look shared by warp rifts and portal pairs (tinted), so they read as the same kind of
