@@ -136,6 +136,7 @@ function resetGame(startLevel = 1) {
     score = 0;
     lives = START_LIVES;
     assistLosses = assistLevelLosses = 0;
+    easeHelpNeed(true);
     level = startLevel;
     gameState = 'ready';
     runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0, warps: 0 };
