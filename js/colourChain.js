@@ -9,7 +9,7 @@
 // where to spend it. A gold level-code brick pops whatever you're carrying; Explosive and Fire ignore
 // colour and just blast through, and anything they break lets the rest fall too.
 
-const CHAIN_UNLOCK = 11;            // curve level of the first one (level 16), then about 1 level in 5
+const CHAIN_UNLOCK = 9;             // curve level of the first one (level 14), then about 2 levels in 5
 const CHAIN_COLORS = ['#ff3b5c', '#ffd23f', '#3dfc8a', '#3d9bff', '#c46bff'];
 const CHAIN_CASCADE_MIN = 4;
 const chainLevelCache = {};
@@ -18,7 +18,7 @@ let chainRepaintTipShown = false;        // a group this big that the fall broug
 function isChainLevel(l) {
     if (isTutorial(l) || isBossLevel(l) || curveLevel(l) < CHAIN_UNLOCK || isMazeLevel(l)) return false;
     if (chainLevelCache[l] === undefined) {
-        chainLevelCache[l] = curveLevel(l) === CHAIN_UNLOCK || (seededRandom(l * 3571 + 29)() < 0.2 && !isChainLevel(l - 1));
+        chainLevelCache[l] = curveLevel(l) === CHAIN_UNLOCK || (seededRandom(l * 3571 + 29)() < 0.4 && !isChainLevel(l - 1));
     }
     return chainLevelCache[l];
 }
