@@ -126,14 +126,15 @@ function launchVelocity(b, throwVX, rect) {
 function steerGuided(b) {
     if (b.vy >= 0) return; // only while heading up toward the bricks
     if (--b.aimIn <= 0) {
-        b.aimIn = 15;
+        b.aimIn = maze ? 6 : 15; // (in Space Chomp it tracks a moving chomper, so it re-aims more often)
         b.aim = bestAim(b.x, b.y);
     }
     if (!b.aim) return;
     const cur = Math.atan2(b.vy, b.vx);
     const want = Math.atan2(b.aim.vy, b.aim.vx);
     const diff = Math.atan2(Math.sin(want - cur), Math.cos(want - cur)); // shortest signed angle
-    const turn = Math.max(-GUIDED_TURN, Math.min(GUIDED_TURN, diff));
+    const maxTurn = maze ? GUIDED_TURN * 2.5 : GUIDED_TURN; // homing hard on a chomper
+    const turn = Math.max(-maxTurn, Math.min(maxTurn, diff));
     const speed = Math.hypot(b.vx, b.vy);
     b.vx = Math.cos(cur + turn) * speed;
     b.vy = Math.sin(cur + turn) * speed;

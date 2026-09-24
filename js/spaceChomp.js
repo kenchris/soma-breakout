@@ -12,7 +12,7 @@
 //     chompers (or the ball) can eat them, for 200 to 1600 points.
 // The maze only steers the chompers and the ghosts: the ball flies straight over its walls. But some of the
 // maze is made of bricks, and those the ball does hit: it bounces off and smashes them (points, now and
-// then a drop, and a short ZOOM for both chompers). A smashed brick leaves a gap in the maze, a shortcut
+// then a drop, often an AIM that homes the ball in on a chomper, and a nudge of ZOOM for both chompers). A smashed brick leaves a gap in the maze, a shortcut
 // for the chompers (and the ghosts), until it rebuilds itself a few seconds later. Running out of
 // time costs a life, and the clock restarts (with what you've eaten kept).
 
@@ -40,7 +40,7 @@ const MAZE_TOP = 90;                       // under the goal bar
 const MAZE_PEN = { c: 11, r: 3 };          // the ghosts' pen, in the middle
 const MAZE_DOOR = { c: 11, r: 2 };         // the open cell above it they leave by
 const CHOMPER_HOMES = [{ c: 10, r: 8 }, { c: 12, r: 8 }];
-const CHOMPER_COLORS = ['#ffe14d', '#9dff5c'];
+const CHOMPER_COLORS = ['#ffcf26', '#7dea3c'];
 const GHOST_R = 14;
 const CHOMPER_R = 13;
 const CHOMPER_HIT_R = 32;          // generous: brushing past a chomper counts
@@ -161,7 +161,10 @@ function smashMazeBrick(br) {
     addShake(2);
     haptic(10);
     for (const m of maze.chompers) m.zoomT = Math.max(m.zoomT, MAZE_BRICK_ZOOM); // a little push for both
-    if (Math.random() < 0.12) spawnPowerup(p.x, p.y);
+    // Drops: often an AIM (the Guided powerup, which here homes the ball in on a chomper)
+    const roll = Math.random();
+    if (roll < 0.14) dropPowerup('guided', p.x, p.y);
+    else if (roll < 0.22) spawnPowerup(p.x, p.y);
 }
 
 function mazeDotCount() {
@@ -605,6 +608,16 @@ function mazeBreather() {
 // walls, so nothing blocks a shot
 function bestAimMaze(x, y) {
     const speed = currentSpeed();
+    // The AIM drop (the Guided powerup, here): straight at a chomper, leading it a little. The one that isn't
+    // already zooming, and of those the nearer.
+    if (guidedTimer > 0) {
+        const pick = maze.chompers.slice().sort((a, b) => (a.zoomT > 0) - (b.zoomT > 0) || Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
+        const t = Math.hypot(pick.x - x, pick.y - y) / speed;
+        const sp = pick.zoomT > 0 ? CHOMPER_ZOOM_SPEED : CHOMPER_SNIFF_SPEED;
+        const tx = pick.x + pick.dir[0] * sp * t, ty = pick.y + pick.dir[1] * sp * t;
+        const d = Math.hypot(tx - x, ty - y) || 1;
+        return { vx: (tx - x) / d * speed, vy: Math.min(-0.3 * speed, (ty - y) / d * speed), chomper: pick };
+    }
     let best = null, bestV = 0;
     for (let deg = -70; deg <= 70; deg += 5) {
         const a = (deg * Math.PI) / 180;
@@ -746,20 +759,33 @@ function drawChomper(m) {
     ctx.beginPath();
     ctx.arc(3, -R - 8 + bob, 2.6, 0, Math.PI * 2);
     ctx.fill();
-    // Body with the mouth cut out
-    ctx.rotate(heading);
-    ctx.fillStyle = m.color;
+    // The shaded ball, with the mouth cut out of it. Only the mouth turns: the light stays top-left.
+    ctx.save();
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.arc(0, 0, R, open, Math.PI * 2 - open);
+    ctx.arc(0, 0, R + 1, heading + open, heading + Math.PI * 2 - open);
     ctx.closePath();
-    ctx.fill();
-    // Its eye, kept on the upper side whichever way it's facing
-    const up = Math.abs(heading) > Math.PI / 2 ? 1 : -1;
+    ctx.clip();
+    const sp = chomperSprite(m.color);
+    ctx.drawImage(sp, -sp.width / 2, -sp.height / 2);
+    ctx.restore();
+    // A dark inside to the mouth, so it reads as a mouth, not a missing slice
+    ctx.strokeStyle = 'rgba(60, 20, 0, 0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(heading + open) * R, Math.sin(heading + open) * R);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(Math.cos(heading - open) * R, Math.sin(heading - open) * R);
+    ctx.stroke();
+    // Its eye: up and a little forward of the middle
+    const ex = Math.cos(heading) * R * 0.15 + (Math.abs(m.dir[1]) > 0 ? R * 0.35 : 0);
+    const ey = -R * 0.5;
     ctx.fillStyle = '#1a1030';
     ctx.beginPath();
-    ctx.arc(2, up * R * 0.5, 2.2, 0, Math.PI * 2);
+    ctx.ellipse(ex, ey, 2.4, 3, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(ex - 1.2, ey - 2, 1.2, 1.2);
     ctx.restore();
     if (!m.pushed && Math.floor(maze.t / 20) % 2 === 0) {
         ctx.font = pixelFont(9);
@@ -771,6 +797,42 @@ function drawChomper(m) {
         ctx.fillStyle = m.color;
         ctx.fillText('HIT ME!', m.x, m.y + R + 16);
     }
+}
+
+// A chomper's body, painted once per colour: a ball lit from the top left (a bright spot shading out to a
+// deeper tone at the rim), a darker outline, and a glossy highlight
+const chomperSprites = {};
+
+function chomperSprite(color) {
+    if (!chomperSprites[color]) {
+        const R = CHOMPER_R + 2;
+        const S = R * 2 + 4;
+        chomperSprites[color] = makeSprite(S, S, g => {
+            const c = S / 2;
+            const shade = g.createRadialGradient(c - R * 0.4, c - R * 0.45, R * 0.1, c, c, R);
+            shade.addColorStop(0, '#ffffff');
+            shade.addColorStop(0.25, color);
+            shade.addColorStop(0.8, color);
+            shade.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
+            g.fillStyle = color;
+            g.beginPath();
+            g.arc(c, c, R, 0, Math.PI * 2);
+            g.fill();
+            g.fillStyle = shade;
+            g.fill();
+            g.fillStyle = 'rgba(80, 30, 0, 0.25)'; // a touch of shadow on the lower right
+            g.beginPath();
+            g.arc(c + R * 0.2, c + R * 0.25, R * 0.85, -0.3, Math.PI * 0.8);
+            g.arc(c, c, R, Math.PI * 0.8, -0.3, true);
+            g.fill();
+            g.strokeStyle = 'rgba(90, 40, 0, 0.6)';
+            g.lineWidth = 1.5;
+            g.beginPath();
+            g.arc(c, c, R - 0.75, 0, Math.PI * 2);
+            g.stroke();
+        });
+    }
+    return chomperSprites[color];
 }
 
 function drawMaze() {
