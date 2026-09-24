@@ -6,7 +6,8 @@
 // left half for B, the right half for A, like a pad's buttons. Those two taps don't launch, resume or press
 // anything. A wrong move starts it over.
 //
-// It works once per game (resetGame clears it). Where a rift can't open (training levels, Space Chomp,
+// It works once per game (resetGame clears it), counted only when the warp is actually taken: a rift that
+// closes unused (the ball never got there, the level ended, or the player chose Stay) gives the code back. Where a rift can't open (training levels, Space Chomp,
 // boss fights, a rift already open) it says why and isn't used up.
 
 const SECRET_CODE = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right', 'b', 'a'];
@@ -18,6 +19,7 @@ let secretProgress = 0;
 let secretLastAt = 0;
 let secretUsed = false;
 let secretSwallowUntil = 0; // a tap spent on the code must not also resume the game
+let secretRift = null;      // the rift the code opened, until it's either taken or gone
 let secretTouch = null;     // { id, x, y } of the touch being watched while paused
 
 function secretInput(move) {
@@ -92,6 +94,7 @@ function secretCodeEntered() {
     secretUsed = true;
     portals = null; // never both at once
     spawnWarpRift();
+    secretRift = warpRift;
     warpTimer = warpInterval();
     addPopup(CANVAS_W / 2, 140, 'SECRET CODE!', '#ffd319', { size: 26, life: 2, rise: 0.2, pop: true });
     secretWobble();
@@ -168,6 +171,20 @@ function secretAwaitingButtons() {
 function resetSecretCode() {
     secretUsed = false;
     secretProgress = 0;
+    secretRift = null;
+}
+
+// The warp was taken through the code's rift: now it's spent for this game (called by triggerWarp)
+function secretRiftTaken() {
+    if (warpRift && warpRift === secretRift) secretRift = null;
+}
+
+// The code's rift is gone without being taken (closed, the level ended, Stay): the code works again
+function checkSecretRift() {
+    if (!secretRift || warpRift === secretRift) return;
+    secretRift = null;
+    secretUsed = false;
+    showToast('The rift closed unused: the secret code works again');
 }
 
 function initSecretCode() {

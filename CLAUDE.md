@@ -27,6 +27,8 @@ test now passes. Tests that were added this way (do not remove them):
 - **Secret code on touch only worked on part of the screen**: a swipe starting on the pause dialog (it can
   scroll) gets its pointer events cancelled by the browser, so touch input is read from touch events, and
   the test uses real touches (CDP), not synthetic events. B/A taps must not resume the paused game.
+- **Secret code only spent when the warp is taken**: a rift it opened that closes unused, ends with the level,
+  or gets a Stay gives the code back.
 - **No warp rifts on boss levels** (random, from a downed alien, or the secret code).
 - **Dialogs block the page under them**: on a phone the game's dialog (#overlay) is centred on the screen
   with an invisible #dialog-shield under it, so the level-code list can't scroll and nothing under it can be

@@ -78,6 +78,7 @@ function declineWarp() {
         addPopup(warpRift.x, warpRift.y - 30, 'RIFT CLOSED', '#7be8ff', { size: 18, life: 1.2, rise: 0.4 });
     }
     warpRift = null;
+    checkSecretRift(); // Stay: the secret code's rift gives the code back
     warpTimer = warpInterval();
     const speed = Math.hypot(b.vx, b.vy) || currentSpeed();
     const a = (Math.random() * 2 - 1) * 0.6; // up to ~35 degrees either side of straight up
@@ -87,6 +88,7 @@ function declineWarp() {
 }
 
 function triggerWarp(steps) {
+    secretRiftTaken(); // (a rift the secret code opened counts as used only now: see secretCode.js)
     const from = level;
     level += steps;
     assistLosses = assistLevelLosses = 0; // (a jump ahead neither counts as a clean clear nor carries the old level's lost balls)
@@ -110,6 +112,7 @@ function triggerWarp(steps) {
 
 
 function updateWarpRift() {
+    checkSecretRift();
     if (warpRift) {
         warpRift.t++;
         if (warpRift.warn > 0) {
