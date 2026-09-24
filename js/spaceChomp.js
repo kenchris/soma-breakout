@@ -10,23 +10,29 @@
 //   - The ghosts also swoop out at your paddle and bite holes in it, like the aliens do.
 //   - The four power pellets turn the tables: for a few seconds the ghosts turn blue and run, and the
 //     chompers (or the ball) can eat them, for 200 to 1600 points.
-// The maze only steers the chompers and the ghosts: the ball flies straight over its walls. Running out of
+// The maze only steers the chompers and the ghosts: the ball flies straight over its walls. But some of the
+// maze is made of bricks, and those the ball does hit: it bounces off and smashes them (points, now and
+// then a drop, and a short ZOOM for both chompers). A smashed brick leaves a gap in the maze, a shortcut
+// for the chompers (and the ghosts), until it rebuilds itself a few seconds later. Running out of
 // time costs a life, and the clock restarts (with what you've eaten kept).
 
 const MAZE_UNLOCK = 14;           // curve level of the first one (level 19), then about 1 level in 7
 const MAZE_CELL = 36;
-// # wall, . dot, o power pellet, G the ghosts' pen, M where a chomper starts (no dot)
+// # wall, B breakable brick (a wall until the ball smashes it), . dot, o power pellet, G the ghosts' pen,
+// M where a chomper starts (no dot)
 const MAZE_ART = [
-    'o.........#.#.........o',
-    '.##.###.#.....#.###.##.',
+    'o.........B.B.........o',
+    '.##.#B#.B.....B.#B#.##.',
     '.##.....#.#.#.#.....##.',
     '.....#...#GGG#...#.....',
-    '..#.##.#.#####.#.##.#..',
+    '..B.##.B.#####.B.##.B..',
     '.#.#...#.......#...#.#.',
-    '.#.###.#.#.#.#.#.###.#.',
-    '...#.....#...#.....#...',
+    '.#.#B#.#.B.B.B.#.#B#.#.',
+    '...B.....B...B.....B...',
     'o.........M.M.........o'
 ];
+const MAZE_BRICK_REBUILD = 60 * 12;  // frames until a smashed brick rebuilds (later if something's in the way)
+const MAZE_BRICK_ZOOM = 15;          // the little nudge of ZOOM every smashed brick gives both chompers
 const MAZE_COLS = MAZE_ART[0].length;
 const MAZE_ROWS = MAZE_ART.length;
 const MAZE_LEFT = (CANVAS_W - MAZE_COLS * MAZE_CELL) / 2;
@@ -37,12 +43,12 @@ const CHOMPER_HOMES = [{ c: 10, r: 8 }, { c: 12, r: 8 }];
 const CHOMPER_COLORS = ['#ffe14d', '#9dff5c'];
 const GHOST_R = 14;
 const CHOMPER_R = 13;
-const CHOMPER_HIT_R = 22;          // generous: brushing past a chomper counts
+const CHOMPER_HIT_R = 32;          // generous: brushing past a chomper counts
 const CHOMPER_SNIFF_SPEED = 0.3;   // px per step, left to itself: a slow amble, too slow to make the quota alone
 const CHOMPER_ZOOM_SPEED = 2.7;    // px per step while boosted (nine times as fast)
 const CHOMPER_ZOOM_FRAMES = 180;
 const CHOMPER_CAUGHT_DROP = 2;     // dots a caught chomper knocks loose
-const MAZE_GOAL_SHARE = 0.6;       // of the maze's dots, to clear the level
+const MAZE_GOAL_SHARE = 0.7;       // of the maze's dots, to clear the level
 const MAZE_EXTRA_SECONDS = 40;     // the clock after running out once
 // Our own four ghosts (see ghostTarget for what each one is after)
 const GHOST_DEFS = [
@@ -79,6 +85,7 @@ function mazeCenter(c, r) { return { x: mazeCellX(c) + MAZE_CELL / 2, y: mazeCel
 function mazeOpen(c, r, podOk) {
     if (c < 0 || c >= MAZE_COLS || r < 0 || r >= MAZE_ROWS) return false;
     const ch = MAZE_ART[r][c];
+    if (ch === 'B') return !maze.bricks[c * 16 + r].alive; // a smashed brick is a gap
     return ch !== '#' && (podOk || ch !== 'G');
 }
 
@@ -100,7 +107,7 @@ function buildMaze() {
     let total = 0;
     for (const row of dots) for (const d of row) if (d) total++;
     maze = {
-        dots, t: 0, fright: 0, eaten: 0, powerIn: 0, diveIn: 60 * 9,
+        bricks: mazeBricks(), dots, t: 0, fright: 0, eaten: 0, powerIn: 0, diveIn: 60 * 9,
         goal: Math.round(total * MAZE_GOAL_SHARE),
         time: 60 * Math.max(55, 85 - n), // 71s on its debut, a little less later on
         chompers: CHOMPER_HOMES.map((h, i) => {
@@ -114,6 +121,47 @@ function buildMaze() {
         speed: Math.min(0.6 + 0.015 * n, 0.9) // faster than a chomper left alone, far slower than a boosted one
     };
     return maze.goal; // (the level's "bricks left" count down to the goal)
+}
+
+// The maze's breakable bricks, by cell (c * 16 + r)
+function mazeBricks() {
+    const bricks = {};
+    MAZE_ART.forEach((row, r) => [...row].forEach((ch, c) => {
+        if (ch === 'B') bricks[c * 16 + r] = { c, r, alive: true, rebuild: 0, pop: 0 };
+    }));
+    return bricks;
+}
+
+// Rebuilding waits for the cell to be clear: nothing may be walled in
+function updateMazeBricks() {
+    for (const k in maze.bricks) {
+        const br = maze.bricks[k];
+        if (br.pop > 0) br.pop--;
+        if (br.alive || --br.rebuild > 0) continue;
+        const inTheWay = maze.chompers.concat(maze.ghosts).some(o => (o.c === br.c && o.r === br.r) || (o.tc === br.c && o.tr === br.r)) ||
+            balls.some(b => Math.abs(b.x - mazeCenter(br.c, br.r).x) < MAZE_CELL && Math.abs(b.y - mazeCenter(br.c, br.r).y) < MAZE_CELL);
+        if (inTheWay) {
+            br.rebuild = 30;
+            continue;
+        }
+        br.alive = true;
+        br.pop = 12;
+    }
+}
+
+function smashMazeBrick(br) {
+    const p = mazeCenter(br.c, br.r);
+    br.alive = false;
+    br.rebuild = MAZE_BRICK_REBUILD;
+    const pts = 30 * (doubleTimer > 0 ? 2 : 1);
+    addScore(pts);
+    addPopup(p.x, p.y - 12, '+' + pts, '#ff9ae8', { size: 14, life: 0.7 });
+    spawnParticles(p.x, p.y, '#ff2fb4', 10);
+    beep(520 + Math.random() * 200, 'mazeBrick');
+    addShake(2);
+    haptic(10);
+    for (const m of maze.chompers) m.zoomT = Math.max(m.zoomT, MAZE_BRICK_ZOOM); // a little push for both
+    if (Math.random() < 0.12) spawnPowerup(p.x, p.y);
 }
 
 function mazeDotCount() {
@@ -468,6 +516,7 @@ function updateMaze() {
             maze.diveIn = 30;
         }
     }
+    updateMazeBricks();
     // With every power pellet gone, a new one turns up now and then, so the ghosts can always be turned
     if (!maze.dots.some(row => row.includes(2)) && --maze.powerIn <= 0) {
         const free = [];
@@ -495,6 +544,22 @@ function updateMaze() {
 function mazeBallCollision(b) {
     if (!maze) return;
     // (The walls only steer the chompers and the ghosts: the ball flies straight over them)
+    // Bricks: the ball bounces off the one it's deepest into, and smashes it
+    const c0 = Math.floor((b.x - b.r - MAZE_LEFT) / MAZE_CELL), c1 = Math.floor((b.x + b.r - MAZE_LEFT) / MAZE_CELL);
+    const r0 = Math.floor((b.y - b.r - MAZE_TOP) / MAZE_CELL), r1 = Math.floor((b.y + b.r - MAZE_TOP) / MAZE_CELL);
+    let best = null;
+    for (let c = c0; c <= c1; c++) {
+        for (let r = r0; r <= r1; r++) {
+            const br = maze.bricks[c * 16 + r];
+            if (c < 0 || r < 0 || c >= MAZE_COLS || r >= MAZE_ROWS || !br || !br.alive || MAZE_ART[r][c] !== 'B') continue;
+            const hit = rectContact(b, mazeCellX(c) + 3, mazeCellY(r) + 3, MAZE_CELL - 6, MAZE_CELL - 6);
+            if (hit && (!best || hit.d2 < best.hit.d2)) best = { br, hit };
+        }
+    }
+    if (best) {
+        if (fireTimer <= 0) bounceOffRect(b, mazeCellX(best.br.c) + 3, mazeCellY(best.br.r) + 3, MAZE_CELL - 6, MAZE_CELL - 6, best.hit);
+        smashMazeBrick(best.br);
+    }
     // A chomper: any touch boosts it, and the ball flies on through (no bounce to aim)
     for (const m of maze.chompers) {
         if (m.hitCool <= 0 && m.safe <= 0 && Math.hypot(b.x - m.x, b.y - m.y) < CHOMPER_HIT_R) {
@@ -552,6 +617,9 @@ function bestAimMaze(x, y) {
             if (px < BALL_RADIUS || px > CANVAS_W - BALL_RADIUS) dx = -dx;
             if (py < 0) break;
             for (const m of maze.chompers) if (Math.hypot(m.x - px, m.y - py) < CHOMPER_HIT_R) v = Math.max(v, m.zoomT > 60 ? 2 : 10);
+            const bc = Math.floor((px - MAZE_LEFT) / MAZE_CELL), brr = Math.floor((py - MAZE_TOP) / MAZE_CELL);
+            const brick = bc >= 0 && bc < MAZE_COLS && brr >= 0 && brr < MAZE_ROWS && MAZE_ART[brr][bc] === 'B' && maze.bricks[bc * 16 + brr];
+            if (brick && brick.alive) v = Math.max(v, 4); // a brick is worth smashing too
             for (const ghost of maze.ghosts) if (Math.hypot(ghost.x - px, ghost.y - py) < GHOST_R + BALL_RADIUS) v = Math.max(v, ghostScared(ghost) ? 12 : 6);
         }
         v *= 1 - Math.abs(deg) / 400;
@@ -733,6 +801,16 @@ function drawMaze() {
         }
         ctx.fill();
     }
+    // Bricks (popping back in as they rebuild)
+    const brickImg = mazeBrickSprite();
+    for (const k in maze.bricks) {
+        const br = maze.bricks[k];
+        if (!br.alive) continue;
+        const p = mazeCenter(br.c, br.r);
+        const s = br.pop > 0 ? 1 - br.pop / 16 : 1;
+        const half = (brickImg.width / 2) * s;
+        ctx.drawImage(brickImg, p.x - half, p.y - half, half * 2, half * 2);
+    }
     for (const m of maze.chompers) drawChomper(m);
     // Ghosts
     const frame = Math.floor(maze.t / 8) % 2;
@@ -787,4 +865,27 @@ function drawMazeBar() {
     ctx.fillStyle = low ? '#ff5a7a' : '#ffffff';
     ctx.fillText(Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'), x + w + 16, y + h);
     ctx.restore();
+}
+
+// A maze brick: a bevelled neon-pink block, so it's plain it's something the ball can smash (the walls
+// are only thin outlines)
+let mazeBrickImg = null;
+
+function mazeBrickSprite() {
+    if (!mazeBrickImg) {
+        const S = MAZE_CELL - 6;
+        mazeBrickImg = makeSprite(S, S, g => {
+            g.fillStyle = '#c21e7a';
+            g.fillRect(0, 0, S, S);
+            g.fillStyle = '#ff6ec7'; // lit top and left bevel
+            g.fillRect(0, 0, S, 4);
+            g.fillRect(0, 0, 4, S);
+            g.fillStyle = '#6e0a45'; // shaded bottom and right
+            g.fillRect(0, S - 4, S, 4);
+            g.fillRect(S - 4, 0, 4, S);
+            g.fillStyle = 'rgba(255, 255, 255, 0.35)';
+            g.fillRect(6, 6, 6, 3);
+        });
+    }
+    return mazeBrickImg;
 }
