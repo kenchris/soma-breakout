@@ -9,7 +9,8 @@
 // at the ape, homing in, for heavy damage, smashing any barrel in its way. The girders only carry the barrels: the ball flies straight through them, so the whole
 // screen is yours to play in, and you can hit the ape directly too.
 // Mind the princess up in the corner: the ball bounces off her, but she has three hearts, and the third
-// hit fails the fight (a life lost, and the ape and the princess both back to full).
+// hit fails the fight (a life lost, and the ape and the princess both back to full). Her hearts heal: one
+// back after PRINCESS_HEAL_FRAMES without a hit, so only three hits close together fail it.
 // The ladders are launchers: a ball that touches one on its way up is fired at the ape (with a little
 // spread, so it hits more often than not).
 // Now and then a smashed barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME.
@@ -100,7 +101,7 @@ function spawnKongBoss(n) {
     boss = {
         kind: 'kong', n, hp, maxHp: hp, x: KONG_X, y: -KONG_H, intro: 110, dying: 0, cool: 0, flash: 0, t: 0,
         barrels: [], throwIn: 150, pose: 'idle', poseT: 0, pending: null, lastPhase: 1, pound: 0,
-        hammers: [], hammerTime: 0, princess: { hearts: 3, cool: 0, flash: 0 }
+        hammers: [], hammerTime: 0, princess: { hearts: 3, cool: 0, flash: 0, heal: 0 }
     };
 }
 
@@ -329,6 +330,14 @@ function updateKongBoss() {
     if (B.flash > 0) B.flash--;
     if (B.cool > 0) B.cool--;
     if (B.princess.cool > 0) B.princess.cool--;
+    // Her hearts heal, one at a time, while she's left alone
+    const P = B.princess;
+    if (P.hearts < 3 && --P.heal <= 0) {
+        P.hearts++;
+        P.heal = PRINCESS_HEAL_FRAMES;
+        addPopup(PRINCESS_BOX.x + PRINCESS_BOX.w / 2, PRINCESS_BOX.y + PRINCESS_BOX.h + 30, '\u2665', '#ff4d8a', { size: 16, life: 1, rise: 0.4 });
+        tone(880, 0.1, { type: 'triangle', vol: 0.12, slideTo: 1320, key: 'princessHeal' });
+    }
     if (B.princess.flash > 0) B.princess.flash--;
     if (B.pound > 0) B.pound--;
     if (B.pending) {
@@ -425,11 +434,13 @@ function launchAtKong(b, lx, ly) {
 }
 
 const PRINCESS_BOX = { x: 72, y: 64, w: 36, h: 58 };
+const PRINCESS_HEAL_FRAMES = 60 * 12;
 
 function hitPrincess() {
     const B = boss;
     const P = B.princess;
     P.hearts--;
+    P.heal = PRINCESS_HEAL_FRAMES;
     P.cool = 40;
     P.flash = 20;
     const cx = PRINCESS_BOX.x + PRINCESS_BOX.w / 2;
