@@ -82,6 +82,10 @@ function mazeWall(c, r) {
 function mazeCellX(c) { return MAZE_LEFT + c * MAZE_CELL; }
 function mazeCellY(r) { return MAZE_TOP + r * MAZE_CELL; }
 function mazeCenter(c, r) { return { x: mazeCellX(c) + MAZE_CELL / 2, y: mazeCellY(r) + MAZE_CELL / 2 }; }
+// The same, one axis at a time, for the every-frame paths: no object to allocate (on a phone, hundreds of
+// little {x, y}s a frame meant garbage-collection pauses, and stutter)
+function mazeCX(c) { return MAZE_LEFT + c * MAZE_CELL + MAZE_CELL / 2; }
+function mazeCY(r) { return MAZE_TOP + r * MAZE_CELL + MAZE_CELL / 2; }
 
 // Cells a ghost or the chomper may walk: inside the grid, not a wall, and the pen only for ghosts allowed in
 function mazeOpen(c, r, podOk) {
@@ -122,6 +126,8 @@ function buildMaze() {
         }),
         speed: Math.min(0.6 + 0.015 * n, 0.9) // faster than a chomper left alone, far slower than a boosted one
     };
+    maze.brickList = Object.values(maze.bricks); // (the same bricks, as a list to walk every frame)
+    prewarmMazeSprites();
     return maze.goal; // (the level's "bricks left" count down to the goal)
 }
 
@@ -136,12 +142,11 @@ function mazeBricks() {
 
 // Rebuilding waits for the cell to be clear: nothing may be walled in
 function updateMazeBricks() {
-    for (const k in maze.bricks) {
-        const br = maze.bricks[k];
+    for (const br of maze.brickList) {
         if (br.pop > 0) br.pop--;
         if (br.alive || --br.rebuild > 0) continue;
         const inTheWay = maze.chompers.concat(maze.ghosts).some(o => (o.c === br.c && o.r === br.r) || (o.tc === br.c && o.tr === br.r)) ||
-            balls.some(b => Math.abs(b.x - mazeCenter(br.c, br.r).x) < MAZE_CELL && Math.abs(b.y - mazeCenter(br.c, br.r).y) < MAZE_CELL);
+            balls.some(b => Math.abs(b.x - mazeCX(br.c)) < MAZE_CELL && Math.abs(b.y - mazeCY(br.r)) < MAZE_CELL);
         if (inTheWay) {
             br.rebuild = 30;
             continue;
@@ -177,15 +182,15 @@ function mazeDotCount() {
 
 // Move toward the centre of cell (tc, tr) by `move` px; true on arrival (leftover movement is dropped)
 function stepToCell(o, move) {
-    const t = mazeCenter(o.tc, o.tr);
-    const d = Math.hypot(t.x - o.x, t.y - o.y);
+    const tx = mazeCX(o.tc), ty = mazeCY(o.tr);
+    const d = Math.hypot(tx - o.x, ty - o.y);
     if (d > move) {
-        o.x += (t.x - o.x) / d * move;
-        o.y += (t.y - o.y) / d * move;
+        o.x += (tx - o.x) / d * move;
+        o.y += (ty - o.y) / d * move;
         return false;
     }
-    o.x = t.x;
-    o.y = t.y;
+    o.x = tx;
+    o.y = ty;
     o.c = o.tc;
     o.r = o.tr;
     return true;
@@ -300,15 +305,15 @@ function updateChomper(m) {
     if (m.zoomT > 0) m.zoomT--;
     const speed = (m.zoomT > 0 ? CHOMPER_ZOOM_SPEED : CHOMPER_SNIFF_SPEED) * timeScale;
     for (let guard = 0, move = speed; guard < 3 && move > 0; guard++) {
-        const t = mazeCenter(m.tc, m.tr);
-        const d = Math.hypot(t.x - m.x, t.y - m.y);
+        const tx = mazeCX(m.tc), ty = mazeCY(m.tr);
+        const d = Math.hypot(tx - m.x, ty - m.y);
         if (d > move) {
-            m.x += (t.x - m.x) / d * move;
-            m.y += (t.y - m.y) / d * move;
+            m.x += (tx - m.x) / d * move;
+            m.y += (ty - m.y) / d * move;
             return;
         }
-        m.x = t.x;
-        m.y = t.y;
+        m.x = tx;
+        m.y = ty;
         m.c = m.tc;
         m.r = m.tr;
         move -= d;
@@ -392,8 +397,7 @@ function ghostChooseDir(ghost) {
         const t = ghost.mode === 'leave' ? mazeCenter(MAZE_DOOR.c, MAZE_DOOR.r - 1) : ghostTarget(ghost);
         let best = Infinity;
         for (const d of options) {
-            const p = mazeCenter(ghost.c + d[0], ghost.r + d[1]);
-            const dist = Math.hypot(p.x - t.x, p.y - t.y);
+            const dist = Math.hypot(mazeCX(ghost.c + d[0]) - t.x, mazeCY(ghost.r + d[1]) - t.y);
             if (dist < best) {
                 best = dist;
                 pick = d;
@@ -491,8 +495,8 @@ function updateGhost(ghost) {
         return;
     }
     if (ghost.mode === 'rise') {
-        const x = Math.max(mazeCenter(0, 0).x, Math.min(mazeCenter(MAZE_COLS - 1, 0).x, ghost.x));
-        if (flyTo(ghost, mazeCenter(mazeCellAt(x, 0).c, 0).x, mazeCenter(0, MAZE_ROWS - 1).y, ghostSpeed(ghost))) rejoinMaze(ghost);
+        const x = Math.max(mazeCX(0), Math.min(mazeCX(MAZE_COLS - 1), ghost.x));
+        if (flyTo(ghost, mazeCX(mazeCellAt(x, 0).c), mazeCY(MAZE_ROWS - 1), ghostSpeed(ghost))) rejoinMaze(ghost);
         return;
     }
     let move = ghostSpeed(ghost);
@@ -700,6 +704,11 @@ function bestAimMaze(x, y) {
 
 // --- Drawing ---
 let mazeLayer = null;
+// The walls' layer covers just the maze (plus a little margin for the outlines), not the whole screen:
+// blitting a full-screen layer every frame doubled the fill work on phones for mostly empty pixels
+const MAZE_LAYER_PAD = 6;
+const MAZE_LAYER_W = MAZE_COLS * MAZE_CELL + 2 * MAZE_LAYER_PAD;
+const MAZE_LAYER_H = MAZE_ROWS * MAZE_CELL + 2 * MAZE_LAYER_PAD;
 
 // The walls, painted once as thin double neon-blue outlines round each run of wall, like the arcade's (no
 // fill: they're lines the chomper can't cross, not blocks, and the ball flies over them)
@@ -782,9 +791,7 @@ function drawGhostEyes(x, y, dir) {
 function drawChomper(m) {
     if (m.safe > 0 && Math.floor(m.safe / 6) % 2 === 0) return; // blinking while it's safe, just home
     const R = CHOMPER_R + 2;
-    const heading = Math.atan2(m.dir[1], m.dir[0]);
     const zoom = m.zoomT > 0;
-    const open = (0.08 + 0.3 * Math.abs(Math.sin(maze.t / (zoom ? 2.5 : 4)))) * Math.PI;
     ctx.save();
     ctx.translate(m.x, m.y);
     if (zoom) { // a glow and speed lines behind it
@@ -813,33 +820,11 @@ function drawChomper(m) {
     ctx.beginPath();
     ctx.arc(3, -R - 8 + bob, 2.6, 0, Math.PI * 2);
     ctx.fill();
-    // The shaded ball, with the mouth cut out of it. Only the mouth turns: the light stays top-left.
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.arc(0, 0, R + 1, heading + open, heading + Math.PI * 2 - open);
-    ctx.closePath();
-    ctx.clip();
-    const sp = chomperSprite(m.color);
-    ctx.drawImage(sp, -sp.width / 2, -sp.height / 2);
-    ctx.restore();
-    // A dark inside to the mouth, so it reads as a mouth, not a missing slice
-    ctx.strokeStyle = 'rgba(60, 20, 0, 0.55)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(heading + open) * R, Math.sin(heading + open) * R);
-    ctx.lineTo(0, 0);
-    ctx.lineTo(Math.cos(heading - open) * R, Math.sin(heading - open) * R);
-    ctx.stroke();
-    // Its eye: up and a little forward of the middle
-    const ex = Math.cos(heading) * R * 0.15 + (Math.abs(m.dir[1]) > 0 ? R * 0.35 : 0);
-    const ey = -R * 0.5;
-    ctx.fillStyle = '#1a1030';
-    ctx.beginPath();
-    ctx.ellipse(ex, ey, 2.4, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(ex - 1.2, ey - 2, 1.2, 1.2);
+    // The shaded ball with its mouth, from a pre-painted frame per direction and mouth opening (cutting the
+    // mouth out with a clipping mask every frame was a slow path, Safari's especially)
+    const step = Math.round(Math.abs(Math.sin(maze.t / (zoom ? 2.5 : 4))) * (CHOMPER_MOUTH_STEPS - 1));
+    const frame = chomperFrame(m.color, chomperDirIndex(m.dir), step);
+    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2);
     ctx.restore();
     if (!m.pushed && Math.floor(maze.t / 20) % 2 === 0) {
         ctx.font = pixelFont(9);
@@ -851,6 +836,52 @@ function drawChomper(m) {
         ctx.fillStyle = m.color;
         ctx.fillText('HIT ME!', m.x, m.y + R + 16);
     }
+}
+
+// A chomper, painted once per colour, direction (0 right, 1 down, 2 left, 3 up) and mouth opening: the
+// shaded body with the mouth cut out, a dark line inside the mouth, and its eye up and a little forward
+const CHOMPER_MOUTH_STEPS = 6;
+const chomperFrames = {};
+
+function chomperDirIndex(dir) {
+    return dir[0] > 0 ? 0 : dir[1] > 0 ? 1 : dir[0] < 0 ? 2 : 3;
+}
+
+function chomperFrame(color, dirIndex, step) {
+    const key = color + dirIndex + step;
+    if (!chomperFrames[key]) {
+        const body = chomperSprite(color);
+        const R = CHOMPER_R + 2;
+        const heading = dirIndex * Math.PI / 2;
+        const open = (0.08 + 0.3 * step / (CHOMPER_MOUTH_STEPS - 1)) * Math.PI;
+        chomperFrames[key] = makeSprite(body.width, body.height, g => {
+            const c = body.width / 2;
+            g.drawImage(body, 0, 0);
+            g.globalCompositeOperation = 'destination-out'; // the mouth
+            g.beginPath();
+            g.moveTo(c, c);
+            g.arc(c, c, R + 2, heading - open, heading + open);
+            g.closePath();
+            g.fill();
+            g.globalCompositeOperation = 'source-over';
+            g.strokeStyle = 'rgba(60, 20, 0, 0.55)';
+            g.lineWidth = 1.5;
+            g.beginPath();
+            g.moveTo(c + Math.cos(heading + open) * R, c + Math.sin(heading + open) * R);
+            g.lineTo(c, c);
+            g.lineTo(c + Math.cos(heading - open) * R, c + Math.sin(heading - open) * R);
+            g.stroke();
+            const ex = c + Math.cos(heading) * R * 0.15 + (dirIndex % 2 ? R * 0.35 : 0);
+            const ey = c - R * 0.5;
+            g.fillStyle = '#1a1030';
+            g.beginPath();
+            g.ellipse(ex, ey, 2.4, 3, 0, 0, Math.PI * 2);
+            g.fill();
+            g.fillStyle = '#ffffff';
+            g.fillRect(ex - 1.2, ey - 2, 1.2, 1.2);
+        });
+    }
+    return chomperFrames[key];
 }
 
 // A chomper's body, painted once per colour: a ball lit from the top left (a bright spot shading out to a
@@ -891,13 +922,17 @@ function chomperSprite(color) {
 
 function drawMaze() {
     if (!maze) return;
-    if (!mazeLayer) mazeLayer = makeSprite(CANVAS_W, CANVAS_H, paintMaze);
-    ctx.drawImage(mazeLayer, 0, 0);
+    if (!mazeLayer) mazeLayer = makeSprite(MAZE_LAYER_W, MAZE_LAYER_H, g => {
+        g.translate(MAZE_LAYER_PAD - MAZE_LEFT, MAZE_LAYER_PAD - MAZE_TOP);
+        paintMaze(g);
+    });
+    const lx = MAZE_LEFT - MAZE_LAYER_PAD, ly = MAZE_TOP - MAZE_LAYER_PAD;
+    ctx.drawImage(mazeLayer, lx, ly);
     if (maze.cleared && Math.floor(maze.cleared / 10) % 2 === 0) { // cleared: the walls flash white
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.drawImage(mazeLayer, 0, 0);
-        ctx.drawImage(mazeLayer, 0, 0);
+        ctx.drawImage(mazeLayer, lx, ly);
+        ctx.drawImage(mazeLayer, lx, ly);
         ctx.restore();
     }
     // Dots (one path); power pellets blink
@@ -906,9 +941,7 @@ function drawMaze() {
     for (let r = 0; r < MAZE_ROWS; r++) {
         for (let c = 0; c < MAZE_COLS; c++) {
             if (maze.dots[r][c] !== 1) continue;
-            const p = mazeCenter(c, r);
-            const s = 4;
-            ctx.rect(p.x - s, p.y - s, s * 2, s * 2);
+            ctx.rect(mazeCX(c) - 4, mazeCY(r) - 4, 8, 8);
         }
     }
     ctx.fill();
@@ -917,22 +950,24 @@ function drawMaze() {
         for (let r = 0; r < MAZE_ROWS; r++) {
             for (let c = 0; c < MAZE_COLS; c++) {
                 if (maze.dots[r][c] !== 2) continue;
-                const p = mazeCenter(c, r);
-                ctx.moveTo(p.x + 11, p.y);
-                ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+                const x = mazeCX(c), y = mazeCY(r);
+                ctx.moveTo(x + 11, y);
+                ctx.arc(x, y, 11, 0, Math.PI * 2);
             }
         }
         ctx.fill();
     }
     // Bricks (popping back in as they rebuild)
     const brickImg = mazeBrickSprite();
-    for (const k in maze.bricks) {
-        const br = maze.bricks[k];
+    for (const br of maze.brickList) {
         if (!br.alive) continue;
-        const p = mazeCenter(br.c, br.r);
-        const s = br.pop > 0 ? 1 - br.pop / 16 : 1;
-        const half = (brickImg.width / 2) * s;
-        ctx.drawImage(brickImg, p.x - half, p.y - half, half * 2, half * 2);
+        const x = mazeCX(br.c), y = mazeCY(br.r);
+        if (br.pop > 0) {
+            const half = (brickImg.width / 2) * (1 - br.pop / 16);
+            ctx.drawImage(brickImg, x - half, y - half, half * 2, half * 2);
+        } else {
+            ctx.drawImage(brickImg, x - brickImg.width / 2, y - brickImg.height / 2);
+        }
     }
     for (const m of maze.chompers) {
         if (!maze.cleared) {
@@ -1020,4 +1055,14 @@ function mazeBrickSprite() {
         });
     }
     return mazeBrickImg;
+}
+
+// Paint every sprite the maze will need now, while the level's launch screen is up, rather than the first
+// time each one turns up mid-play (54 little canvases, each a small hitch when made on the spot)
+function prewarmMazeSprites() {
+    for (const color of CHOMPER_COLORS) {
+        for (let dir = 0; dir < 4; dir++) for (let step = 0; step < CHOMPER_MOUTH_STEPS; step++) chomperFrame(color, dir, step);
+    }
+    for (const color of GHOST_DEFS.map(d => d.color).concat(['#3b4bff', '#ffffff'])) for (const f of [0, 1]) ghostBody(color, f);
+    mazeBrickSprite();
 }

@@ -10,6 +10,7 @@ if (document.fonts && document.fonts.load) {
     Promise.all([document.fonts.load(pixelFont(16)), document.fonts.load(termFont(20))]).then(() => {
         for (const k in brickSprites) delete brickSprites[k];
         for (const k in crateSprites) delete crateSprites[k];
+        popupSprites.clear();
         bossSprite = null;
     }, () => {});
 }
