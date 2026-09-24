@@ -250,7 +250,7 @@ const BOSS_INTROS = {
     mothership: { title: 'BOSS: MEGA INVADER', lines: ['Shoot it down!'] }, // (kind 'mothership': it was a flying saucer once)
     pong: { title: 'BOSS: THE RIVAL', lines: ['Score goals past its paddle!'] },
     asteroids: { title: 'BOSS: ASTEROID FIELD', lines: ['Smash the vault bricks at the top!'] },
-    kong: { title: 'BOSS: BARREL KONG', lines: ['Get the ball up the tower and bash the ape!'] }
+    kong: { title: 'BOSS: SPACE KONG', lines: ['Get the ball up the tower and bash the ape!', 'Smash the invaders it rolls at you'] }
 };
 
 const CHAOS = {

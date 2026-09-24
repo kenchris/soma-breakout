@@ -1,10 +1,12 @@
 // === kongBoss.js ===
-// --- Kong boss: "Barrel Kong" ---
-// A giant ape stands on the top girder of a Donkey Kong-style tower and fights you with barrels. Rolling
-// barrels run down the sloped girders, drop off each end onto the next one down (or, now and then, down a
-// ladder gap), and finally fall at your paddle: one that lands on it punches a hole. The ball smashes them.
-// From phase 2 it also lobs "wild" blue barrels straight at you through the girders, and when ENRAGED it
-// pounds its chest, which bounces every barrel on the tower and hurries them along.
+// --- Kong boss: "Space Kong" ---
+// A giant space gorilla in a bubble helmet stands on top of a Donkey Kong-style tower of space-station
+// girders and fights you by throwing alien invaders, curled up into balls. (In the code they're still
+// "barrels", which is what they are to the girders.) They roll down the sloped girders, drop off each end
+// onto the next one down (or, now and then, down a ladder gap), and finally fall at your paddle: one that
+// lands on it punches a hole. The ball smashes them. From phase 2 it also hurls "wild" pink invaders,
+// uncurled and flailing, straight at you through the girders, and when ENRAGED it pounds its chest, which
+// bounces every invader on the tower and hurries them along.
 // To hurt it you have to get the ball up to it: the girders are solid, but the ball slips through the
 // ladder gaps and around the girder ends. A hammer hangs on the left of the tower; knock it down with the
 // ball and catch it for HAMMER TIME: for a few seconds your paddle smashes any barrel that lands on it.
@@ -30,7 +32,7 @@ const KONG_GIRDERS = [
     { x0: 60, y0: 225, x1: 760, y1: 252, gaps: [[170, 222], [480, 532]] },
     { x0: 140, y0: 338, x1: 840, y1: 311, gaps: [[300, 352], [620, 672]] },
     { x0: 60, y0: 398, x1: 760, y1: 425, gaps: [[210, 262], [540, 592]] },
-    // The damsel's perch, up in the corner, out of the barrels' way
+    // The princess's perch, up in the corner, out of the invaders' way
     { x0: 40, y0: 128, x1: 140, y1: 128, gaps: [] }
 ];
 
@@ -128,7 +130,7 @@ function throwWildBarrel(tx) {
     const d = Math.hypot(tx - x0, paddle.y - y0);
     boss.barrels.push({ state: 'wild', x: x0, y: y0, vx: (tx - x0) / d * speed, vy: (paddle.y - y0) / d * speed, spin: 0, wild: true });
     tone(420, 0.2, { type: 'sawtooth', vol: 0.2, slideTo: 140, key: 'kongWild' });
-    bossTip('wild', 'BLUE BARRELS COME STRAIGHT AT YOU!', 440);
+    bossTip('wild', 'PINK INVADERS COME STRAIGHT AT YOU!', 440);
 }
 
 function barrelLimit() {
@@ -200,9 +202,9 @@ function updateBarrels() {
                     blockMirrorBolt(br.x);
                 } else {
                     punchHole(br.x, BOSS_HOLE_SECONDS);
-                    bossTip('smash', 'SMASH BARRELS WITH THE BALL BEFORE THEY LAND!', 440);
+                    bossTip('smash', 'SMASH THE ROLLING INVADERS BEFORE THEY LAND!', 440);
                 }
-                spawnParticles(br.x, br.y, '#b5651d', 10);
+                spawnParticles(br.x, br.y, br.wild ? '#ff4dd8' : ALIEN_COLOR, 10);
             }
         }
         if (br.y > CANVAS_H + 30) br.dead = true;
@@ -214,9 +216,9 @@ function smashBarrel(br, points, label) {
     br.dead = true;
     const pts = points * (doubleTimer > 0 ? 2 : 1);
     addScore(pts);
-    addPopup(br.x, br.y - 16, (label ? label + ' ' : '') + '+' + pts, br.wild ? '#7fb2ff' : '#ffc07a', { size: 15, life: 0.8 });
-    spawnParticles(br.x, br.y, br.wild ? '#3d7bff' : '#b5651d', 12);
-    noise(0.12, { vol: 0.2, from: 1800, to: 300, key: 'barrelSmash' });
+    addPopup(br.x, br.y - 16, (label ? label + ' ' : '') + '+' + pts, br.wild ? '#ff9ae8' : '#9dffb0', { size: 15, life: 0.8 });
+    spawnParticles(br.x, br.y, br.wild ? '#ff4dd8' : ALIEN_COLOR, 12);
+    sfxAlienDie();
     addShake(3);
     haptic(12);
     if (Math.random() < 0.15) spawnPowerup(br.x, br.y);
@@ -269,7 +271,7 @@ function kongPound() {
         br.vx = girderDownhill(KONG_GIRDERS[br.g]) * barrelRollSpeed() * 1.4;
         br.vy = -3.2;
     }
-    bossTip('pound', 'IT POUNDS ITS CHEST: BARRELS GO FLYING!', 440);
+    bossTip('pound', 'IT POUNDS ITS CHEST: THE INVADERS GO FLYING!', 440);
 }
 
 function updateKongHammer() {
@@ -303,7 +305,7 @@ function updateKongBoss() {
         return;
     }
     if (B.intro > 0) {
-        if (B.intro === 110) announceBoss('BARREL KONG IS ANGRY!', '#ff8a2a');
+        if (B.intro === 110) announceBoss('SPACE KONG IS ANGRY!', '#ff8a2a');
         B.intro--;
         // Drops in from the top and lands on its girder with a thud
         const k = Math.min(1, (110 - B.intro) / 50);
@@ -382,7 +384,7 @@ function kongBallCollision(b) {
     addShake(4);
     haptic(20);
     if (fireTimer <= 0) bounceOffRect(b, k.x, k.y, k.w, k.h, hit);
-    if (B.pending && B.pending.kind !== 'pound') { // a hit knocks the barrel out of its hands
+    if (B.pending && B.pending.kind !== 'pound') { // a hit knocks the invader out of its hands
         B.pending = null;
         B.pose = 'idle';
         B.throwIn = 60;
@@ -405,7 +407,7 @@ function checkKongPhase() {
 
 function kongBreather() {
     const B = boss;
-    for (const br of B.barrels) spawnParticles(br.x, br.y, '#b5651d', 6);
+    for (const br of B.barrels) spawnParticles(br.x, br.y, ALIEN_COLOR, 6);
     B.barrels.length = 0;
     B.pending = null;
     B.pose = 'idle';
@@ -418,7 +420,7 @@ function killKong() {
     B.pending = null;
     for (const br of B.barrels) {
         addBlast(br.x, br.y);
-        spawnParticles(br.x, br.y, '#b5651d', 8);
+        spawnParticles(br.x, br.y, ALIEN_COLOR, 8);
     }
     B.barrels.length = 0;
     addShake(12);
@@ -488,8 +490,8 @@ function paintGirders(g) {
     for (const gd of KONG_GIRDERS) {
         const x0 = girderLeft(gd), x1 = girderRight(gd);
         const ya = girderY(gd, x0), yb = girderY(gd, x1);
-        // The beam: a red I-beam with a zig-zag lattice, like the arcade's
-        g.fillStyle = '#c21e3a';
+        // The beam: a space-station girder, violet with a zig-zag neon lattice
+        g.fillStyle = '#3a1680';
         g.beginPath();
         g.moveTo(x0, ya - GIRDER_HALF);
         g.lineTo(x1, yb - GIRDER_HALF);
@@ -497,7 +499,7 @@ function paintGirders(g) {
         g.lineTo(x0, ya + GIRDER_HALF);
         g.closePath();
         g.fill();
-        g.strokeStyle = '#ff6b81';
+        g.strokeStyle = '#c9a0ff';
         g.lineWidth = 1.5;
         g.beginPath();
         g.moveTo(x0, ya - GIRDER_HALF + 1);
@@ -531,29 +533,93 @@ function paintGirders(g) {
     }
 }
 
-let barrelSprites = null;
+// A rolling invader: one of the regular green invaders curled up into a ball, its face peeking out
+let invaderBallSprite = null;
 
-function barrelSprite(wild) {
-    if (!barrelSprites) {
-        barrelSprites = [false, true].map(w => makeSprite(BARREL_R * 2 + 2, BARREL_R * 2 + 2, g => {
+function rollingInvaderSprite() {
+    if (!invaderBallSprite) {
+        invaderBallSprite = makeSprite(BARREL_R * 2 + 2, BARREL_R * 2 + 2, g => {
             const c = BARREL_R + 1;
-            g.fillStyle = w ? '#3d7bff' : '#b5651d';
+            g.fillStyle = '#1f7a36';
             g.beginPath();
             g.arc(c, c, BARREL_R, 0, Math.PI * 2);
             g.fill();
-            g.strokeStyle = w ? '#a9c8ff' : '#5a2e0c';
-            g.lineWidth = 2;
-            g.stroke();
-            g.lineWidth = 3; // the hoops
+            g.save();
+            g.clip();
+            g.fillStyle = ALIEN_COLOR; // its body, pixel for pixel, squashed round
+            const art = ALIEN_SPRITES[0];
+            for (let r = 0; r < 8; r++) for (let col = 0; col < 11; col++) if (art[r][col] === '1') g.fillRect(c - 11 + col * 2, c - 8 + r * 2, 2, 2);
+            g.restore();
+            g.strokeStyle = '#b8ffc6';
+            g.lineWidth = 1.5;
             g.beginPath();
-            g.moveTo(c - BARREL_R + 3, c - 5);
-            g.lineTo(c + BARREL_R - 3, c - 5);
-            g.moveTo(c - BARREL_R + 3, c + 5);
-            g.lineTo(c + BARREL_R - 3, c + 5);
+            g.arc(c, c, BARREL_R - 0.5, 0, Math.PI * 2);
             g.stroke();
-        }));
+        });
     }
-    return barrelSprites[wild ? 1 : 0];
+    return invaderBallSprite;
+}
+
+const WILD_INVADER_COLOR = '#ff4dd8';
+
+// A rolling invader spins as it rolls; a wild one flails its legs, uncurled
+function drawThrownInvader(br, x, y) {
+    if (br.wild) {
+        const sp = alienSprite(Math.floor(br.spin * 2) % 2, WILD_INVADER_COLOR);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(Math.sin(br.spin * 1.5) * 0.35);
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = WILD_INVADER_COLOR;
+        ctx.beginPath();
+        ctx.arc(0, 0, BARREL_R + 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.drawImage(sp, -sp.width / 2, -sp.height / 2);
+        ctx.restore();
+        return;
+    }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(br.spin);
+    ctx.drawImage(rollingInvaderSprite(), -BARREL_R - 1, -BARREL_R - 1);
+    ctx.restore();
+}
+
+// The princess, in pixel art at 3px: crown, golden hair, big eyes and a pink gown
+const PRINCESS_ART = [
+    '...Y.YY.Y...', '...YYYYYY...', '..HHHHHHHH..', '.HHSSSSSSHH.', '.HSEESSEESH.', '.HSEWSSEWSH.',
+    '.HSKSSSSKSH.', '.HHSSKKSSHH.', '.HH.SSSS.HH.', 'HH.PPPPPP.HH', 'H.PPPWWPPP.H', '..SPPPPPPS..',
+    '..PPPPPPPP..', '.PPDPPPPDPP.', '.PPPPPPPPPP.', 'PPDPPPPPPDPP', 'PPPPPPPPPPPP', 'DDDDDDDDDDDD', '...DD..DD...'
+];
+const PRINCESS_COLORS = { Y: '#ffd23f', H: '#ffb03a', S: '#ffe0c4', E: '#3a1f6e', W: '#ffffff', K: '#ff8fb8', P: '#ff7ad9', D: '#d93f9c' };
+let princessSprite = null;
+
+function drawPrincess(x, feetY, t, rescued) {
+    if (!princessSprite) {
+        princessSprite = makeSprite(36, PRINCESS_ART.length * 3, g => {
+            PRINCESS_ART.forEach((row, r) => {
+                for (let c = 0; c < row.length; c++) {
+                    const col = PRINCESS_COLORS[row[c]];
+                    if (!col) continue;
+                    g.fillStyle = col;
+                    g.fillRect(c * 3, r * 3, 3, 3);
+                }
+            });
+        });
+    }
+    const hop = rescued ? Math.abs(Math.sin(t / 8)) * 8 : 0; // jumps for joy once the ape is down
+    const top = feetY - princessSprite.height - hop;
+    ctx.drawImage(princessSprite, x - 18, top);
+    ctx.font = pixelFont(9);
+    ctx.textAlign = 'center';
+    if (rescued) {
+        ctx.fillStyle = '#ff4d8a';
+        ctx.fillText('\u2665', x + 16, top - 4 - (t % 40) / 3);
+    } else if (Math.floor(t / 40) % 2 === 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('HELP!', x, top - 8);
+    }
 }
 
 function drawKongBoss() {
@@ -562,23 +628,8 @@ function drawKongBoss() {
     const shakeY = B.pound > 0 ? Math.sin(B.pound * 1.7) * 2 : 0;
     ctx.drawImage(girderLayer, 0, shakeY);
 
-    // The damsel on the top girder's left end, calling for help
-    const dx = 90, dy = 128 - GIRDER_HALF;
-    ctx.fillStyle = '#ff7ad9';
-    ctx.fillRect(dx - 5, dy - 18, 10, 12);
-    ctx.fillStyle = KONG_TAN;
-    ctx.fillRect(dx - 4, dy - 26, 8, 8);
-    ctx.fillStyle = '#ffd23f';
-    ctx.fillRect(dx - 5, dy - 28, 10, 4);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(dx - 4, dy - 6, 3, 6);
-    ctx.fillRect(dx + 1, dy - 6, 3, 6);
-    if (B.dying > 0 || Math.floor(B.t / 40) % 2 === 0) {
-        ctx.font = pixelFont(9);
-        ctx.textAlign = 'center';
-        ctx.fillStyle = B.dying > 0 ? '#ff4d8a' : '#ffffff';
-        ctx.fillText(B.dying > 0 ? '♥' : 'HELP!', dx, dy - 36);
-    }
+    // The princess on her perch, calling for help
+    drawPrincess(90, 128 - GIRDER_HALF, B.t, B.dying > 0);
 
     // For the first seconds of the fight, arrows blink up through every ladder: that's the way to the ape
     if (B.t < 60 * 12 && Math.floor(B.t / 20) % 2 === 0) {
@@ -616,16 +667,32 @@ function drawKongBoss() {
             ctx.globalCompositeOperation = 'lighter';
             ctx.globalAlpha = B.flash / 8 * 0.7;
             ctx.drawImage(sprite, -KONG_W / 2, -KONG_H / 2);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
         }
+        // Its space helmet: a glass bubble over the head, with a glint
+        const hy = -KONG_H / 2 + 17;
+        ctx.fillStyle = 'rgba(127, 233, 255, 0.13)';
+        ctx.strokeStyle = 'rgba(127, 233, 255, 0.75)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, hy, 31, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, hy, 24, -2.5, -1.9);
+        ctx.stroke();
         ctx.restore();
         // The barrel it's about to throw, held up high
         if (B.pending && B.pending.kind !== 'pound') {
-            ctx.drawImage(barrelSprite(B.pending.kind === 'wild'), B.x - BARREL_R - 1, B.y - KONG_H - 2 * BARREL_R + 8);
+            drawThrownInvader({ wild: B.pending.kind === 'wild', spin: B.t / 10 }, B.x, B.y - KONG_H - BARREL_R + 2);
         }
         // A wild barrel's aim, so you can get out of the way
         if (B.pending && B.pending.kind === 'wild') {
             ctx.save();
-            ctx.strokeStyle = 'rgba(120, 170, 255, 0.45)';
+            ctx.strokeStyle = 'rgba(255, 77, 216, 0.45)';
             ctx.setLineDash([5, 7]);
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -636,14 +703,8 @@ function drawKongBoss() {
         }
     }
 
-    // Barrels
-    for (const br of B.barrels) {
-        ctx.save();
-        ctx.translate(br.x, br.y + (br.state === 'roll' ? shakeY : 0));
-        ctx.rotate(br.spin);
-        ctx.drawImage(barrelSprite(br.wild), -BARREL_R - 1, -BARREL_R - 1);
-        ctx.restore();
-    }
+    // The thrown invaders
+    for (const br of B.barrels) drawThrownInvader(br, br.x, br.y + (br.state === 'roll' ? shakeY : 0));
 }
 
 function drawHammerGlyph(x, y, angle) {
@@ -661,7 +722,7 @@ function drawHammerGlyph(x, y, angle) {
 
 function drawKongBossBar() {
     const B = boss;
-    drawSimpleBossBar('BARREL KONG   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
+    drawSimpleBossBar('SPACE KONG   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
     if (B.hammerTime > 0) {
         // Hammers swinging over both ends of the paddle, and the time left
         const swing = Math.sin(performance.now() / 70) * 0.9;

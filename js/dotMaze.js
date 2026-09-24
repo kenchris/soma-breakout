@@ -26,11 +26,12 @@ const MAZE_TOP = 74;
 const MAZE_PEN = { c: 11, r: 2 };         // the ghosts' home, in the middle
 const MAZE_DOOR = { c: 11, r: 1 };        // the open cell above it they leave by
 const GHOST_R = 14;
+// Our own four ghosts (see ghostTarget for what each one is after)
 const GHOST_DEFS = [
-    { name: 'BLINKY', color: '#ff2a2a', release: 0 },
-    { name: 'PINKY', color: '#ffb8ff', release: 60 * 3 },
-    { name: 'INKY', color: '#00ffff', release: 60 * 6 },
-    { name: 'CLYDE', color: '#ffb852', release: 60 * 9 }
+    { role: 'chaser', color: '#ff3b5c', release: 0 },
+    { role: 'ambusher', color: '#ff9ae8', release: 60 * 3 },
+    { role: 'patroller', color: '#3de0ff', release: 60 * 6 },
+    { role: 'shy', color: '#ffb852', release: 60 * 9 }
 ];
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const mazeLevelCache = {};
@@ -82,9 +83,10 @@ function mazeDotCount() {
 }
 
 // --- Ghost brains ---
-// Where each ghost is heading when it isn't scared: Blinky goes straight for the ball, Pinky for where
-// the ball is going, Inky patrols the bottom row above your paddle (it does most of the swooping), and
-// Clyde chases the ball until it gets close, then loses its nerve and wanders off to a corner.
+// Where each ghost is heading when it isn't scared: the red chaser goes straight for the ball, the pink
+// ambusher for where the ball is going, the cyan patroller keeps to the bottom row above your paddle (it does
+// most of the swooping), and the orange shy one chases the ball until it gets close, then loses its nerve
+// and wanders off to a corner.
 function ghostTarget(g) {
     const b = balls.find(bb => !bb.stuck) || balls[0];
     const bx = b ? b.x : CANVAS_W / 2, by = b ? b.y : CANVAS_H;
@@ -127,7 +129,7 @@ function ghostSpeed(g) {
     if (g.mode === 'eyes') return 4.5 * timeScale;
     if (g.mode === 'dive') return (2.4 + 0.04 * curveLevel()) * timeScale;
     if (g.mode === 'rise') return 3 * timeScale;
-    // Blinky speeds up as the dots run out, like the arcade's "Cruise Elroy"
+    // The chaser speeds up as the dots run out
     return base * (g.i === 0 && bricksLeft < levelBricksTotal * 0.3 ? 1.25 : 1);
 }
 
@@ -471,44 +473,52 @@ function paintMaze(g) {
     g.fillRect(d.x - MAZE_CELL * 1.5 + 2, mazeCellY(MAZE_PEN.r) - 2, MAZE_CELL * 3 - 4, 3);
 }
 
-// A ghost's body, per colour and animation frame (the skirt ripples): painted once each
+// A ghost's body, per colour and animation frame: a round dome, soft sides and a skirt of three rounded
+// scallops that ripple between two frames. Painted once each. No mouth: just the big eyes, drawn live.
 const ghostBodies = {};
 
 function ghostBody(color, frame) {
     const key = color + frame;
     if (!ghostBodies[key]) {
-        const S = GHOST_R * 2 + 2;
+        const S = GHOST_R * 2 + 4;
         ghostBodies[key] = makeSprite(S, S, g => {
-            const R = GHOST_R, cx = S / 2, cy = S / 2;
+            const R = GHOST_R, cx = S / 2, cy = S / 2 - 1;
+            const bottom = cy + R;
             g.fillStyle = color;
             g.beginPath();
-            g.arc(cx, cy - 2, R, Math.PI, 0);
-            g.lineTo(cx + R, cy + R);
-            const feet = 4;
-            for (let i = 0; i < feet; i++) {
-                const x0 = cx + R - (i * 2 * R) / feet;
-                const x1 = x0 - R / feet;
-                const x2 = x0 - (2 * R) / feet;
-                g.lineTo(x1, cy + R - (frame ? 6 : 3) - (i % 2 === frame ? 0 : 2));
-                g.lineTo(x2, cy + R);
+            g.arc(cx, cy, R, Math.PI, 0);
+            g.lineTo(cx + R, bottom - 3);
+            // Three scallops along the hem, shifted half a scallop on the other frame
+            const n = 3, w = (2 * R) / n, shift = frame ? w / 2 : 0;
+            for (let i = 0; i <= n; i++) {
+                const x = cx + R - i * w + shift;
+                const xc = Math.max(cx - R, Math.min(cx + R, x - w / 2));
+                g.quadraticCurveTo(Math.max(cx - R, Math.min(cx + R, x)), bottom + 2, xc, bottom - 3);
             }
+            g.lineTo(cx - R, bottom - 3);
             g.closePath();
+            g.fill();
+            // A soft sheen on the dome
+            g.fillStyle = 'rgba(255, 255, 255, 0.25)';
+            g.beginPath();
+            g.ellipse(cx - R * 0.35, cy - R * 0.45, R * 0.28, R * 0.18, -0.5, 0, Math.PI * 2);
             g.fill();
         });
     }
     return ghostBodies[key];
 }
 
+// Big round eyes, pupils looking the way it's going
 function drawGhostEyes(x, y, dir) {
     for (const s of [-1, 1]) {
-        const ex = x + s * 5.5, ey = y - 4;
+        const ex = x + s * 5.5, ey = y - 3;
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.ellipse(ex, ey, 4, 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(ex, ey, 4.5, 5.5, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#1b2cff';
         ctx.beginPath();
-        ctx.arc(ex + dir[0] * 2, ey + dir[1] * 2.5, 2.2, 0, Math.PI * 2);
+        ctx.arc(ex + dir[0] * 2, ey + dir[1] * 2.5, 2.6, 0, Math.PI * 2);
         ctx.fill();
     }
 }
@@ -551,14 +561,15 @@ function drawMaze() {
         if (g.mode !== 'eyes') {
             const scared = g.mode === 'fright' || (g.mode === 'rise' && g.scared);
             const blink = scared && maze.fright < 120 && Math.floor(maze.t / 10) % 2 === 0;
-            const color = scared ? (blink ? '#ffffff' : '#2121ff') : g.color;
-            ctx.drawImage(ghostBody(color, frame), x - GHOST_R - 1, y - GHOST_R - 1);
+            const color = scared ? (blink ? '#ffffff' : '#3b4bff') : g.color;
+            ctx.drawImage(ghostBody(color, frame), x - GHOST_R - 2, y - GHOST_R - 1);
             if (scared) {
-                // The frightened face: two little eyes and a wobbly mouth
-                ctx.fillStyle = blink ? '#ff2a2a' : '#ffb8ae';
-                ctx.fillRect(x - 6, y - 6, 3, 3);
-                ctx.fillRect(x + 3, y - 6, 3, 3);
-                ctx.fillRect(x - 8, y + 3, 16, 2);
+                // Scared: just two small, worried eyes
+                ctx.fillStyle = blink ? '#ff3b5c' : '#ffe0f0';
+                ctx.beginPath();
+                ctx.arc(x - 5, y - 3, 2.6, 0, Math.PI * 2);
+                ctx.arc(x + 5, y - 3, 2.6, 0, Math.PI * 2);
+                ctx.fill();
                 continue;
             }
         }
