@@ -6,14 +6,20 @@
 // placed seeded per level like the rest of its plan (see planLevel), so a level always has them in the
 // same spots, clear of each other and of the sliding walls above them.
 
+let bumpersIntroduced = false;
+
 function buildBumpers() {
     const out = [];
     if (!plan.bumpers) return out;
     const rand = seededRandom(level * 86028121 + 17);
     for (let attempt = 0; attempt < 200 && out.length < plan.bumpers; attempt++) {
         const x = 120 + rand() * (CANVAS_W - 240);
-        const y = 335 + rand() * 85;
-        if (out.every(o => Math.hypot(o.x - x, o.y - y) > 170)) out.push({ x, y, r: BUMPER_R, lit: 0, hits: 0 });
+        const y = 340 + rand() * 80;
+        if (out.every(o => Math.hypot(o.x - x, o.y - y) > 180)) out.push({ x, y, r: BUMPER_R, lit: 0, hits: 0, label: 0 });
+    }
+    if (out.length && !bumpersIntroduced) { // labelled the first time they turn up (however you got to that level)
+        bumpersIntroduced = true;
+        for (const bp of out) bp.label = 60 * 8;
     }
     return out;
 }
@@ -49,9 +55,24 @@ function bumperBallCollision(b) {
     }
 }
 
-// Painted once, then drawn with drawImage: a magenta ring around a dark body with a cyan cap
+// Painted once, then drawn with drawImage. Styled after a real pinball pop bumper so it reads as one: a
+// dark skirt ringed with lamps, a neon rim, and a star on the cap. Everything is concentric (an off-centre
+// highlight made the cap look misplaced). The lamps chase round the rim live, so it looks switched on.
 let bumperSprite = null;
-const BUMPER_SPRITE_PAD = 8;
+const BUMPER_SPRITE_PAD = 10;
+const BUMPER_LAMPS = 10;
+const BUMPER_LAMP_R = BUMPER_R - 5; // the ring the lamps sit on
+
+function drawStar(g, cx, cy, outer, inner, points) {
+    g.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / points;
+        const r = i % 2 === 0 ? outer : inner;
+        if (i === 0) g.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        else g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+    g.closePath();
+}
 
 function getBumperSprite() {
     if (bumperSprite) return bumperSprite;
@@ -60,57 +81,98 @@ function getBumperSprite() {
     const c = size / 2;
     bumperSprite = makeSprite(size, size, g => {
         const glow = g.createRadialGradient(c, c, R - 2, c, c, R + BUMPER_SPRITE_PAD);
-        glow.addColorStop(0, 'rgba(255, 47, 180, 0.55)');
+        glow.addColorStop(0, 'rgba(255, 47, 180, 0.5)');
         glow.addColorStop(1, 'rgba(255, 47, 180, 0)');
         g.fillStyle = glow;
         g.fillRect(0, 0, size, size);
-        const body = g.createRadialGradient(c - 5, c - 6, 2, c, c, R);
-        body.addColorStop(0, '#5a2a78');
-        body.addColorStop(1, '#1a0a2e');
-        g.fillStyle = body;
+        // Skirt
+        g.fillStyle = '#1a0a2e';
         g.beginPath();
         g.arc(c, c, R, 0, Math.PI * 2);
         g.fill();
+        // Neon rim
         g.strokeStyle = BUMPER_COLOR;
         g.lineWidth = 3;
         g.beginPath();
         g.arc(c, c, R - 1.5, 0, Math.PI * 2);
         g.stroke();
-        g.fillStyle = BUMPER_CAP_COLOR;
+        // Unlit lamps
+        g.fillStyle = '#6a1450';
+        for (let i = 0; i < BUMPER_LAMPS; i++) {
+            const a = (i / BUMPER_LAMPS) * Math.PI * 2;
+            g.beginPath();
+            g.arc(c + Math.cos(a) * BUMPER_LAMP_R, c + Math.sin(a) * BUMPER_LAMP_R, 2, 0, Math.PI * 2);
+            g.fill();
+        }
+        // Cap with a star
+        const capR = R * 0.55;
+        const cap = g.createRadialGradient(c, c, 0, c, c, capR);
+        cap.addColorStop(0, '#b8fbff');
+        cap.addColorStop(1, BUMPER_CAP_COLOR);
+        g.fillStyle = cap;
         g.beginPath();
-        g.arc(c, c, R * 0.42, 0, Math.PI * 2);
+        g.arc(c, c, capR, 0, Math.PI * 2);
         g.fill();
-        g.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        g.beginPath();
-        g.arc(c - 2, c - 2, R * 0.15, 0, Math.PI * 2);
+        g.strokeStyle = '#0b4a52';
+        g.lineWidth = 1.5;
+        g.stroke();
+        drawStar(g, c, c, capR * 0.72, capR * 0.3, 5);
+        g.fillStyle = BUMPER_COLOR;
         g.fill();
     });
     return bumperSprite;
 }
 
 function tickBumpers() {
-    for (const bp of bumpers) if (bp.lit > 0) bp.lit--;
+    for (const bp of bumpers) {
+        if (bp.lit > 0) bp.lit--;
+        if (bp.label > 0 && gameState === 'playing' && !introHold()) bp.label--; // counts down only once play is on
+    }
 }
 
 function drawBumpers() {
     if (!bumpers.length) return;
     const sprite = getBumperSprite();
     const half = sprite.width / 2;
+    const chase = Math.floor(performance.now() / 90);
+    ctx.save();
     for (const bp of bumpers) {
-        if (bp.lit > 0) {
-            // A struck bumper swells and flashes, like a real one's lamp
-            const k = bp.lit / 12;
-            const s = 1 + 0.18 * k;
-            ctx.drawImage(sprite, bp.x - half * s, bp.y - half * s, half * 2 * s, half * 2 * s);
-            ctx.save();
-            ctx.globalAlpha = 0.7 * k;
+        const k = bp.lit / 12;
+        const s = 1 + 0.15 * k; // a struck bumper swells and flashes, like a real one's lamp
+        ctx.drawImage(sprite, bp.x - half * s, bp.y - half * s, half * 2 * s, half * 2 * s);
+        // Two lamps chasing round the rim; all of them light up on a hit
+        ctx.fillStyle = '#ffe3f6';
+        ctx.beginPath();
+        for (let i = 0; i < BUMPER_LAMPS; i++) {
+            if (k === 0 && (i - chase) % 5 !== 0) continue;
+            const a = (i / BUMPER_LAMPS) * Math.PI * 2;
+            const lx = bp.x + Math.cos(a) * BUMPER_LAMP_R * s;
+            const ly = bp.y + Math.sin(a) * BUMPER_LAMP_R * s;
+            ctx.moveTo(lx + 2.2, ly);
+            ctx.arc(lx, ly, 2.2, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        if (k > 0) {
+            ctx.globalAlpha = 0.55 * k;
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
-            ctx.arc(bp.x, bp.y, bp.r * s, 0, Math.PI * 2);
+            ctx.arc(bp.x, bp.y, BUMPER_R * s, 0, Math.PI * 2);
             ctx.fill();
-            ctx.restore();
-        } else {
-            ctx.drawImage(sprite, bp.x - half, bp.y - half);
+            ctx.globalAlpha = 1;
+        }
+        // The first time bumpers turn up in a session, each one says what it is for a few seconds
+        if (bp.label > 0) {
+            ctx.globalAlpha = Math.min(1, bp.label / 40);
+            ctx.font = pixelFont(9);
+            ctx.textAlign = 'center';
+            ctx.lineWidth = 3;
+            ctx.lineJoin = 'round'; // a mitred outline spikes out of the M
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.strokeText('BUMPER', bp.x, bp.y + BUMPER_R + 18);
+            ctx.fillStyle = '#ffc8ec';
+            ctx.fillText('BUMPER', bp.x, bp.y + BUMPER_R + 18);
+            ctx.globalAlpha = 1;
         }
     }
+    ctx.restore();
 }

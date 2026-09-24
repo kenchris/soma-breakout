@@ -299,7 +299,7 @@ const PORTAL_WARN_FRAMES = 75;
 const PORTAL_LIFE_FRAMES = 60 * 12;
 
 // --- Pinball bumpers (bumpers.js): unbreakable round posts in the open band above the paddle ---
-const BUMPER_R = 18;
+const BUMPER_R = 26;
 const BUMPER_POINTS = 10;
 const BUMPER_KICK = 1.12;       // each hit speeds the ball up by this much...
 const BUMPER_KICK_CAP = 1.35;   // ...up to this multiple of the level's normal ball speed (a paddle bounce resets it)
