@@ -797,39 +797,27 @@ function drawChomper(m) {
     if (m.safe > 0 && Math.floor(m.safe / 6) % 2 === 0) return; // blinking while it's safe, just home
     const R = CHOMPER_R + 2;
     const zoom = m.zoomT > 0;
+    if (m.dir[0]) m.face = m.dir[0]; // it faces the way it last went left or right
     ctx.save();
     ctx.translate(m.x, m.y);
     if (zoom) { // a glow and speed lines behind it
         ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
         ctx.beginPath();
-        ctx.arc(0, 0, R + 6, 0, Math.PI * 2);
+        ctx.arc(0, 2, R + 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         for (const off of [-6, 0, 6]) {
-            ctx.moveTo(-m.dir[0] * (R + 3) + (m.dir[1] ? off : 0), -m.dir[1] * (R + 3) + (m.dir[0] ? off : 0));
-            ctx.lineTo(-m.dir[0] * (R + 15) + (m.dir[1] ? off : 0), -m.dir[1] * (R + 15) + (m.dir[0] ? off : 0));
+            ctx.moveTo(-m.dir[0] * (R + 3) + (m.dir[1] ? off : 0), 4 - m.dir[1] * (R + 3) + (m.dir[0] ? off : 0));
+            ctx.lineTo(-m.dir[0] * (R + 15) + (m.dir[1] ? off : 0), 4 - m.dir[1] * (R + 15) + (m.dir[0] ? off : 0));
         }
         ctx.stroke();
     }
-    // Antenna, always on top whichever way it faces
-    const bob = Math.sin(maze.t / 7) * 2;
-    ctx.strokeStyle = '#c9a0ff';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(0, -R + 2);
-    ctx.lineTo(3, -R - 7 + bob);
-    ctx.stroke();
-    ctx.fillStyle = '#ff2fb4';
-    ctx.beginPath();
-    ctx.arc(3, -R - 8 + bob, 2.6, 0, Math.PI * 2);
-    ctx.fill();
-    // The shaded ball with its mouth, from a pre-painted frame per direction and mouth opening (cutting the
-    // mouth out with a clipping mask every frame was a slow path, Safari's especially)
-    const step = Math.round(Math.abs(Math.sin(maze.t / (zoom ? 2.5 : 4))) * (CHOMPER_MOUTH_STEPS - 1));
-    const frame = chomperFrame(m.color, chomperDirIndex(m.dir), step);
-    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2);
+    // Chomping away: faster while zooming
+    const step = Math.floor(maze.t / (zoom ? 3 : 6)) % SLIME_OPENINGS.length;
+    const frame = chomperFrame(m.color, m.face || 1, chomperDirIndex(m.dir), step);
+    ctx.drawImage(frame, -frame.width / 2, -frame.height / 2 - 6);
     ctx.restore();
     if (!m.pushed && Math.floor(maze.t / 20) % 2 === 0) {
         ctx.font = pixelFont(9);
@@ -843,86 +831,121 @@ function drawChomper(m) {
     }
 }
 
-// A chomper, painted once per colour, direction (0 right, 1 down, 2 left, 3 up) and mouth opening: the
-// shaded body with the mouth cut out, a dark line inside the mouth, and its eye up and a little forward
-const CHOMPER_MOUTH_STEPS = 6;
+// A chomper is a little space jelly: a glossy dome of slime with big oval eyes, blush cheeks, a round mouth
+// that opens and closes as it eats (the body stretching a touch as it gulps) and a tiny antenna with a glowing
+// pink bulb. Its eyes look the way it's going, and it faces the way it last went left or right. Every
+// frame (colour x facing x gaze x mouth opening) is painted once and cached, so drawing one is one drawImage.
+const SLIME_OPENINGS = [0, 0.55, 1, 0.55]; // the chomp cycle
+const SLIME_SIZE = 46;                      // the frame canvas (the jelly is about 34px wide)
+const SLIME_PALETTES = {
+    '#ff9a1f': { body: '#ff9a1f', light: '#ffd49a', dark: '#c95a06', edge: '#7a3300' },
+    '#7dea3c': { body: '#7dea3c', light: '#dcffb8', dark: '#3f9e14', edge: '#1f5208' }
+};
+const DIR_LOOKS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // by chomperDirIndex
 const chomperFrames = {};
 
 function chomperDirIndex(dir) {
     return dir[0] > 0 ? 0 : dir[1] > 0 ? 1 : dir[0] < 0 ? 2 : 3;
 }
 
-function chomperFrame(color, dirIndex, step) {
-    const key = color + dirIndex + step;
+function chomperFrame(color, face, dirIndex, step) {
+    const key = color + face + dirIndex + step;
     if (!chomperFrames[key]) {
-        const body = chomperSprite(color);
-        const R = CHOMPER_R + 2;
-        const heading = dirIndex * Math.PI / 2;
-        const open = (0.08 + 0.3 * step / (CHOMPER_MOUTH_STEPS - 1)) * Math.PI;
-        chomperFrames[key] = makeSprite(body.width, body.height, g => {
-            const c = body.width / 2;
-            g.drawImage(body, 0, 0);
-            g.globalCompositeOperation = 'destination-out'; // the mouth
-            g.beginPath();
-            g.moveTo(c, c);
-            g.arc(c, c, R + 2, heading - open, heading + open);
-            g.closePath();
-            g.fill();
-            g.globalCompositeOperation = 'source-over';
-            g.strokeStyle = 'rgba(60, 20, 0, 0.55)';
-            g.lineWidth = 1.5;
-            g.beginPath();
-            g.moveTo(c + Math.cos(heading + open) * R, c + Math.sin(heading + open) * R);
-            g.lineTo(c, c);
-            g.lineTo(c + Math.cos(heading - open) * R, c + Math.sin(heading - open) * R);
-            g.stroke();
-            const ex = c + Math.cos(heading) * R * 0.15 + (dirIndex % 2 ? R * 0.35 : 0);
-            const ey = c - R * 0.5;
-            g.fillStyle = '#1a1030';
-            g.beginPath();
-            g.ellipse(ex, ey, 2.4, 3, 0, 0, Math.PI * 2);
-            g.fill();
-            g.fillStyle = '#ffffff';
-            g.fillRect(ex - 1.2, ey - 2, 1.2, 1.2);
-        });
+        const P = SLIME_PALETTES[color] || SLIME_PALETTES['#ff9a1f'];
+        const look = DIR_LOOKS[dirIndex];
+        chomperFrames[key] = makeSprite(SLIME_SIZE, SLIME_SIZE, g => paintJelly(g, P, SLIME_OPENINGS[step], look[0] * face, look[1], face));
     }
     return chomperFrames[key];
 }
 
-// A chomper's body, painted once per colour: a ball lit from the top left (a bright spot shading out to a
-// deeper tone at the rim), a darker outline, and a glossy highlight
-const chomperSprites = {};
-
-function chomperSprite(color) {
-    if (!chomperSprites[color]) {
-        const R = CHOMPER_R + 2;
-        const S = R * 2 + 4;
-        chomperSprites[color] = makeSprite(S, S, g => {
-            const c = S / 2;
-            const shade = g.createRadialGradient(c - R * 0.4, c - R * 0.45, R * 0.1, c, c, R);
-            shade.addColorStop(0, '#ffffff');
-            shade.addColorStop(0.25, color);
-            shade.addColorStop(0.8, color);
-            shade.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
-            g.fillStyle = color;
-            g.beginPath();
-            g.arc(c, c, R, 0, Math.PI * 2);
-            g.fill();
-            g.fillStyle = shade;
-            g.fill();
-            g.fillStyle = 'rgba(80, 30, 0, 0.25)'; // a touch of shadow on the lower right
-            g.beginPath();
-            g.arc(c + R * 0.2, c + R * 0.25, R * 0.85, -0.3, Math.PI * 0.8);
-            g.arc(c, c, R, Math.PI * 0.8, -0.3, true);
-            g.fill();
-            g.strokeStyle = 'rgba(90, 40, 0, 0.6)';
-            g.lineWidth = 1.5;
-            g.beginPath();
-            g.arc(c, c, R - 0.75, 0, Math.PI * 2);
-            g.stroke();
-        });
+// Painted facing right, then mirrored for facing left (lx: the gaze across, in the painted frame's terms)
+function paintJelly(g, P, open, lx, ly, face) {
+    const S = SLIME_SIZE;
+    g.translate(face > 0 ? 0 : S, 0);
+    g.scale(face > 0 ? 1 : -1, 1);
+    const cx = S / 2, base = S - 6;
+    const w = 16 * (1 + 0.06 * open), h = 20 * (1 - 0.06 * open); // stretches a little as it gulps
+    const top = base - h;
+    // The dome: a rounded top, soft sides and a flat, wobbly base
+    const dome = new Path2D();
+    dome.moveTo(cx - w, base);
+    dome.bezierCurveTo(cx - w - 1, base - h * 0.55, cx - w * 0.72, top, cx, top);
+    dome.bezierCurveTo(cx + w * 0.72, top, cx + w + 1, base - h * 0.55, cx + w, base);
+    dome.quadraticCurveTo(cx + w * 0.5, base + 2.5, cx, base + 1);
+    dome.quadraticCurveTo(cx - w * 0.5, base + 2.5, cx - w, base);
+    dome.closePath();
+    // Antenna, behind the dome, with a glowing bulb
+    const ax = cx - 4, ay = top + 3;
+    g.strokeStyle = P.edge;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(ax, ay);
+    g.quadraticCurveTo(ax - 3, ay - 5, ax - 1, top - 6);
+    g.stroke();
+    g.fillStyle = 'rgba(255, 47, 180, 0.35)';
+    g.beginPath();
+    g.arc(ax - 1, top - 7, 4.5, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#ff2fb4';
+    g.beginPath();
+    g.arc(ax - 1, top - 7, 2.6, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#ffd6ef';
+    g.fillRect(ax - 2.2, top - 8.4, 1.3, 1.3);
+    // Body: lit from the top left, deeper toward the base
+    const shade = g.createRadialGradient(cx - w * 0.35, top + h * 0.3, 2, cx, base - h * 0.35, w * 1.35);
+    shade.addColorStop(0, P.light);
+    shade.addColorStop(0.35, P.body);
+    shade.addColorStop(1, P.dark);
+    g.fillStyle = shade;
+    g.fill(dome);
+    g.strokeStyle = P.edge;
+    g.lineWidth = 1.6;
+    g.stroke(dome);
+    // Glossy shine
+    g.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    g.beginPath();
+    g.ellipse(cx - w * 0.5, top + h * 0.3, 3.2, 2, -0.6, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.arc(cx - w * 0.22, top + h * 0.17, 1.2, 0, Math.PI * 2);
+    g.fill();
+    // Face, nudged the way it's looking
+    const fx = cx + 1.5 + lx * 1.8, fy = base - h * 0.52 + ly * 1.6;
+    for (const side of [-1, 1]) {
+        const ex = fx + side * 5.2, ey = fy;
+        g.fillStyle = '#1a1040';
+        g.beginPath();
+        g.ellipse(ex, ey, 2.6, 3.5, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#ffffff';
+        g.beginPath();
+        g.arc(ex - 0.9, ey - 1.4, 1.1, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = 'rgba(255, 90, 140, 0.55)'; // blush
+        g.beginPath();
+        g.ellipse(ex + side * 2.6, ey + 4.6, 2.4, 1.3, 0, 0, Math.PI * 2);
+        g.fill();
     }
-    return chomperSprites[color];
+    const mx = fx, my = fy + 5.8;
+    if (open < 0.1) { // a little smile
+        g.strokeStyle = '#3a0820';
+        g.lineWidth = 1.5;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.arc(mx, my - 1.2, 2.2, 0.2 * Math.PI, 0.8 * Math.PI);
+        g.stroke();
+    } else { // a round "O", with a tongue
+        const rx = 1.6 + 2.2 * open, ry = 1.4 + 2.8 * open;
+        g.fillStyle = '#3a0820';
+        g.beginPath();
+        g.ellipse(mx, my, rx, ry, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#ff6f98';
+        g.beginPath();
+        g.ellipse(mx, my + ry * 0.45, rx * 0.7, ry * 0.4, 0, 0, Math.PI * 2);
+        g.fill();
+    }
 }
 
 function drawMaze() {
@@ -1069,10 +1092,10 @@ function mazeBrickSprite() {
 }
 
 // Paint every sprite the maze will need now, while the level's launch screen is up, rather than the first
-// time each one turns up mid-play (54 little canvases, each a small hitch when made on the spot)
+// time each one turns up mid-play (80-odd little canvases, each a small hitch when made on the spot)
 function prewarmMazeSprites() {
     for (const color of CHOMPER_COLORS) {
-        for (let dir = 0; dir < 4; dir++) for (let step = 0; step < CHOMPER_MOUTH_STEPS; step++) chomperFrame(color, dir, step);
+        for (const face of [1, -1]) for (let dir = 0; dir < 4; dir++) for (let step = 0; step < SLIME_OPENINGS.length; step++) chomperFrame(color, face, dir, step);
     }
     for (const color of GHOST_DEFS.map(d => d.color).concat([GHOST_SCARED_COLOR])) for (const f of [0, 1]) ghostBody(color, f);
     mazeBrickSprite();
