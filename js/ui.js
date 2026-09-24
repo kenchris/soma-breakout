@@ -330,11 +330,16 @@ async function toggleFullscreen() {
     const docEl = doc.documentElement;
     const isFS = !!(doc.fullscreenElement || doc.webkitFullscreenElement);
 
+    if (!isFS && !fullscreenApi()) {
+        // iPhone Safari has no Fullscreen API for pages at all: the way to play fullscreen there is to
+        // install it to the home screen, which opens it as a full-screen app
+        showFullscreenHelp();
+        return;
+    }
     try {
         if (!isFS) {
             // Must be called synchronously from the tap/click (user activation), before any await
-            const request = docEl.requestFullscreen || docEl.webkitRequestFullscreen;
-            if (!request) throw new Error('not supported by this browser');
+            const request = fullscreenApi();
             if (doc.fullscreenEnabled === false) throw new Error('not allowed on this page (embedded or blocked)');
             await request.call(docEl);
             await lockPortrait();
@@ -343,6 +348,8 @@ async function toggleFullscreen() {
                 await doc.exitFullscreen();
             } else if (doc.webkitExitFullscreen) {
                 await doc.webkitExitFullscreen();
+            } else if (doc.webkitCancelFullScreen) {
+                doc.webkitCancelFullScreen();
             }
             unlockOrientation();
         }
@@ -355,9 +362,35 @@ async function toggleFullscreen() {
 }
 
 
+// The page's fullscreen request function, whichever spelling this browser has (Safari on iPad and Mac:
+// webkitRequestFullscreen, older Safari: webkitRequestFullScreen), or null if there's none (iPhone)
+function fullscreenApi() {
+    const el = document.documentElement;
+    return el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen || null;
+}
+
+// Already running as an installed app (home screen), so it's as fullscreen as it gets
+function runningStandalone() {
+    return window.navigator.standalone === true ||
+        !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches));
+}
+
+function showFullscreenHelp() {
+    const ios = /iPhone|iPod/.test(navigator.userAgent);
+    const text = ios
+        ? 'For fullscreen: tap Share, then Add to Home Screen'
+        : 'Fullscreen isn\'t available in this browser';
+    addPopup(CANVAS_W / 2, CANVAS_H * 0.5, text, '#7fe9ff', { life: 3.2, size: 18, rise: 0.15 });
+}
+
 function updateFullscreenBtn() {
     const btn = document.getElementById('fullscreen-btn');
     if (!btn) return;
+    // Installed to the home screen: already fullscreen, and nothing more the button could do
+    if (runningStandalone()) {
+        btn.style.display = 'none';
+        return;
+    }
     const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
     btn.classList.toggle('active', isFS);
     btn.title = isFS ? 'Exit fullscreen (F)' : 'Fullscreen (F)';

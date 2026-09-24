@@ -64,6 +64,8 @@ function drawBall() {
                     const core = boss.kind === 'mothership' ? bossCore() : b.aim; // the hatch, or wherever it's aiming
                     drawReticleAt(core.x, core.y);
                 }
+            } else if (b.aim.chomper) {
+                drawReticleAt(b.aim.chomper.x, b.aim.chomper.y); // Space Chomp's AIM: locked on to a chomper
             } else if (b.aim.c !== undefined && bricks[b.aim.c][b.aim.r].alive) {
                 const t = bricks[b.aim.c][b.aim.r];
                 drawReticleAt(t.x + t.w / 2, t.y + t.h / 2);
@@ -184,7 +186,7 @@ function drawStatusChips() {
     if (splitTimer > 0) chips.push({ text: 'SPLIT ' + Math.ceil(splitTimer), color: '#14e6b4' });
     if (doubleTimer > 0) chips.push({ text: '2× SCORE ' + Math.ceil(doubleTimer), color: '#e6b800' });
     if (fireTimer > 0) chips.push({ text: 'FIRE ' + Math.ceil(fireTimer), color: '#ff6a00' });
-    if (guidedTimer > 0) chips.push({ text: 'GUIDED ' + Math.ceil(guidedTimer), color: '#a06cff' });
+    if (guidedTimer > 0) chips.push({ text: (maze ? 'AIM ' : 'GUIDED ') + Math.ceil(guidedTimer), color: '#a06cff' });
     if (stickyCatches > 0) chips.push({ text: 'STICKY ×' + stickyCatches, color: '#7cb518' });
     if (shield > 0) chips.push({ text: 'SHIELD ×' + shield, color: '#33ddff' });
     if (explosiveReady) chips.push({ text: 'BOOM READY', color: '#ff3366' });

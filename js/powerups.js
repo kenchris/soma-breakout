@@ -75,6 +75,7 @@ function applyPowerup(type) {
         stickyCatches = Math.min(stickyCatches + STICKY_CATCHES, 5);
     } else if (type === 'guided') {
         guidedTimer = GUIDED_SECONDS;
+        if (maze) addPopup(CANVAS_W / 2, 470, 'AIM! THE BALL HOMES IN ON A CHOMPER', '#c9a0ff', { size: 16, life: 2, rise: 0.15 });
     }
 }
 

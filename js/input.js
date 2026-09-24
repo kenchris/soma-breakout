@@ -301,6 +301,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (fsBtn) {
         fsBtn.addEventListener('click', toggleFullscreen);
     }
+    updateFullscreenBtn(); // (hidden when already running installed, fullscreen)
+    // Safari can still start a selection from a long press or a double tap despite the CSS; nothing here but
+    // the level-code box is text to select
+    document.addEventListener('selectstart', e => {
+        if (!(e.target instanceof Element) || !e.target.closest('input, textarea')) e.preventDefault();
+    });
 
     // stopPropagation for the same reason as the overlay button: #overlay's own click listener would
     // otherwise treat it as "tap anywhere to play again"
