@@ -187,7 +187,7 @@ function resetGame(startLevel = 1) {
     popups.length = 0;
     blasts.length = 0;
     warpRift = null;
-    warpTimer = warpInterval() + 60 * 20; // a fresh run gets ~20s of grace before the first rift can appear
+    warpTimer = warpInterval() + 60 * 8; // a fresh run gets ~8s of grace before the first rift can appear
 
     // Show the launch prompt
     showOverlay(getLaunchMessage(), 'Launch');

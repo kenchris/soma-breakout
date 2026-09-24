@@ -13,7 +13,7 @@
 // back after PRINCESS_HEAL_FRAMES without a hit, so only three hits close together fail it.
 // The ladders are launchers: a ball that touches one on its way up is fired at the ape (with a little
 // spread, so it hits more often than not).
-// Now and then a smashed barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME.
+// Now and then a hit barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME.
 // The music goes frantic, the ball becomes the hammer, spinning, every ladder becomes a sure hit for double
 // damage, and barrels landing on your paddle just break.
 
@@ -222,13 +222,18 @@ function smashBarrel(br, points, label) {
     noise(0.12, { vol: 0.2, from: 1800, to: 300, key: 'barrelSmash' });
     addShake(3);
     haptic(12);
+    if (!maybeDropHammer(br) && Math.random() < 0.12) spawnPowerup(br.x, br.y);
+}
+
+// Every barrel the player deals with, knocked back or smashed, counts toward a hammer: the 3rd always
+// drops one, and any later one might. (Only smashes used to count, and in normal play a hit barrel is
+// knocked back, not smashed, so the hammer almost never turned up.)
+function maybeDropHammer(br) {
     boss.smashed = (boss.smashed || 0) + 1;
-    const hammerDue = boss.smashed === 3 || Math.random() < KONG_HAMMER_DROP_CHANCE; // the 3rd always drops one
-    if (hammerDue && !boss.hammers.length && boss.hammerTime <= 0) {
-        boss.hammers.push({ x: br.x, y: br.y, vy: 2 });
-    } else if (Math.random() < 0.12) {
-        spawnPowerup(br.x, br.y);
-    }
+    const due = boss.smashed === 3 || (boss.smashed > 3 && Math.random() < KONG_HAMMER_DROP_CHANCE);
+    if (!due || boss.hammers.length || boss.hammerTime > 0) return false;
+    boss.hammers.push({ x: br.x, y: Math.min(br.y, paddle.y - 150), vy: 2 }); // high enough to see it coming
+    return true;
 }
 
 // --- The ape ---
@@ -494,6 +499,7 @@ function kickBarrel(br, nx, ny) {
     br.vy = (vy / vd) * BARREL_KICK_SPEED;
     br.trail = [];
     addScore(25 * (doubleTimer > 0 ? 2 : 1));
+    maybeDropHammer(br);
     tone(300, 0.18, { type: 'square', vol: 0.2, slideTo: 900, key: 'barrelKick' });
     spawnParticles(br.x, br.y, '#ffd23f', 6);
     haptic(12);

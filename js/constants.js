@@ -282,13 +282,13 @@ const WARP_MAX_STEPS = 5;
 
 const WARP_WARN_FRAMES = 90;   // 1.5s telegraph before it's live
 
-const WARP_LIFE_FRAMES = 480;  // ~8s to reach it once live, or it closes unused
+const WARP_LIFE_FRAMES = 720;  // ~12s to reach it once live, or it closes unused
 
-const WARP_R = 30;             // the rift's own visible/consuming size
+const WARP_R = 38;             // the rift's own visible/consuming size (big enough to spot on a phone)
 
-const WARP_PULL_R = 130;       // how far out it starts pulling the ball in
+const WARP_PULL_R = 150;       // how far out it starts pulling the ball in
 
-const WARP_PULL_MAX = 0.9;     // strongest pull, applied right at the edge of the rift itself
+const WARP_PULL_MAX = 1.1;     // strongest pull, applied right at the edge of the rift itself
 
 const WARP_ON_ALIEN_KILL_CHANCE = 0.5;
 
@@ -296,9 +296,9 @@ const WARP_TINT = '120, 90, 255'; // the rift's violet (see drawVortex in warpRi
 
 // --- Portal pairs (portals.js): ball in one, out the other, momentum kept ---
 const PORTAL_UNLOCK = 3;
-const PORTAL_R = WARP_R;            // the same size and gravity as a warp rift...
-const PORTAL_PULL_R = WARP_PULL_R;
-const PORTAL_PULL_MAX = WARP_PULL_MAX;
+const PORTAL_R = 30;                // the same kind of gravity as a warp rift (a bit smaller: there are two)...
+const PORTAL_PULL_R = 130;
+const PORTAL_PULL_MAX = 0.9;
 const PORTAL_EXIT_MIN_CLIMB = 0.5;  // ...and the ball always leaves the far one heading up, at least this steeply (|vy| / speed)
 const PORTAL_WARN_FRAMES = 75;
 const PORTAL_LIFE_FRAMES = 60 * 12;
