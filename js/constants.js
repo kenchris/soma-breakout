@@ -75,12 +75,12 @@ const LAYOUTS = [
     { name: 'Diamond', alive: (c, r) => Math.abs(c - CENTER_COL) / 2 + Math.abs(r - (BRICK_ROWS - 1) / 2) <= 3 }
 ];
 
-const INVADER_ART = [ // the game's own invader (see ALIEN_SPRITES), redrawn to fit the 12 x 6 brick grid
-    '.....XX.....',
+const INVADER_ART = [ // the game's own bunny-eared invader (see ALIEN_SPRITES), redrawn for the 12 x 6 brick grid
+    '.X........X.',
+    '.XX......XX.',
     '..XXXXXXXX..',
     '.XX..XX..XX.',
     'XXXXXXXXXXXX',
-    'X.XX.XX.XX.X',
     'X..X....X..X'
 ];
 
@@ -386,11 +386,11 @@ const ALIEN_H = 24;
 
 const ALIEN_COLOR = '#5CFF7A';
 
-// Our own invader, in the classic two-frame arcade style (the same 11 x 8 grid): a squid-like alien with a
-// single antenna, big two-cell eyes and tentacles that wiggle between the frames
+// Our own invader, in the classic two-frame arcade style (the same 11 x 8 grid): a round bunny-eared alien
+// with big 2x2 eyes, whose ears twitch and arms wave between the frames
 const ALIEN_SPRITES = [
-    ['00000100000', '00001110000', '00111111100', '01100100110', '11111111111', '11111111111', '10110101101', '10010001001'],
-    ['00000100000', '00001110000', '00111111100', '01100100110', '11111111111', '11111111111', '01011011010', '01000000010']
+    ['01000000010', '01100000110', '00111111100', '01100100110', '11100100111', '11111111111', '01111111110', '10010001001'],
+    ['00100000100', '01100000110', '10111111101', '11100100111', '01100100110', '01111111110', '00111111100', '01000000010']
 ];
 
 // -- Paddle holes --

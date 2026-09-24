@@ -114,7 +114,7 @@ const BOSS_H = 8 * BOSS_CELL;
 const BOSS_COLOR = '#a45cff';
 const BOSS_LIGHT = '#d4adff';
 const BOSS_DARK = '#6a2fc0';
-const BOSS_EYES = [[3, 3], [4, 3], [6, 3], [7, 3]]; // the empty cells in the face (two-cell eyes)
+const BOSS_EYES = [[3, 3], [6, 3]]; // top-left cell of each 2x2 eye hole in the face
 const BOSS_HATCH = { x: -40, y: 16, w: 80, h: 16 }; // relative to the boss's origin: row 5, columns 3-7
 const BOSS_RUNS = (() => { // [row, firstCol, lastCol] for each unbroken run of solid cells in either frame
     const runs = [];
@@ -148,12 +148,14 @@ function paintBossSprite(g, frame) {
     }
     // Eyes: glowing red in the holes of the face
     for (const [c, r] of BOSS_EYES) {
+        const x = c * C, y = r * C, S = 2 * C; // each eye fills its whole 2x2 hole
         g.fillStyle = '#5a0010';
-        g.fillRect(c * C, r * C, C, C);
+        g.fillRect(x, y, S, S);
         g.fillStyle = '#ff4d6a';
-        g.fillRect(c * C + 3, r * C + 3, C - 6, C - 6);
-        g.fillStyle = '#ffd0d8';
-        g.fillRect(c * C + 3, r * C + 3, 4, 4);
+        g.fillRect(x + 4, y + 4, S - 8, S - 8);
+        g.fillStyle = '#ffd0d8'; // a big glint, for a cute look
+        g.fillRect(x + 7, y + 7, 7, 7);
+        g.fillRect(x + S - 12, y + S - 12, 3, 3);
     }
     // The weak point: an amber hatch, bevelled, marked x3
     const hx = BOSS_W / 2 + BOSS_HATCH.x, hy = BOSS_H / 2 + BOSS_HATCH.y;
