@@ -226,7 +226,7 @@ function loseLife() {
     // surprise event is often what causes the ball to be lost in the first place, and cutting it short
     // right then would mean never really getting to react to it
     bossBreather();
-    mazeBreather(); // the ghosts go home
+    mazeBreather(); // the ghosts go back to their pen
     addShake(7);
     haptic(70, true);
     if (lives === 0) {
@@ -820,7 +820,10 @@ function snapshotMovers() {
     for (const s of alienBullets) add(s);
     for (const w of movingWalls) add(w);
     if (boss && bossHooks().movers) bossHooks().movers().forEach(add);
-    if (maze) maze.ghosts.forEach(add);
+    if (maze) {
+        maze.ghosts.forEach(add);
+        add(maze.chomper);
+    }
     paddleStepX = paddle.x;
 }
 

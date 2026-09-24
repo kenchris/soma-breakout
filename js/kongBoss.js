@@ -1,12 +1,13 @@
 // === kongBoss.js ===
 // --- Kong boss: "Space Kong" ---
 // A giant space gorilla in a bubble helmet stands on top of a Donkey Kong-style tower of space-station
-// girders and fights you by throwing alien invaders, curled up into balls. (In the code they're still
-// "barrels", which is what they are to the girders.) They roll down the sloped girders, drop off each end
-// onto the next one down (or, now and then, down a ladder gap), and finally fall at your paddle: one that
-// lands on it punches a hole. The ball smashes them. From phase 2 it also hurls "wild" pink invaders,
-// uncurled and flailing, straight at you through the girders, and when ENRAGED it pounds its chest, which
-// bounces every invader on the tower and hurries them along.
+// girders and fights you with barrels. They roll down the sloped girders, drop off each end onto the next
+// one down (or, now and then, down a ladder gap), and finally fall at your paddle: one that lands on it
+// punches a hole. From phase 2 it also hurls blue steel barrels straight at you through the girders, and
+// when ENRAGED it pounds its chest, which bounces every barrel on the tower and hurries them along.
+// The barrels are also your best weapon: hit one from below and it flies back up at the ape (steered a
+// little toward it, straight through the girders) for heavy damage, smashing any barrel in its way.
+// A ball hitting one from above just smashes it.
 // To hurt it you have to get the ball up to it: the girders are solid, but the ball slips through the
 // ladder gaps and around the girder ends. A hammer hangs on the left of the tower; knock it down with the
 // ball and catch it for HAMMER TIME: for a few seconds your paddle smashes any barrel that lands on it.
@@ -16,7 +17,9 @@ const KONG_H = 72;
 const KONG_X = CANVAS_W / 2;       // it stands in the middle of the top girder
 const KONG_FEET_Y = 172;
 const GIRDER_HALF = 6;             // half the beam's thickness
-const BARREL_R = 12;
+const BARREL_R = 14;
+const BARREL_KICK_SPEED = 8;
+const BARREL_KICK_DAMAGE = 3;
 const BARREL_GRAVITY = 0.18;
 const BARREL_MAX_FALL = 6;
 const KONG_HAMMER_SECONDS = 8;
@@ -29,10 +32,10 @@ const KONG_TAN = '#e8b27a';
 const KONG_GIRDERS = [
     // Just a ledge under its feet: a ball that makes it up the tower can smack it from below or the sides
     { x0: 380, y0: KONG_FEET_Y, x1: 540, y1: KONG_FEET_Y, gaps: [] },
-    { x0: 60, y0: 225, x1: 760, y1: 252, gaps: [[170, 222], [480, 532]] },
-    { x0: 140, y0: 338, x1: 840, y1: 311, gaps: [[300, 352], [620, 672]] },
-    { x0: 60, y0: 398, x1: 760, y1: 425, gaps: [[210, 262], [540, 592]] },
-    // The princess's perch, up in the corner, out of the invaders' way
+    { x0: 90, y0: 225, x1: 740, y1: 250, gaps: [[170, 234], [466, 530]] },
+    { x0: 160, y0: 336, x1: 810, y1: 311, gaps: [[300, 364], [606, 670]] },
+    { x0: 90, y0: 398, x1: 740, y1: 423, gaps: [[216, 280], [536, 600]] },
+    // The princess's perch, up in the corner, out of the barrels' way
     { x0: 40, y0: 128, x1: 140, y1: 128, gaps: [] }
 ];
 
@@ -100,7 +103,7 @@ function kongPhase() {
 }
 
 function spawnKongBoss(n) {
-    const hp = 10 + 4 * n; // 22 on its debut
+    const hp = 12 + 5 * n; // 27 on its debut
     boss = {
         kind: 'kong', n, hp, maxHp: hp, x: KONG_X, y: -KONG_H, intro: 110, dying: 0, cool: 0, flash: 0, t: 0,
         barrels: [], throwIn: 150, pose: 'idle', poseT: 0, pending: null, lastPhase: 1, pound: 0,
@@ -130,7 +133,7 @@ function throwWildBarrel(tx) {
     const d = Math.hypot(tx - x0, paddle.y - y0);
     boss.barrels.push({ state: 'wild', x: x0, y: y0, vx: (tx - x0) / d * speed, vy: (paddle.y - y0) / d * speed, spin: 0, wild: true });
     tone(420, 0.2, { type: 'sawtooth', vol: 0.2, slideTo: 140, key: 'kongWild' });
-    bossTip('wild', 'PINK INVADERS COME STRAIGHT AT YOU!', 440);
+    bossTip('wild', 'BLUE BARRELS COME STRAIGHT AT YOU!', 440);
 }
 
 function barrelLimit() {
@@ -190,6 +193,9 @@ function updateBarrels() {
             br.x += br.vx * timeScale;
             br.y += br.vy * timeScale;
             if (br.x < BARREL_R || br.x > CANVAS_W - BARREL_R) br.vx = -br.vx;
+        } else if (br.state === 'kick') {
+            updateKickedBarrel(br);
+            continue;
         }
         // Down at the paddle
         if (!br.dead && br.state !== 'roll' && br.y > paddle.y - BARREL_R - 4 && br.y < paddle.y + paddle.h + BARREL_R) {
@@ -202,9 +208,9 @@ function updateBarrels() {
                     blockMirrorBolt(br.x);
                 } else {
                     punchHole(br.x, BOSS_HOLE_SECONDS);
-                    bossTip('smash', 'SMASH THE ROLLING INVADERS BEFORE THEY LAND!', 440);
+                    bossTip('smash', 'HIT BARRELS FROM BELOW TO KNOCK THEM BACK AT KONG!', 440);
                 }
-                spawnParticles(br.x, br.y, br.wild ? '#ff4dd8' : ALIEN_COLOR, 10);
+                spawnParticles(br.x, br.y, br.wild ? '#5b8cff' : '#c0782e', 10);
             }
         }
         if (br.y > CANVAS_H + 30) br.dead = true;
@@ -216,9 +222,9 @@ function smashBarrel(br, points, label) {
     br.dead = true;
     const pts = points * (doubleTimer > 0 ? 2 : 1);
     addScore(pts);
-    addPopup(br.x, br.y - 16, (label ? label + ' ' : '') + '+' + pts, br.wild ? '#ff9ae8' : '#9dffb0', { size: 15, life: 0.8 });
-    spawnParticles(br.x, br.y, br.wild ? '#ff4dd8' : ALIEN_COLOR, 12);
-    sfxAlienDie();
+    addPopup(br.x, br.y - 16, (label ? label + ' ' : '') + '+' + pts, br.wild ? '#9fc0ff' : '#ffc07a', { size: 15, life: 0.8 });
+    spawnParticles(br.x, br.y, br.wild ? '#5b8cff' : '#c0782e', 12);
+    noise(0.12, { vol: 0.2, from: 1800, to: 300, key: 'barrelSmash' });
     addShake(3);
     haptic(12);
     if (Math.random() < 0.15) spawnPowerup(br.x, br.y);
@@ -271,7 +277,7 @@ function kongPound() {
         br.vx = girderDownhill(KONG_GIRDERS[br.g]) * barrelRollSpeed() * 1.4;
         br.vy = -3.2;
     }
-    bossTip('pound', 'IT POUNDS ITS CHEST: THE INVADERS GO FLYING!', 440);
+    bossTip('pound', 'IT POUNDS ITS CHEST: THE BARRELS GO FLYING!', 440);
 }
 
 function updateKongHammer() {
@@ -328,7 +334,7 @@ function updateKongBoss() {
     }
     updateBarrels();
     updateKongHammer();
-    if (B.t === 115) bossTip('ladders', 'BASH THE APE! THE BALL GOES UP THROUGH THE LADDERS', 470);
+    if (B.t === 115) bossTip('kick', 'HIT BARRELS FROM BELOW: THEY FLY BACK AT KONG!', 470);
 }
 
 function kongBallCollision(b) {
@@ -348,8 +354,12 @@ function kongBallCollision(b) {
         if (br.dead) continue;
         const dx = b.x - br.x, dy = b.y - br.y;
         if (dx * dx + dy * dy >= (b.r + BARREL_R) * (b.r + BARREL_R)) continue;
+        if (br.state === 'kick') continue; // already on its way up
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
         if (fireTimer <= 0) bounceOffCircle(b, br.x, br.y, BARREL_R);
-        smashBarrel(br, br.wild ? 75 : 50);
+        // Struck from below: it flies back up at the ape. From above or the side: it just breaks.
+        if (-dy / d > 0.25 && B.dying <= 0) kickBarrel(br, -dx / d, -dy / d);
+        else smashBarrel(br, br.wild ? 75 : 50);
         break;
     }
     keepWhere(B.barrels, br => !br.dead);
@@ -368,7 +378,6 @@ function kongBallCollision(b) {
     const hit = rectContact(b, k.x, k.y, k.w, k.h);
     if (!hit) return;
     B.cool = 10;
-    B.flash = 8;
     let dmg = fireTimer > 0 ? 2 : 1;
     if (explosiveReady) {
         explosiveReady = false;
@@ -376,21 +385,84 @@ function kongBallCollision(b) {
         addBlast(b.x, b.y);
         boom();
     }
+    if (fireTimer <= 0) bounceOffRect(b, k.x, k.y, k.w, k.h, hit);
+    hurtKong(dmg, b.x, b.y, '-' + dmg);
+}
+
+function hurtKong(dmg, x, y, label) {
+    const B = boss;
+    B.flash = 8;
     B.hp -= dmg;
     addScore(20 * dmg * (doubleTimer > 0 ? 2 : 1));
-    addPopup(b.x, b.y - 14, '-' + dmg, '#ffffff', { size: 18, life: 0.9, pop: dmg > 1 });
-    spawnParticles(b.x, b.y, KONG_BROWN, 8);
+    addPopup(x, y - 14, label, '#ffffff', { size: dmg > 1 ? 22 : 18, life: 0.9, pop: dmg > 1 });
+    spawnParticles(x, y, KONG_BROWN, 8 + 2 * dmg);
     tone(140, 0.15, { type: 'square', vol: 0.25, slideTo: 90, key: 'kongHurt' });
-    addShake(4);
-    haptic(20);
-    if (fireTimer <= 0) bounceOffRect(b, k.x, k.y, k.w, k.h, hit);
-    if (B.pending && B.pending.kind !== 'pound') { // a hit knocks the invader out of its hands
+    addShake(3 + dmg);
+    haptic(20 * dmg, dmg > 1);
+    if (B.pending && B.pending.kind !== 'pound') { // a hit knocks the barrel out of its hands
         B.pending = null;
         B.pose = 'idle';
         B.throwIn = 60;
     }
     if (B.hp <= 0) killKong();
     else checkKongPhase();
+}
+
+// Knocked back up: it flies off the way it was struck, bent toward the ape and homing in on it, straight
+// through the girders
+function kickBarrel(br, nx, ny) {
+    const k = kongBox();
+    let tx = k.x + k.w / 2 - br.x, ty = k.y + k.h / 2 - br.y;
+    const td = Math.hypot(tx, ty) || 1;
+    let vx = nx * 0.35 + (tx / td) * 0.65, vy = ny * 0.35 + (ty / td) * 0.65;
+    const vd = Math.hypot(vx, vy) || 1;
+    br.state = 'kick';
+    br.vx = (vx / vd) * BARREL_KICK_SPEED;
+    br.vy = (vy / vd) * BARREL_KICK_SPEED;
+    br.trail = [];
+    addScore(25 * (doubleTimer > 0 ? 2 : 1));
+    tone(300, 0.18, { type: 'square', vol: 0.2, slideTo: 900, key: 'barrelKick' });
+    spawnParticles(br.x, br.y, '#ffd23f', 6);
+    haptic(12);
+}
+
+function updateKickedBarrel(br) {
+    const B = boss;
+    br.trail.push({ x: br.x, y: br.y });
+    if (br.trail.length > 6) br.trail.shift();
+    // It homes in on the ape as it flies (knocking one back should feel like it's going to land)
+    if (B.dying <= 0) {
+        const k = kongBox();
+        const want = Math.atan2(k.y + k.h / 2 - br.y, k.x + k.w / 2 - br.x);
+        const cur = Math.atan2(br.vy, br.vx);
+        const diff = Math.atan2(Math.sin(want - cur), Math.cos(want - cur));
+        const a = cur + Math.max(-0.07, Math.min(0.07, diff)) * timeScale;
+        br.vx = Math.cos(a) * BARREL_KICK_SPEED;
+        br.vy = Math.sin(a) * BARREL_KICK_SPEED;
+    }
+    br.x += br.vx * timeScale;
+    br.y += br.vy * timeScale;
+    br.spin += 0.5 * timeScale;
+    if (br.x < BARREL_R || br.x > CANVAS_W - BARREL_R) br.vx = -br.vx;
+    if (br.y < -BARREL_R * 2 || br.y > CANVAS_H + 30) {
+        br.dead = true;
+        return;
+    }
+    // Anything in its way gets smashed
+    for (const o of B.barrels) {
+        if (o === br || o.dead || o.state === 'kick') continue;
+        if (Math.hypot(o.x - br.x, o.y - br.y) < BARREL_R * 2) smashBarrel(o, 75, 'CRASH!');
+    }
+    // BONK
+    if (B.dying > 0 || B.intro > 0) return;
+    const k = kongBox();
+    if (br.x + BARREL_R > k.x && br.x - BARREL_R < k.x + k.w && br.y + BARREL_R > k.y && br.y - BARREL_R < k.y + k.h) {
+        br.dead = true;
+        addBlast(br.x, br.y);
+        spawnParticles(br.x, br.y, '#c0782e', 14);
+        noteMoment(45, 'BARREL BONK!');
+        hurtKong(BARREL_KICK_DAMAGE, br.x, br.y, 'BONK! -' + BARREL_KICK_DAMAGE);
+    }
 }
 
 function checkKongPhase() {
@@ -407,7 +479,7 @@ function checkKongPhase() {
 
 function kongBreather() {
     const B = boss;
-    for (const br of B.barrels) spawnParticles(br.x, br.y, ALIEN_COLOR, 6);
+    for (const br of B.barrels) spawnParticles(br.x, br.y, '#c0782e', 6);
     B.barrels.length = 0;
     B.pending = null;
     B.pose = 'idle';
@@ -420,7 +492,7 @@ function killKong() {
     B.pending = null;
     for (const br of B.barrels) {
         addBlast(br.x, br.y);
-        spawnParticles(br.x, br.y, ALIEN_COLOR, 8);
+        spawnParticles(br.x, br.y, '#c0782e', 8);
     }
     B.barrels.length = 0;
     addShake(12);
@@ -533,57 +605,57 @@ function paintGirders(g) {
     }
 }
 
-// A rolling invader: one of the regular green invaders curled up into a ball, its face peeking out
-let invaderBallSprite = null;
+// Barrels, in pixel art at 2px a pixel: a round wooden barrel with iron hoops. Three frames per colour, the
+// staves shifting one step each, so it looks like it's rolling without blurring the pixels by rotating.
+// Wooden ones roll down the girders; the blue steel ones are the wild throws.
+const BARREL_PALETTES = {
+    wood: { wood: '#c0782e', stave: '#8f531c', light: '#e8a860', hoop: '#3b3550', hoopLight: '#8a86a8', rim: '#4a260a' },
+    steel: { wood: '#3d6bd6', stave: '#2a4aa0', light: '#8fb0ff', hoop: '#1a1f40', hoopLight: '#c9d2ff', rim: '#101838' }
+};
+const barrelSprites = {};
 
-function rollingInvaderSprite() {
-    if (!invaderBallSprite) {
-        invaderBallSprite = makeSprite(BARREL_R * 2 + 2, BARREL_R * 2 + 2, g => {
-            const c = BARREL_R + 1;
-            g.fillStyle = '#1f7a36';
-            g.beginPath();
-            g.arc(c, c, BARREL_R, 0, Math.PI * 2);
-            g.fill();
-            g.save();
-            g.clip();
-            g.fillStyle = ALIEN_COLOR; // its body, pixel for pixel, squashed round
-            const art = ALIEN_SPRITES[0];
-            for (let r = 0; r < 8; r++) for (let col = 0; col < 11; col++) if (art[r][col] === '1') g.fillRect(c - 11 + col * 2, c - 8 + r * 2, 2, 2);
-            g.restore();
-            g.strokeStyle = '#b8ffc6';
-            g.lineWidth = 1.5;
-            g.beginPath();
-            g.arc(c, c, BARREL_R - 0.5, 0, Math.PI * 2);
-            g.stroke();
+function barrelSprite(wild, frame) {
+    const key = (wild ? 's' : 'w') + frame;
+    if (!barrelSprites[key]) {
+        const P = BARREL_PALETTES[wild ? 'steel' : 'wood'];
+        const N = BARREL_R; // cells across (2px each)
+        barrelSprites[key] = makeSprite(N * 2, N * 2, g => {
+            const c = (N - 1) / 2;
+            for (let y = 0; y < N; y++) {
+                for (let x = 0; x < N; x++) {
+                    const d = Math.hypot(x - c, (y - c) * 1.08);
+                    if (d > c + 0.5) continue;
+                    let col = P.wood;
+                    if (d > c - 0.6) col = P.rim;
+                    else if (y === 3 || y === N - 4) col = P.hoop;
+                    else if (y === 2 || y === N - 5) col = P.hoopLight;
+                    else if ((x + frame) % 4 === 0) col = P.stave;
+                    else if (x < c - 1 && y < c - 1 && x + y < c) col = P.light;
+                    g.fillStyle = col;
+                    g.fillRect(x * 2, y * 2, 2, 2);
+                }
+            }
         });
     }
-    return invaderBallSprite;
+    return barrelSprites[key];
 }
 
-const WILD_INVADER_COLOR = '#ff4dd8';
-
-// A rolling invader spins as it rolls; a wild one flails its legs, uncurled
-function drawThrownInvader(br, x, y) {
-    if (br.wild) {
-        const sp = alienSprite(Math.floor(br.spin * 2) % 2, WILD_INVADER_COLOR);
+// A barrel; a kicked one flies with a hot streak behind it and spins fast
+function drawBarrel(br, x, y) {
+    if (br.state === 'kick' && br.trail) {
         ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(Math.sin(br.spin * 1.5) * 0.35);
-        ctx.globalAlpha = 0.35;
-        ctx.fillStyle = WILD_INVADER_COLOR;
-        ctx.beginPath();
-        ctx.arc(0, 0, BARREL_R + 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.drawImage(sp, -sp.width / 2, -sp.height / 2);
+        ctx.globalCompositeOperation = 'lighter';
+        br.trail.forEach((t, i) => {
+            ctx.globalAlpha = 0.12 + 0.06 * i;
+            ctx.fillStyle = '#ff9a1f';
+            ctx.beginPath();
+            ctx.arc(t.x, t.y, BARREL_R * (0.5 + 0.08 * i), 0, Math.PI * 2);
+            ctx.fill();
+        });
         ctx.restore();
-        return;
     }
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(br.spin);
-    ctx.drawImage(rollingInvaderSprite(), -BARREL_R - 1, -BARREL_R - 1);
-    ctx.restore();
+    const frame = ((Math.floor(br.spin * 2) % 3) + 3) % 3;
+    ctx.drawImage(barrelSprite(br.wild, frame), Math.round(x - BARREL_R), Math.round(y - BARREL_R));
 }
 
 // The princess, in pixel art at 3px: crown, golden hair, big eyes and a pink gown
@@ -687,12 +759,12 @@ function drawKongBoss() {
         ctx.restore();
         // The barrel it's about to throw, held up high
         if (B.pending && B.pending.kind !== 'pound') {
-            drawThrownInvader({ wild: B.pending.kind === 'wild', spin: B.t / 10 }, B.x, B.y - KONG_H - BARREL_R + 2);
+            drawBarrel({ wild: B.pending.kind === 'wild', spin: 0 }, B.x, B.y - KONG_H - BARREL_R + 4);
         }
         // A wild barrel's aim, so you can get out of the way
         if (B.pending && B.pending.kind === 'wild') {
             ctx.save();
-            ctx.strokeStyle = 'rgba(255, 77, 216, 0.45)';
+            ctx.strokeStyle = 'rgba(120, 170, 255, 0.5)';
             ctx.setLineDash([5, 7]);
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -703,8 +775,8 @@ function drawKongBoss() {
         }
     }
 
-    // The thrown invaders
-    for (const br of B.barrels) drawThrownInvader(br, br.x, br.y + (br.state === 'roll' ? shakeY : 0));
+    // Barrels
+    for (const br of B.barrels) drawBarrel(br, br.x, br.y + (br.state === 'roll' ? shakeY : 0));
 }
 
 function drawHammerGlyph(x, y, angle) {
