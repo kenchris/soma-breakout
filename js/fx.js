@@ -51,18 +51,27 @@ function spawnParticles(x, y, color, count = 12) {
 // Particles, blasts, popups and the intro card advance once per simulation step (see tickFx in main.js)
 // and are only drawn here, since the game draws on every display refresh, not every step.
 function updateParticles() {
-    for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
+    keepWhere(particles, p => {
         p.x += p.vx;
         p.y += p.vy;
-        if (--p.life <= 0) particles.splice(i, 1);
-    }
+        return --p.life > 0;
+    });
 }
 
+// A burst's particles share a colour and sit together in the list, so each run of one colour goes out as
+// a single path and fill, with fillStyle (a CSS string the canvas has to parse) set once per run rather
+// than once per particle
 function drawParticles() {
-    for (const p of particles) {
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+    let i = 0;
+    while (i < particles.length) {
+        const color = particles[i].color;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        for (; i < particles.length && particles[i].color === color; i++) {
+            const p = particles[i];
+            ctx.rect(p.x - 2, p.y - 2, 4, 4);
+        }
+        ctx.fill();
     }
 }
 
@@ -93,12 +102,11 @@ function addBlast(x, y) {
 // Shockwave rings: expand and fade (frame-based, like popups and particles)
 
 function updateBlasts() {
-    for (let i = blasts.length - 1; i >= 0; i--) {
-        const b = blasts[i];
+    keepWhere(blasts, b => {
         b.r += 5;
         b.life -= 0.06;
-        if (b.life <= 0) blasts.splice(i, 1);
-    }
+        return b.life > 0;
+    });
 }
 
 function drawBlasts() {
@@ -231,12 +239,11 @@ function comboShout(mult, x, y) {
 
 
 function updatePopups() {
-    for (let i = popups.length - 1; i >= 0; i--) {
-        const p = popups[i];
+    keepWhere(popups, p => {
         p.y -= p.rise;
         p.life -= 0.02;
-        if (p.life <= 0) popups.splice(i, 1);
-    }
+        return p.life > 0;
+    });
 }
 
 function drawPopups() {

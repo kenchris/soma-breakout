@@ -2,19 +2,21 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
-function spawnPowerup(x, y) {
-    // Weighted pick among the powerups unlocked by this level
-    const pool = POWERUP_TYPES.filter(p => unlockLevel() >= (POWERUP_UNLOCK[p.type] || 1));
-    let roll = Math.random() * pool.reduce((sum, p) => sum + p.weight, 0);
-    let t = pool[pool.length - 1];
-    for (const p of pool) {
-        roll -= p.weight;
-        if (roll < 0) {
-            t = p;
-            break;
-        }
-    }
+// The powerups this level can drop
+function unlockedPowerups() {
+    const unlocked = unlockLevel();
+    return POWERUP_TYPES.filter(p => unlocked >= (POWERUP_UNLOCK[p.type] || 1));
+}
+
+// A falling capsule of one particular powerup (bricks, crates, rocks and row clears all drop the same kind)
+function dropPowerup(type, x, y) {
+    const t = POWERUP_TYPES.find(p => p.type === type);
     powerups.push({ x: x, y: y, type: t.type, label: t.label, color: t.color, vy: 2.5 });
+}
+
+// A random drop: weighted pick among the powerups unlocked by this level
+function spawnPowerup(x, y) {
+    dropPowerup(weightedPick(unlockedPowerups()).type, x, y);
 }
 
 

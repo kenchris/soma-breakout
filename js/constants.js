@@ -61,7 +61,27 @@ const LAYOUTS = [
     },
     { name: 'Diagonals', alive: (c, r) => (c + r) % 4 < 2 },
     { name: 'Lattice', alive: (c, r) => r % 2 === 0 || c % 2 === 0 }, // solid rows alternate with checkered gaps
-    { name: 'Funnel', alive: (c, r) => Math.abs(c - CENTER_COL) <= (BRICK_ROWS - r) + 0.2 } // inverted pyramid
+    { name: 'Funnel', alive: (c, r) => Math.abs(c - CENTER_COL) <= (BRICK_ROWS - r) + 0.2 }, // inverted pyramid
+    // Wide at the top and bottom, pinched in the middle: the ball has to squeeze through the waist
+    { name: 'Hourglass', alive: (c, r) => Math.abs(c - CENTER_COL) <= 1 + 2 * Math.abs(r - (BRICK_ROWS - 1) / 2) },
+    // A space invader, drawn in bricks (see INVADER_ART)
+    { name: 'Invader', alive: (c, r) => INVADER_ART[r][c] === 'X' },
+    // A hollow keep: an outer ring, empty moat, and a core that is only reachable through the ring
+    {
+        name: 'Fortress',
+        alive: (c, r) => r === 0 || r === BRICK_ROWS - 1 || c <= 1 || c >= BRICK_COLS - 2 || (r >= 2 && r <= 3 && c >= 4 && c <= 7)
+    },
+    { name: 'Chevrons', alive: (c, r) => (r + Math.floor(Math.abs(c - CENTER_COL))) % 3 < 2 }, // V-shaped stripes
+    { name: 'Diamond', alive: (c, r) => Math.abs(c - CENTER_COL) / 2 + Math.abs(r - (BRICK_ROWS - 1) / 2) <= 3 }
+];
+
+const INVADER_ART = [
+    '..X......X..',
+    '...XXXXXX...',
+    '..XX.XX.XX..',
+    '.XXXXXXXXXX.',
+    '.X.XXXXXX.X.',
+    '...XX..XX...'
 ];
 
 const STEEL_STYLES = ['top row', 'clusters', 'diagonal'];
@@ -81,7 +101,7 @@ const ROW_STYLES = [
 // The main game's curve, in curve levels (see curveLevel in level.js): level N after the tutorial is curve
 // level N - TUTORIAL_LEVELS. Everything up to UNLOCK.chaos is taught by the tutorial and in play from the
 // first level after it.
-const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7, cheat: 2 };
+const UNLOCK = { tnt: 2, walls: 3, aliens: 3, chaos: 4, bumpers: 4, reverse: 6, fullFlip: 8, boss: 5, tetris: 7, cheat: 2 };
 
 // --- Levels 1-5: the tutorial ---
 // Five short levels with only a handful of bricks, each showing one new thing, before the main game.
@@ -216,6 +236,7 @@ const LEVEL_INTROS = {
     4: { title: 'NEW: WEIRD EVENTS', lines: ['Now and then the world flips or changes speed'] },
     5: { title: 'NEW: LEVEL CODES', lines: ['Catch what falls from the gold ? brick', 'Grey steel bricks take two hits'] },
     6: { title: 'TRAINING OVER', lines: ['Every 5th level is a boss fight'] },
+    9: { title: 'NEW: BUMPERS', lines: ['Pinball bumpers kick the ball away faster', 'Every hit scores. They never break'] },
     10: { lines: ['New drop: Split Paddle'] }, // joins the boss card (level 10 is the first boss)
     11: { title: 'NEW: MIND FLIPS', lines: ['Your controls may reverse'] },
     13: { title: 'NEW: FULL FLIP', lines: ['The whole screen may turn over'] }
@@ -276,6 +297,15 @@ const PORTAL_PULL_MAX = WARP_PULL_MAX;
 const PORTAL_EXIT_MIN_CLIMB = 0.5;  // ...and the ball always leaves the far one heading up, at least this steeply (|vy| / speed)
 const PORTAL_WARN_FRAMES = 75;
 const PORTAL_LIFE_FRAMES = 60 * 12;
+
+// --- Pinball bumpers (bumpers.js): unbreakable round posts in the open band above the paddle ---
+const BUMPER_R = 18;
+const BUMPER_POINTS = 10;
+const BUMPER_KICK = 1.12;       // each hit speeds the ball up by this much...
+const BUMPER_KICK_CAP = 1.35;   // ...up to this multiple of the level's normal ball speed (a paddle bounce resets it)
+const BUMPER_MIN_CLIMB = 0.3;   // the ball always leaves a bumper at least this steep (|vy| / speed), never flat
+const BUMPER_COLOR = '#ff2fb4';
+const BUMPER_CAP_COLOR = '#2de2e6';
 
 const TETRIS_COLORS = ['#00e5ff', '#ffd23f', '#b56bff', '#4de08c', '#ff5a5a', '#3d7bff', '#ff9a2e', '#e05cff'];
 

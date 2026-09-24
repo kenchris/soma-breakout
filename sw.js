@@ -2,7 +2,7 @@
 // list below changes (a new js/*.js file added/removed); code changes reach players on their next load
 // anyway (see the network-first fetch handler below). This is a static site with no build step, so this
 // list is maintained by hand, same as the <script> tags in index.html.
-const CACHE_VERSION = 'v24';
+const CACHE_VERSION = 'v25';
 const CACHE_NAME = 'breakout-' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -13,6 +13,7 @@ const APP_SHELL = [
     './js/asteroidsBoss.js',
     './js/audio.js',
     './js/boss.js',
+    './js/bumpers.js',
     './js/chaos.js',
     './js/constants.js',
     './js/crates.js',
@@ -23,6 +24,7 @@ const APP_SHELL = [
     './js/level.js',
     './js/main.js',
     './js/music.js',
+    './js/physics.js',
     './js/pongBoss.js',
     './js/portals.js',
     './js/powerups.js',

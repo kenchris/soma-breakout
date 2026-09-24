@@ -339,155 +339,161 @@ function collectBlast(c, r, armed) {
 }
 
 
+// Ball vs the brick grid. Only the few cells under the ball can touch it, so only those are tested (the
+// bricks never leave their grid cells). A normal ball hits ONE brick per step, the one it is deepest into:
+// it used to take every brick it touched and flip its direction once for each, so a ball striking the seam
+// between two bricks flipped twice (i.e. not at all) and ploughed on into the next row. A fire ball
+// pierces, so it takes all of them.
 function collisionDetection(b) {
     const onFire = fireTimer > 0;
-    for (let c = 0; c < BRICK_COLS; c++) {
-        for (let r = 0; r < BRICK_ROWS; r++) {
+    const c0 = Math.max(0, Math.floor((b.x - b.r - BRICK_OFFSET_LEFT) / BRICK_W));
+    const c1 = Math.min(BRICK_COLS - 1, Math.floor((b.x + b.r - BRICK_OFFSET_LEFT) / BRICK_W));
+    const r0 = Math.max(0, Math.floor((b.y - b.r - BRICK_OFFSET_TOP) / BRICK_H));
+    const r1 = Math.min(BRICK_ROWS - 1, Math.floor((b.y + b.r - BRICK_OFFSET_TOP) / BRICK_H));
+    let best = null;
+    for (let c = c0; c <= c1; c++) {
+        for (let r = r0; r <= r1; r++) {
             const brick = bricks[c][r];
-            if (brick.alive) {
-                // Circle-AABB test: closest point on the brick's AABB to the ball center
-                const cx = Math.max(brick.x, Math.min(b.x, brick.x + brick.w));
-                const cy = Math.max(brick.y, Math.min(b.y, brick.y + brick.h));
-                const dx = b.x - cx;
-                const dy = b.y - cy;
-                if (dx * dx + dy * dy < b.r * b.r) {
-                    // Check if hit brick is a two-hit steel brick with hits left
-                    const wasExplosive = explosiveReady;
-                    explosiveReady = false;
-
-                    // If it's a steel brick with 2 hits left and NOT hit by explosive burst or a fire ball:
-                    // First hit cracks it, does not destroy it, awards 0 points
-                    if (brick.steel && brick.hitsLeft > 1 && !wasExplosive && !onFire) {
-                        brick.hitsLeft--;
-                        brick.crack = makeCrack(brick, b.x, b.y);
-                        bakeCrack(brick);
-                        brick.flash = 6;
-                        clink();
-                        addShake(2);
-                        haptic(12);
-                        spawnParticles(b.x, b.y, '#B0C4DE');
-                        addPopup(brick.x + brick.w / 2, brick.y + brick.h / 2, 'CRACK!', '#E0E0E0', { life: 0.8 });
-
-                        // Rebound ball
-                        if (Math.abs(dx) > Math.abs(dy)) {
-                            b.vx *= -1;
-                        } else {
-                            b.vy *= -1;
-                        }
-                        return;
-                    }
-
-                    // Brick destruction (1-hit brick, cracked steel second hit, fire ball, explosive, or TNT)
-                    const { targets, tnt, centers } = collectBlast(c, r, wasExplosive);
-                    const wasBlast = wasExplosive || tnt > 0;
-                    for (const center of centers) {
-                        addBlast(center.x + center.w / 2, center.y + center.h / 2);
-                    }
-
-                    // Combo: bricks broken in a row since the last paddle bounce,
-                    // multiplier capped at x5 (applied to every brick in the burst)
-                    combo++;
-                    runStats.maxCombo = Math.max(runStats.maxCombo, combo);
-                    const mult = Math.min(combo, COMBO_MAX);
-                    const scoreMult = doubleTimer > 0 ? 2 : 1;
-                    let totalEarned = 0;
-                    let destroyed = 0;
-                    let cheatBrickAt = null; // centre of a cheat-code brick caught in this hit, if any
-                    for (const [tc, tr] of targets) {
-                        const t = bricks[tc][tr];
-                        if (!t.alive) continue;
-                        if (t.cheat) cheatBrickAt = { x: t.x + t.w / 2, y: t.y + t.h / 2 };
-                        t.alive = false;
-                        destroyed++;
-                        totalEarned += t.points * mult * scoreMult;
-                        spawnParticles(t.x + t.w / 2, t.y + t.h / 2, t.color);
-                    }
-                    // Chain bonus: 2+ TNT bricks going off together
-                    const chainBonus = tnt >= 2 ? 50 * tnt * scoreMult : 0;
-                    totalEarned += chainBonus;
-                    bricksLeft -= destroyed;
-                    runStats.bricks += destroyed;
-                    if (destroyed >= 8) noteMoment(25 + Math.min(destroyed, 30), 'MEGA BLAST!');
-                    addScore(totalEarned);
-
-                    // Floating score popup at the break point
-                    const tags = [];
-                    if (wasBlast) tags.push('boom');
-                    if (mult > 1) tags.push('x' + mult);
-                    if (scoreMult > 1) tags.push('2x');
-                    const popupText = brick.steel
-                        ? 'BROKEN!'
-                        : '+' + totalEarned + (tags.length ? ' (' + tags.join(' · ') + ')' : '');
-                    const popupX = brick.x + brick.w / 2;
-                    const popupY = brick.y + brick.h / 2;
-                    addPopup(popupX, popupY, popupText,
-                        brick.steel ? '#B0C4DE' : (mult > 1 ? '#FFD700' : '#FFFFFF'));
-
-                    // Combo call-out when the multiplier climbs to x3, x4, x5
-                    if (combo >= 3 && combo <= COMBO_MAX) comboShout(combo, popupX, popupY);
-
-                    // TNT chain call-out
-                    if (tnt >= 2) {
-                        addPopup(Math.max(80, Math.min(popupX, CANVAS_W - 80)), popupY - 44,
-                            'CHAIN x' + tnt + '!  +' + chainBonus, '#FF8C1A', { size: 26, life: 1.4, rise: 0.7, pop: true });
-                    }
-
-                    // Screen shake: light per brick (heavier deeper in a combo), big for explosions
-                    addShake(wasBlast ? Math.min(12 + 2 * (tnt - 1), 16) : brick.steel ? 3 : 1.5 + mult * 0.4);
-                    if (wasBlast) haptic(tnt >= 2 ? [40, 30, 60] : 45, true);
-                    else haptic(brick.steel ? 15 : 8);
-
-                    // A fire ball pierces straight through: no speed-up, no bounce
-                    if (!onFire) {
-                        // Slightly speed up, then re-normalize to keep magnitude sane
-                        const speed = Math.hypot(b.vx, b.vy);
-                        const newSpeed = Math.min(speed * 1.02, 10);
-                        const factor = newSpeed / speed;
-                        b.vx *= factor;
-                        b.vy *= factor;
-
-                        if (Math.abs(dx) > Math.abs(dy)) {
-                            // ball entered from the side -> flip vx
-                            b.vx *= -1;
-                        } else {
-                            // ball entered from top/bottom -> flip vy
-                            b.vy *= -1;
-                        }
-                    }
-
-                    if (wasBlast) {
-                        boom(tnt >= 2); // a TNT chain gets the big, rumbling version
-                    } else if (brick.steel) {
-                        clink();
-                    } else {
-                        beep();
-                    }
-                    
-                    // A cheat-code brick guarantees its own capsule instead of the normal powerup roll —
-                    // one special, unmistakable drop rather than competing with the ordinary ones
-                    if (cheatBrickAt) {
-                        if (bricksLeft <= 0) {
-                            // This was the level's last brick: the capsule would never get a chance to fall
-                            // before completeLevel() clears it, so award the code directly instead
-                            revealLevelCode();
-                        } else {
-                            spawnCheatCapsule(cheatBrickAt.x, cheatBrickAt.y);
-                        }
-                    } else if (Math.random() < POWERUP_CHANCE) {
-                        spawnPowerup(brick.x + brick.w / 2, brick.y + brick.h / 2);
-                    }
-
-                    // Check for win condition
-                    if (bricksLeft <= 0) {
-                        completeLevel();
-                        return;
-                    }
-                }
+            if (!brick.alive) continue;
+            const hit = rectContact(b, brick.x, brick.y, brick.w, brick.h);
+            if (!hit) continue;
+            if (onFire) {
+                hitBrick(b, c, r, hit, true);
+                if (gameState !== 'playing') return;
+            } else if (!best || hit.d2 < best.hit.d2) {
+                best = { c, r, hit };
             }
         }
     }
+    if (best) hitBrick(b, best.c, best.r, best.hit, false);
 }
 
+function hitBrick(b, c, r, hit, onFire) {
+    const brick = bricks[c][r];
+    // Check if hit brick is a two-hit steel brick with hits left
+    const wasExplosive = explosiveReady;
+    explosiveReady = false;
+
+    // If it's a steel brick with 2 hits left and NOT hit by explosive burst or a fire ball:
+    // First hit cracks it, does not destroy it, awards 0 points
+    if (brick.steel && brick.hitsLeft > 1 && !wasExplosive && !onFire) {
+        brick.hitsLeft--;
+        brick.crack = makeCrack(brick, b.x, b.y);
+        bakeCrack(brick);
+        brick.flash = 6;
+        clink();
+        addShake(2);
+        haptic(12);
+        spawnParticles(b.x, b.y, '#B0C4DE');
+        addPopup(brick.x + brick.w / 2, brick.y + brick.h / 2, 'CRACK!', '#E0E0E0', { life: 0.8 });
+        // Rebound, pushed clear: left overlapping, a fast ball was still inside on the next step and
+        // broke the brick it had only just cracked
+        bounceOffRect(b, brick.x, brick.y, brick.w, brick.h, hit);
+        return;
+    }
+
+    // Brick destruction (1-hit brick, cracked steel second hit, fire ball, explosive, or TNT)
+    const { targets, tnt, centers } = collectBlast(c, r, wasExplosive);
+    const wasBlast = wasExplosive || tnt > 0;
+    for (const center of centers) {
+        addBlast(center.x + center.w / 2, center.y + center.h / 2);
+    }
+
+    // Combo: bricks broken in a row since the last paddle bounce,
+    // multiplier capped at x5 (applied to every brick in the burst)
+    combo++;
+    runStats.maxCombo = Math.max(runStats.maxCombo, combo);
+    const mult = Math.min(combo, COMBO_MAX);
+    const scoreMult = doubleTimer > 0 ? 2 : 1;
+    let totalEarned = 0;
+    let destroyed = 0;
+    let cheatBrickAt = null; // centre of a cheat-code brick caught in this hit, if any
+    for (const [tc, tr] of targets) {
+        const t = bricks[tc][tr];
+        if (!t.alive) continue;
+        if (t.cheat) cheatBrickAt = { x: t.x + t.w / 2, y: t.y + t.h / 2 };
+        t.alive = false;
+        destroyed++;
+        totalEarned += t.points * mult * scoreMult;
+        spawnParticles(t.x + t.w / 2, t.y + t.h / 2, t.color);
+    }
+    // Chain bonus: 2+ TNT bricks going off together
+    const chainBonus = tnt >= 2 ? 50 * tnt * scoreMult : 0;
+    totalEarned += chainBonus;
+    bricksLeft -= destroyed;
+    runStats.bricks += destroyed;
+    if (destroyed >= 8) noteMoment(25 + Math.min(destroyed, 30), 'MEGA BLAST!');
+    addScore(totalEarned);
+
+    // Floating score popup at the break point
+    const tags = [];
+    if (wasBlast) tags.push('boom');
+    if (mult > 1) tags.push('x' + mult);
+    if (scoreMult > 1) tags.push('2x');
+    const popupText = brick.steel
+        ? 'BROKEN!'
+        : '+' + totalEarned + (tags.length ? ' (' + tags.join(' · ') + ')' : '');
+    const popupX = brick.x + brick.w / 2;
+    const popupY = brick.y + brick.h / 2;
+    addPopup(popupX, popupY, popupText,
+        brick.steel ? '#B0C4DE' : (mult > 1 ? '#FFD700' : '#FFFFFF'));
+
+    // Combo call-out when the multiplier climbs to x3, x4, x5
+    if (combo >= 3 && combo <= COMBO_MAX) comboShout(combo, popupX, popupY);
+
+    // TNT chain call-out
+    if (tnt >= 2) {
+        addPopup(Math.max(80, Math.min(popupX, CANVAS_W - 80)), popupY - 44,
+            'CHAIN x' + tnt + '!  +' + chainBonus, '#FF8C1A', { size: 26, life: 1.4, rise: 0.7, pop: true });
+    }
+
+    // Screen shake: light per brick (heavier deeper in a combo), big for explosions
+    addShake(wasBlast ? Math.min(12 + 2 * (tnt - 1), 16) : brick.steel ? 3 : 1.5 + mult * 0.4);
+    if (wasBlast) haptic(tnt >= 2 ? [40, 30, 60] : 45, true);
+    else haptic(brick.steel ? 15 : 8);
+
+    // A fire ball pierces straight through: no speed-up, no bounce
+    if (!onFire) {
+        // Slightly speed up, then re-normalize to keep magnitude sane
+        const speed = Math.hypot(b.vx, b.vy);
+        const newSpeed = Math.min(speed * 1.02, 10);
+        const factor = newSpeed / speed;
+        b.vx *= factor;
+        b.vy *= factor;
+        bounceOffRect(b, brick.x, brick.y, brick.w, brick.h, hit);
+    }
+
+    if (wasBlast) {
+        boom(tnt >= 2); // a TNT chain gets the big, rumbling version
+    } else if (brick.steel) {
+        clink();
+    } else {
+        beep();
+    }
+
+    // A cheat-code brick guarantees its own capsule instead of the normal powerup roll —
+    // one special, unmistakable drop rather than competing with the ordinary ones
+    if (cheatBrickAt) {
+        if (bricksLeft <= 0) {
+            // This was the level's last brick: the capsule would never get a chance to fall
+            // before completeLevel() clears it, so award the code directly instead
+            revealLevelCode();
+        } else {
+            spawnCheatCapsule(cheatBrickAt.x, cheatBrickAt.y);
+        }
+    } else if (Math.random() < POWERUP_CHANCE) {
+        spawnPowerup(brick.x + brick.w / 2, brick.y + brick.h / 2);
+    }
+
+    // Check for win condition
+    if (bricksLeft <= 0) completeLevel();
+}
+
+
+function restorePaddleWidth() {
+    paddle.w = PADDLE_W;
+    paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
+}
 
 // --- Game Logic Update ---
 
@@ -547,23 +553,12 @@ function update() {
         // 2a. Moving wall collision (circle vs AABB)
         let touchingWall = null;
         for (const wall of movingWalls) {
-            const cx = Math.max(wall.x, Math.min(b.x, wall.x + wall.w));
-            const cy = Math.max(wall.y, Math.min(b.y, wall.y + wall.h));
-            const dx = b.x - cx;
-            const dy = b.y - cy;
-            if (dx * dx + dy * dy < b.r * b.r) {
+            const hit = rectContact(b, wall.x, wall.y, wall.w, wall.h);
+            if (hit) {
                 // Rebound off the wall and push the ball out of it. Without the push-out, a wall
                 // sweeping into the ball (or a slow ball riding it) stays overlapped and re-triggers
                 // the sound and particles every frame.
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    const dir = dx > 0 ? 1 : -1;
-                    b.vx = dir * Math.abs(b.vx);
-                    b.x = dir > 0 ? wall.x + wall.w + b.r : wall.x - b.r;
-                } else {
-                    const dir = dy > 0 ? 1 : -1;
-                    b.vy = dir * Math.abs(b.vy);
-                    b.y = dir > 0 ? wall.y + wall.h + b.r : wall.y - b.r;
-                }
+                bounceOffRect(b, wall.x, wall.y, wall.w, wall.h, hit);
                 // Effects only on new contact; a wall carrying the ball, or already-touched-this-frame,
                 // stays "in contact" (tracks WHICH wall so two walls close together are told apart)
                 if (b.onWallRef !== wall) {
@@ -670,27 +665,10 @@ function update() {
             b.vy *= f;
         }
     }
-    if (wideTimer > 0) {
-        wideTimer -= 1 / 60;
-        if (wideTimer <= 0) {
-            paddle.w = PADDLE_W;
-            paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
-        }
-    }
-    if (narrowTimer > 0) {
-        narrowTimer -= 1 / 60;
-        if (narrowTimer <= 0) {
-            paddle.w = PADDLE_W;
-            paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
-        }
-    }
-    if (splitTimer > 0) {
-        splitTimer -= 1 / 60;
-        if (splitTimer <= 0) {
-            paddle.w = PADDLE_W;
-            paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
-        }
-    }
+    // Wide, shrunk and split all resize the paddle (only one runs at a time): back to normal when it ends
+    if (wideTimer > 0 && (wideTimer -= 1 / 60) <= 0) restorePaddleWidth();
+    if (narrowTimer > 0 && (narrowTimer -= 1 / 60) <= 0) restorePaddleWidth();
+    if (splitTimer > 0 && (splitTimer -= 1 / 60) <= 0) restorePaddleWidth();
     if (doubleTimer > 0) {
         doubleTimer -= 1 / 60;
     }
@@ -731,6 +709,7 @@ function update() {
         if (gameState === 'playing') ghostBallCollision(b);
         if (gameState === 'playing') warpRiftBallCollision(b);
         if (gameState === 'playing') portalBallCollision(b);
+        if (gameState === 'playing') bumperBallCollision(b);
     }
     if (gameState === 'playing') updateGhostGrid();
 }
@@ -753,6 +732,7 @@ function render() {
     drawWarpRift();
     drawPortals();
     drawMovingWalls();
+    drawBumpers();
     drawShield();
     drawBoss();
     drawAliens();
@@ -795,6 +775,7 @@ function tickFx() {
     updateBlasts();
     updatePopups();
     updateIntroCard();
+    tickBumpers();
     shake = shake > 0.3 ? shake * 0.86 : 0;
     for (const col of bricks) for (const brick of col) if (brick.flash > 0) brick.flash--;
     if (boss && boss.kind === 'pong') tickPongWallFade();

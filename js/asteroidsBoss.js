@@ -204,33 +204,16 @@ function asteroidsBallCollision(b) {
     }
 }
 
-// Bounce ball b off the brick at (x, y), along whichever axis it came in on, and push it clear
-function bounceOffBrick(b, x, y, dx, dy) {
-    if (Math.abs(dx) > Math.abs(dy)) {
-        const dir = dx >= 0 ? 1 : -1;
-        b.vx = dir * Math.abs(b.vx);
-        b.x = dir > 0 ? x + BRICK_W + b.r : x - b.r;
-    } else {
-        const dir = dy >= 0 ? 1 : -1;
-        b.vy = dir * Math.abs(b.vy);
-        b.y = dir > 0 ? y + BRICK_H + b.r : y - b.r;
-    }
-}
-
 // The vault's bricks. Locks just bounce the ball, fire ball or not (a lock is a lock); a vault brick
 // breaks, and the last one breaking wins the fight. Returns whether the ball touched anything.
 function vaultBallCollision(b) {
     const V = boss.vault;
-    const touch = (x, y) => {
-        const cx = Math.max(x, Math.min(b.x, x + BRICK_W)), cy = Math.max(y, Math.min(b.y, y + BRICK_H));
-        const dx = b.x - cx, dy = b.y - cy;
-        return dx * dx + dy * dy < b.r * b.r ? { dx, dy } : null;
-    };
+    const touch = (x, y) => rectContact(b, x, y, BRICK_W, BRICK_H);
     for (const l of V.locks) {
         if (!l.alive) continue;
         const t = touch(l.x, l.y);
         if (!t) continue;
-        bounceOffBrick(b, l.x, l.y, t.dx, t.dy);
+        bounceOffRect(b, l.x, l.y, BRICK_W, BRICK_H, t);
         bossTip('lock', 'LOCKED! ITS KEY IS HIDDEN IN A ROCK');
         beep(300, 'lockClank');
         spawnParticles(b.x, b.y, '#ffd319', 3);
@@ -250,7 +233,7 @@ function vaultBallCollision(b) {
             addBlast(v.x + BRICK_W / 2, v.y + BRICK_H / 2);
             boom();
         }
-        if (fireTimer <= 0) bounceOffBrick(b, v.x, v.y, t.dx, t.dy);
+        if (fireTimer <= 0) bounceOffRect(b, v.x, v.y, BRICK_W, BRICK_H, t);
         if (V.left === 0) vaultCracked();
         return true;
     }
