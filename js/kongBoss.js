@@ -5,15 +5,16 @@
 // one down (or, now and then, down a ladder gap), and finally fall at your paddle: one that lands on it
 // punches a hole. From phase 2 it also hurls blue steel barrels straight at you through the girders, and
 // when ENRAGED it pounds its chest, which bounces every barrel on the tower and hurries them along.
-// The barrels are also your best weapon: hit one from below and it flies back up at the ape (steered a
-// little toward it) for heavy damage, smashing any barrel in its way. A ball hitting one from above just
-// smashes it. The girders only carry the barrels: the ball flies straight through them, so the whole
+// The barrels are also your best weapon: hit one (anywhere, and they're easy to hit) and it flies back up
+// at the ape, homing in, for heavy damage, smashing any barrel in its way. The girders only carry the barrels: the ball flies straight through them, so the whole
 // screen is yours to play in, and you can hit the ape directly too.
+// Mind the princess up in the corner: the ball bounces off her, but she has three hearts, and the third
+// hit fails the fight (a life lost, and the ape and the princess both back to full).
 // The ladders are launchers: a ball that touches one on its way up is fired at the ape (with a little
 // spread, so it hits more often than not).
 // Now and then a smashed barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME.
-// The music goes frantic, every ladder becomes a sure hit for double damage, and barrels landing on your
-// paddle just break.
+// The music goes frantic, the ball becomes the hammer, spinning, every ladder becomes a sure hit for double
+// damage, and barrels landing on your paddle just break.
 
 const KONG_W = 96;
 const KONG_H = 72;
@@ -21,6 +22,8 @@ const KONG_X = CANVAS_W / 2;       // it stands in the middle of the top girder
 const KONG_FEET_Y = 172;
 const GIRDER_HALF = 6;             // half the beam's thickness
 const BARREL_R = 14;
+const BARREL_HIT_REACH = 12;      // extra reach for the ball on a barrel: they should be easy to hit
+const HAMMER_BALL_REACH = 10;     // and more again while the ball is a hammer
 const BARREL_KICK_SPEED = 8;
 const BARREL_KICK_DAMAGE = 3;
 const BARREL_GRAVITY = 0.18;
@@ -93,11 +96,11 @@ function kongPhase() {
 }
 
 function spawnKongBoss(n) {
-    const hp = 18 + 6 * n; // 36 on its debut
+    const hp = 20 + 7 * n; // 41 on its debut
     boss = {
         kind: 'kong', n, hp, maxHp: hp, x: KONG_X, y: -KONG_H, intro: 110, dying: 0, cool: 0, flash: 0, t: 0,
         barrels: [], throwIn: 150, pose: 'idle', poseT: 0, pending: null, lastPhase: 1, pound: 0,
-        hammers: [], hammerTime: 0, cheatRolled: false
+        hammers: [], hammerTime: 0, princess: { hearts: 3, cool: 0, flash: 0 }, cheatRolled: false
     };
 }
 
@@ -199,7 +202,7 @@ function updateBarrels() {
                     blockMirrorBolt(br.x);
                 } else {
                     punchHole(br.x, BOSS_HOLE_SECONDS);
-                    bossTip('smash', 'HIT BARRELS FROM BELOW TO KNOCK THEM BACK AT KONG!', 440);
+                    bossTip('smash', 'HIT THE BARRELS: THEY FLY BACK AT KONG!', 440);
                 }
                 spawnParticles(br.x, br.y, br.wild ? '#5b8cff' : '#c0782e', 10);
             }
@@ -325,6 +328,8 @@ function updateKongBoss() {
     B.y = KONG_FEET_Y;
     if (B.flash > 0) B.flash--;
     if (B.cool > 0) B.cool--;
+    if (B.princess.cool > 0) B.princess.cool--;
+    if (B.princess.flash > 0) B.princess.flash--;
     if (B.pound > 0) B.pound--;
     if (B.pending) {
         if (--B.pending.t <= 0) releaseKongAttack();
@@ -334,7 +339,7 @@ function updateKongBoss() {
     updateBarrels();
     updateKongHammer();
     if (B.t === 115) bossTip('ladder', 'HIT A LADDER: IT FIRES THE BALL AT KONG!', 470);
-    if (B.t === 115 + 60 * 8) bossTip('kick', 'HIT BARRELS FROM BELOW: THEY FLY BACK AT HIM!', 470);
+    if (B.t === 115 + 60 * 8) bossTip('kick', 'HIT THE BARRELS: THEY FLY BACK AT HIM!', 470);
     if (B.ladderFlash && --B.ladderFlash.t <= 0) B.ladderFlash = null;
 }
 
@@ -354,17 +359,32 @@ function kongBallCollision(b) {
         }
     }
     if (b.ladderCool > 0) b.ladderCool--;
+    // The princess: don't hit her
+    const P = B.princess;
+    const ph = rectContact(b, PRINCESS_BOX.x, PRINCESS_BOX.y, PRINCESS_BOX.w, PRINCESS_BOX.h);
+    if (ph && B.dying <= 0) {
+        bounceOffRect(b, PRINCESS_BOX.x, PRINCESS_BOX.y, PRINCESS_BOX.w, PRINCESS_BOX.h, ph);
+        if (P.cool <= 0) hitPrincess();
+        if (gameState !== 'playing') return; // that was the third hit
+    }
     if (B.intro > 0) return;
     // Barrels
     for (const br of B.barrels) {
         if (br.dead) continue;
         const dx = b.x - br.x, dy = b.y - br.y;
-        if (dx * dx + dy * dy >= (b.r + BARREL_R) * (b.r + BARREL_R)) continue;
+        const reach = b.r + BARREL_R + BARREL_HIT_REACH + (B.hammerTime > 0 ? HAMMER_BALL_REACH : 0);
+        if (dx * dx + dy * dy >= reach * reach) continue;
         if (br.state === 'kick') continue; // already on its way up
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        if (fireTimer <= 0) bounceOffCircle(b, br.x, br.y, BARREL_R);
-        // Struck from below: it flies back up at the ape. From above or the side: it just breaks.
-        if (-dy / d > 0.25 && B.dying <= 0) kickBarrel(br, -dx / d, -dy / d);
+        // Any hit knocks it back up at the ape (the ball bounces off it, unless it's a fire ball)
+        if (fireTimer <= 0) {
+            const along = b.vx * (dx / d) + b.vy * (dy / d);
+            if (along < 0) {
+                b.vx -= 2 * along * (dx / d);
+                b.vy -= 2 * along * (dy / d);
+            }
+        }
+        if (B.dying <= 0) kickBarrel(br, -dx / d, -Math.abs(dy / d) || -1);
         else smashBarrel(br, br.wild ? 75 : 50);
         break;
     }
@@ -372,7 +392,8 @@ function kongBallCollision(b) {
     // The ape itself
     if (B.cool > 0) return;
     const k = kongBox();
-    const hit = rectContact(b, k.x, k.y, k.w, k.h);
+    const grow = B.hammerTime > 0 ? HAMMER_BALL_REACH : 0; // the hammer reaches further
+    const hit = rectContact(b, k.x - grow, k.y - grow, k.w + 2 * grow, k.h + 2 * grow);
     if (!hit) return;
     B.cool = 10;
     let dmg = (fireTimer > 0 ? 2 : 1) * (b.hammerShot ? 2 : 1);
@@ -383,7 +404,7 @@ function kongBallCollision(b) {
         addBlast(b.x, b.y);
         boom();
     }
-    if (fireTimer <= 0) bounceOffRect(b, k.x, k.y, k.w, k.h, hit);
+    if (fireTimer <= 0) bounceOffRect(b, k.x - grow, k.y - grow, k.w + 2 * grow, k.h + 2 * grow, hit);
     hurtKong(dmg, b.x, b.y, '-' + dmg);
 }
 
@@ -401,6 +422,33 @@ function launchAtKong(b, lx, ly) {
     spawnParticles(b.x, b.y, '#2de2e6', 8);
     tone(420, 0.16, { type: 'square', vol: 0.18, slideTo: 1300, key: 'ladderLaunch' });
     haptic(12);
+}
+
+const PRINCESS_BOX = { x: 72, y: 64, w: 36, h: 58 };
+
+function hitPrincess() {
+    const B = boss;
+    const P = B.princess;
+    P.hearts--;
+    P.cool = 40;
+    P.flash = 20;
+    const cx = PRINCESS_BOX.x + PRINCESS_BOX.w / 2;
+    addShake(5);
+    haptic([30, 30, 30], true);
+    tone(900, 0.2, { type: 'square', vol: 0.2, slideTo: 500, key: 'princessOw', force: true });
+    if (P.hearts > 0) {
+        addPopup(cx + 70, PRINCESS_BOX.y + PRINCESS_BOX.h + 42, "DON'T HIT ME!", '#ff7ad9', { size: 14, life: 1.4, rise: 0.2 });
+        return;
+    }
+    // Third hit: the fight's lost. A life goes, and the ape and the princess start over at full strength.
+    addPopup(CANVAS_W / 2, 300, 'YOU HIT THE PRINCESS!', '#ff7ad9', { size: 26, life: 2, rise: 0.2, pop: true });
+    tone(400, 0.7, { type: 'sawtooth', vol: 0.25, slideTo: 90, key: 'princessFail', force: true });
+    B.hp = B.maxHp;
+    B.lastPhase = 1;
+    P.hearts = 3;
+    B.hammerTime = 0;
+    B.hammers.length = 0;
+    loseLife();
 }
 
 function hurtKong(dmg, x, y, label) {
@@ -679,7 +727,7 @@ const PRINCESS_ART = [
 const PRINCESS_COLORS = { Y: '#ffd23f', H: '#ffb03a', S: '#ffe0c4', E: '#3a1f6e', W: '#ffffff', K: '#ff8fb8', P: '#ff7ad9', D: '#d93f9c' };
 let princessSprite = null;
 
-function drawPrincess(x, feetY, t, rescued) {
+function drawPrincess(x, feetY, t, rescued, P) {
     if (!princessSprite) {
         princessSprite = makeSprite(36, PRINCESS_ART.length * 3, g => {
             PRINCESS_ART.forEach((row, r) => {
@@ -694,7 +742,17 @@ function drawPrincess(x, feetY, t, rescued) {
     }
     const hop = rescued ? Math.abs(Math.sin(t / 8)) * 8 : 0; // jumps for joy once the ape is down
     const top = feetY - princessSprite.height - hop;
-    ctx.drawImage(princessSprite, x - 18, top);
+    const shake = P.flash > 0 ? Math.sin(P.flash * 2) * 3 : 0;
+    ctx.drawImage(princessSprite, x - 18 + shake, top);
+    if (P.flash > 0 && Math.floor(P.flash / 4) % 2 === 0) { // flashes when hit
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.6;
+        ctx.drawImage(princessSprite, x - 18 + shake, top);
+        ctx.restore();
+    }
+    // Her hearts, under her perch: full ones pink, lost ones dark
+    for (let i = 0; i < 3; i++) drawPixelHeart(x - 23 + i * 16, feetY + 14, i < P.hearts ? '#ff4d8a' : '#4a2040');
     ctx.font = pixelFont(9);
     ctx.textAlign = 'center';
     if (rescued) {
@@ -706,6 +764,15 @@ function drawPrincess(x, feetY, t, rescued) {
     }
 }
 
+// A little pixel heart (2px pixels), its top-left at (x, y)
+function drawPixelHeart(x, y, color) {
+    const art = ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'];
+    ctx.fillStyle = color;
+    art.forEach((row, r) => {
+        for (let c = 0; c < row.length; c++) if (row[c] === 'X') ctx.fillRect(x + c * 2, y + r * 2, 2, 2);
+    });
+}
+
 function drawKongBoss() {
     const B = boss;
     if (!girderLayer) girderLayer = makeSprite(CANVAS_W, CANVAS_H, paintGirders);
@@ -713,25 +780,10 @@ function drawKongBoss() {
     ctx.drawImage(girderLayer, 0, shakeY);
 
     // The princess on her perch, calling for help
-    drawPrincess(90, 128 - GIRDER_HALF, B.t, B.dying > 0);
+    drawPrincess(90, 128 - GIRDER_HALF, B.t, B.dying > 0, B.princess);
 
-    // Falling hammer capsules: a gold capsule with the hammer on it, and its name, so it's plain what it is
-    for (const H of B.hammers) {
-        const pulse = 1 + 0.1 * Math.sin(B.t / 7);
-        ctx.fillStyle = 'rgba(255, 210, 63, 0.3)';
-        ctx.beginPath();
-        ctx.arc(H.x, H.y, 20 * pulse, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffd23f';
-        ctx.beginPath();
-        ctx.arc(H.x, H.y, 15, 0, Math.PI * 2);
-        ctx.fill();
-        drawPixelHammer(H.x, H.y, 1);
-        ctx.font = pixelFont(8);
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffe98a';
-        ctx.fillText('HAMMER', H.x, H.y + 30);
-    }
+    // Falling hammers: the big pixel hammer itself, turning slowly as it falls
+    for (const H of B.hammers) drawHammer(H.x, H.y, B.t / 25, 1.3);
 
     // The ape
     if (B.y > -KONG_H) {
@@ -797,20 +849,55 @@ function drawKongBoss() {
     for (const br of B.barrels) drawBarrel(br, br.x, br.y + (br.state === 'roll' ? shakeY : 0));
 }
 
-// A chunky pixel-art hammer (2px pixels): a steel head on a wooden handle, centred on (x, y)
-function drawPixelHammer(x, y, scale) {
-    const px = 2 * scale;
-    const art = ['.HHHHHHH.', 'HHHHHHHHH', 'hhhhhhhhh', '....W....', '....W....', '....W....', '....W....', '...WWW...'];
-    const colors = { H: '#e6e8f2', h: '#8f93ab', W: '#a8672a' };
-    const x0 = Math.round(x - 4.5 * px), y0 = Math.round(y - 4 * px);
-    art.forEach((row, r) => {
-        for (let c = 0; c < row.length; c++) {
-            const col = colors[row[c]];
-            if (!col) continue;
-            ctx.fillStyle = col;
-            ctx.fillRect(x0 + c * px, y0 + r * px, px, px);
-        }
-    });
+// The hammer, in pixel art at 2px a pixel: a steel head with a lit top edge on a wooden handle with a neon
+// pink grip. Painted once; drawn spinning about its middle.
+const HAMMER_ART = [
+    '................',
+    '.dLLLLHHHHHHHHd.',
+    '.dLHHHHHHHHHHHd.',
+    '.dhhhhhhhhhhhhd.',
+    '.dhhhhhhhhhhhhd.',
+    '.dddddddddddddd.',
+    '......wWWw......',
+    '......wWWw......',
+    '......wWWw......',
+    '......GGGG......',
+    '......wWWw......',
+    '......GGGG......',
+    '......wWWw......',
+    '......wWWw......',
+    '......wWWw......',
+    '......wwww......'
+];
+const HAMMER_COLORS = { L: '#ffffff', H: '#e6e8f2', h: '#aeb2c8', d: '#5c6080', W: '#c47f3a', w: '#7a4214', G: '#ff2fb4' };
+let hammerSprite = null;
+
+function drawHammer(x, y, angle, scale) {
+    if (!hammerSprite) {
+        hammerSprite = makeSprite(32, 32, g => {
+            HAMMER_ART.forEach((row, r) => {
+                for (let c = 0; c < row.length; c++) {
+                    const col = HAMMER_COLORS[row[c]];
+                    if (!col) continue;
+                    g.fillStyle = col;
+                    g.fillRect(c * 2, r * 2, 2, 2);
+                }
+            });
+        });
+    }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.scale(scale, scale);
+    ctx.drawImage(hammerSprite, -16, -16);
+    ctx.restore();
+}
+
+// HAMMER TIME: the ball is the hammer, spinning as it flies
+function drawKongBall(b) {
+    if (boss.hammerTime <= 0) return false;
+    drawHammer(b.x, b.y, boss.t * 0.35, 1.35);
+    return true;
 }
 
 function drawKongBossBar() {
@@ -848,5 +935,6 @@ BOSS_KINDS.kong = {
     breather: kongBreather,
     chips: kongChips,
     tune: () => (boss.hammerTime > 0 ? 'hammer' : 'kong'),
+    drawBall: drawKongBall,
     movers: () => boss.barrels.concat(boss.hammers)
 };

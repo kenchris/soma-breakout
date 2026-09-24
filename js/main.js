@@ -52,8 +52,10 @@ function drawBall() {
     const name = fireTimer > 0 ? 'fire' : guidedTimer > 0 ? 'guided' : 'normal';
     const look = BALL_LOOKS[name];
     const sp = ballSpriteSet(name);
+    const hooks = boss && bossHooks();
     for (const b of balls) {
         if (b.stuck) drawStuckAim(b);
+        if (hooks && hooks.drawBall && hooks.drawBall(b)) continue; // a boss can dress the ball up (Kong's hammer)
         if (guidedTimer > 0 && b.aim) {
             if (b.aim.alien) {
                 if (aliens.includes(b.aim.alien)) drawReticleAt(b.aim.alien.x, b.aim.alien.y);
