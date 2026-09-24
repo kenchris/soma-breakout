@@ -143,7 +143,13 @@ const BOSS_TUNES = {
         a: [[48, 51, 55], [48, 51, 55], [44, 48, 51], [46, 50, 53]], b: [[53, 56, 60], [51, 55, 58], [44, 48, 51], [43, 47, 50]],
         bass: 'octaves8', bassType: 'square', bassVol: 0.24, bassCutoff: 550,
         arp: [0, 2, 1, 2], arpB: [2, 1, 0, 1], arpOctave: 24, arpType: 'square', arpVol: 0.035, pad: false,
-        kick: [0, 4, 8, 12], snare: [4, 12], hat: [2, 6, 10, 14], hatVol: 0.05, lead: BOSS_LEAD, fx: true }
+        kick: [0, 4, 8, 12], snare: [4, 12], hat: [2, 6, 10, 14], hatVol: 0.05, lead: BOSS_LEAD, fx: true },
+    // Kong's HAMMER TIME: bright, frantic C major, everything doubled up
+    hammer: { name: 'Hammer Time', bpm: 184,
+        a: [[60, 64, 67], [65, 69, 72], [60, 64, 67], [67, 71, 74]], b: [[65, 69, 72], [67, 71, 74], [64, 67, 71], [67, 71, 74]],
+        bass: 'octaves8', bassType: 'square', bassVol: 0.24, bassCutoff: 900,
+        arp: [0, 1, 2, 1], arpB: [2, 1, 0, 1], arpOctave: 24, arpType: 'square', arpVol: 0.045, pad: false,
+        kick: [0, 4, 8, 12], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], hatVol: 0.05, lead: BOSS_LEAD, fx: true }
 };
 const TUNE_FORM = ['a', 'a', 'b', 'a']; // which section each group of 4 bars plays
 
@@ -244,7 +250,10 @@ function startMusic() {
 // The boss's own theme during a fight; otherwise the level picks one of the ordinary tunes, so the next
 // level always sounds different from this one
 function wantedTune() {
-    if (boss && boss.dying <= 0) return BOSS_TUNES[boss.kind] || BOSS_TUNES.mothership;
+    if (boss && boss.dying <= 0) {
+        const hooks = bossHooks();
+        return BOSS_TUNES[hooks.tune ? hooks.tune() : boss.kind] || BOSS_TUNES.mothership; // (a boss may switch tunes mid-fight)
+    }
     return NORMAL_TUNES[(level - 1) % NORMAL_TUNES.length];
 }
 

@@ -1,40 +1,50 @@
 // === spaceChomp.js ===
 // --- Space Chomp levels ---
-// A maze level type after the arcade maze games, with the ball as the steering wheel. A round yellow chomper
-// lives in a neon maze full of dots, and only the chomper eats them: clear every dot to finish the level.
-// The maze only steers the chomper and the ghosts; the ball flies straight over its walls. Hit the chomper
-// and it zooms off the way the ball was going, eating as it runs, until a wall stops it; left alone it
-// wanders its slow, ghost-wary way to the nearest dot, so it never gets stuck. Four ghosts hunt it. A ghost
-// that catches it sends it home and knocks a couple of dots back into the maze, so bop ghosts with the ball
-// to keep them off it (a bopped ghost goes back to its pen for a while). The ghosts also swoop out at your
-// paddle and bite holes in it, like the aliens do. And the four power pellets turn the tables: for a few
-// seconds the ghosts turn blue and run, and the chomper (or the ball) can eat them, for 200 to 1600 points.
+// A maze level type after the arcade maze games, with a timer. Two round chompers live in a neon maze full
+// of dots, and only they eat them: eat the level's quota of dots before the clock runs out. The ball is
+// their helper, and any hit is a good hit:
+//   - Hit a chomper and it ZOOMS: it runs at three times the speed for a few seconds. Chompers always find
+//     their own way to the nearest dots, so there's no aiming it: just keep them boosted.
+//   - Four ghosts hunt them. A ghost that catches one sends it home and knocks a couple of dots loose (off
+//     your count, back into the maze), so bop the ghosts away with the ball.
+//   - The ghosts also swoop out at your paddle and bite holes in it, like the aliens do.
+//   - The four power pellets turn the tables: for a few seconds the ghosts turn blue and run, and the
+//     chompers (or the ball) can eat them, for 200 to 1600 points.
+// The maze only steers the chompers and the ghosts: the ball flies straight over its walls. Running out of
+// time costs a life, and the clock restarts (with what you've eaten kept).
 
 const MAZE_UNLOCK = 14;           // curve level of the first one (level 19), then about 1 level in 7
 const MAZE_CELL = 36;
-// # wall, . dot, o power pellet, G the ghosts' pen, M where the chomper starts (no dot)
+// # wall, . dot, o power pellet, G the ghosts' pen, M where a chomper starts (no dot)
 const MAZE_ART = [
     'o.........#.#.........o',
     '.##.###.#.....#.###.##.',
+    '.##.....#.#.#.#.....##.',
     '.....#...#GGG#...#.....',
-    '..#...#..#####..#...#..',
+    '..#.##.#.#####.#.##.#..',
     '.#.#...#.......#...#.#.',
     '.#.###.#.#.#.#.#.###.#.',
-    'o..........M..........o'
+    '...#.....#...#.....#...',
+    'o.........M.M.........o'
 ];
 const MAZE_COLS = MAZE_ART[0].length;
 const MAZE_ROWS = MAZE_ART.length;
 const MAZE_LEFT = (CANVAS_W - MAZE_COLS * MAZE_CELL) / 2;
-const MAZE_TOP = 74;
-const MAZE_PEN = { c: 11, r: 2 };         // the ghosts' pen, in the middle
-const MAZE_DOOR = { c: 11, r: 1 };        // the open cell above it they leave by
-const CHOMPER_HOME = { c: 11, r: 6 };
+const MAZE_TOP = 90;                       // under the goal bar
+const MAZE_PEN = { c: 11, r: 3 };          // the ghosts' pen, in the middle
+const MAZE_DOOR = { c: 11, r: 2 };         // the open cell above it they leave by
+const CHOMPER_HOMES = [{ c: 10, r: 8 }, { c: 12, r: 8 }];
+const CHOMPER_COLORS = ['#ffe14d', '#9dff5c'];
 const GHOST_R = 14;
-const CHOMPER_R = 12;
-const CHOMPER_SNIFF_SPEED = 1.15;   // px per step, left to its own devices
-const CHOMPER_ZOOM_SPEED = 3.4;     // px per step, after the ball sends it off
-const CHOMPER_CAUGHT_DROP = 2;      // dots a caught chomper knocks loose
-// The four space ghosts (see ghostTarget for what each one is after)
+const CHOMPER_R = 13;
+const CHOMPER_HIT_R = 22;          // generous: brushing past a chomper counts
+const CHOMPER_SNIFF_SPEED = 0.3;   // px per step, left to itself: a slow amble, too slow to make the quota alone
+const CHOMPER_ZOOM_SPEED = 2.7;    // px per step while boosted (nine times as fast)
+const CHOMPER_ZOOM_FRAMES = 180;
+const CHOMPER_CAUGHT_DROP = 2;     // dots a caught chomper knocks loose
+const MAZE_GOAL_SHARE = 0.6;       // of the maze's dots, to clear the level
+const MAZE_EXTRA_SECONDS = 40;     // the clock after running out once
+// Our own four ghosts (see ghostTarget for what each one is after)
 const GHOST_DEFS = [
     { role: 'chaser', color: '#ff3b5c', release: 60 * 2 },
     { role: 'ambusher', color: '#ff9ae8', release: 60 * 5 },
@@ -44,7 +54,8 @@ const GHOST_DEFS = [
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const mazeLevelCache = {};
 
-let maze = null; // { dots[r][c]: 0 none, 1 dot, 2 power pellet; chomper, ghosts, fright, eaten, diveIn, powerIn, t }
+// { dots[r][c]: 0 none, 1 dot, 2 power pellet; chompers, ghosts, goal, time, fright, eaten, diveIn, powerIn, t }
+let maze = null;
 let mazeDiveTipShown = false;
 let mazeCatchTipShown = false;
 
@@ -86,17 +97,23 @@ function ghostHome(i) {
 function buildMaze() {
     const dots = MAZE_ART.map(row => [...row].map(ch => (ch === '.' ? 1 : ch === 'o' ? 2 : 0)));
     const n = curveLevel();
-    const home = mazeCenter(CHOMPER_HOME.c, CHOMPER_HOME.r);
+    let total = 0;
+    for (const row of dots) for (const d of row) if (d) total++;
     maze = {
         dots, t: 0, fright: 0, eaten: 0, powerIn: 0, diveIn: 60 * 9,
-        chomper: { x: home.x, y: home.y, c: CHOMPER_HOME.c, r: CHOMPER_HOME.r, tc: CHOMPER_HOME.c, tr: CHOMPER_HOME.r, dir: [0, -1], zoom: false, face: 1, hitCool: 0, safe: 0, munch: 0 },
+        goal: Math.round(total * MAZE_GOAL_SHARE),
+        time: 60 * Math.max(55, 85 - n), // 71s on its debut, a little less later on
+        chompers: CHOMPER_HOMES.map((h, i) => {
+            const p = mazeCenter(h.c, h.r);
+            return { i, color: CHOMPER_COLORS[i], home: h, x: p.x, y: p.y, c: h.c, r: h.r, tc: h.c, tr: h.r, dir: [i ? 1 : -1, 0], zoomT: 0, hitCool: 0, safe: 0, pushed: false };
+        }),
         ghosts: GHOST_DEFS.map((def, i) => {
             const h = ghostHome(i);
             return { ...def, i, x: h.x, y: h.y, c: MAZE_PEN.c, r: MAZE_PEN.r, tc: MAZE_PEN.c, tr: MAZE_PEN.r, dir: [0, -1], mode: 'pen', penT: def.release, vy: 0, warn: 0 };
         }),
-        speed: Math.min(0.75 + 0.02 * n, 1.1) // always a touch slower than the chomper: they win by cornering it
+        speed: Math.min(0.6 + 0.015 * n, 0.9) // faster than a chomper left alone, far slower than a boosted one
     };
-    return mazeDotCount();
+    return maze.goal; // (the level's "bricks left" count down to the goal)
 }
 
 function mazeDotCount() {
@@ -121,9 +138,9 @@ function stepToCell(o, move) {
     return true;
 }
 
-// --- The chomper ---
-// The first step of the shortest path from (c, r) to the nearest dot, or null if there is none. It's a
-// wary chomper: it plans around the cells hungry ghosts are in or about to be in, unless that leaves no way.
+// --- The chompers ---
+// The first step of the shortest path from (c, r) to the nearest dot, or null if there is none. A wary
+// chomper plans around the cells hungry ghosts are in or about to be in, unless that leaves no way.
 function stepTowardDot(c, r) {
     const danger = new Set();
     for (const ghost of maze.ghosts) {
@@ -150,116 +167,110 @@ function dotPath(c, r, avoid) {
     return null;
 }
 
-function chomperEat() {
-    const m = maze.chomper;
+function chomperEat(m) {
     const kind = maze.dots[m.r][m.c];
     if (!kind) return;
     maze.dots[m.r][m.c] = 0;
-    m.munch = 10;
     bricksLeft--;
     runStats.bricks++;
-    combo++;
-    runStats.maxCombo = Math.max(runStats.maxCombo, combo);
-    const mult = Math.min(combo, COMBO_MAX) * (doubleTimer > 0 ? 2 : 1);
-    addScore((kind === 2 ? 50 : 10) * mult);
-    maze.nibble = !maze.nibble; // a squeaky two-note nibble
-    tone(maze.nibble ? 1320 : 1560, 0.04, { type: 'triangle', vol: 0.1, key: 'nibble' });
+    addScore((kind === 2 ? 50 : 10) * (m.zoomT > 0 ? 2 : 1) * (doubleTimer > 0 ? 2 : 1)); // boosted eating pays double
+    maze.waka = !maze.waka;
+    tone(maze.waka ? 220 : 330, 0.05, { type: 'triangle', vol: 0.12, slideTo: maze.waka ? 330 : 220, key: 'waka' });
     if (kind === 2) {
         addPopup(m.x, m.y - 18, 'POWER!', '#ffffff', { size: 18, life: 1, pop: true });
         spawnParticles(m.x, m.y, '#ffb8ae', 10);
         scareGhosts();
     }
-    if (combo >= 3 && combo <= COMBO_MAX && combo !== maze.lastShout) {
-        maze.lastShout = combo;
-        comboShout(combo, m.x, m.y);
-    }
-    if (bricksLeft <= 0) {
-        noteMoment(60, 'MAZE CLEARED!');
-        completeLevel();
-    }
+    if (bricksLeft <= 0) mazeGoalReached();
 }
 
-function updateChomper() {
-    const m = maze.chomper;
+// Quota eaten: the level's done, with a bonus for the time left on the clock
+function mazeGoalReached() {
+    const secs = Math.ceil(maze.time / 60);
+    const bonus = 50 * secs * (doubleTimer > 0 ? 2 : 1);
+    addScore(bonus);
+    addPopup(CANVAS_W / 2, 250, 'TIME BONUS +' + bonus, '#ffe14d', { size: 22, life: 2, rise: 0.3, pop: true });
+    noteMoment(60, 'MAZE CLEARED!');
+    completeLevel();
+}
+
+function updateChomper(m) {
     if (m.hitCool > 0) m.hitCool--;
     if (m.safe > 0) m.safe--;
-    if (m.munch > 0) m.munch--;
-    const speed = (m.zoom ? CHOMPER_ZOOM_SPEED : CHOMPER_SNIFF_SPEED) * timeScale;
-    if (!stepToCell(m, speed)) return;
-    chomperEat();
-    if (gameState !== 'playing' || !maze) return;
-    // At a cell centre: zooming, it carries straight on while it can; otherwise it heads for the nearest dot
-    if (m.zoom && mazeOpen(m.c + m.dir[0], m.r + m.dir[1], false)) {
-        m.tc = m.c + m.dir[0];
-        m.tr = m.r + m.dir[1];
-        return;
+    if (m.zoomT > 0) m.zoomT--;
+    const speed = (m.zoomT > 0 ? CHOMPER_ZOOM_SPEED : CHOMPER_SNIFF_SPEED) * timeScale;
+    for (let guard = 0, move = speed; guard < 3 && move > 0; guard++) {
+        const t = mazeCenter(m.tc, m.tr);
+        const d = Math.hypot(t.x - m.x, t.y - m.y);
+        if (d > move) {
+            m.x += (t.x - m.x) / d * move;
+            m.y += (t.y - m.y) / d * move;
+            return;
+        }
+        m.x = t.x;
+        m.y = t.y;
+        m.c = m.tc;
+        m.r = m.tr;
+        move -= d;
+        chomperEat(m);
+        if (gameState !== 'playing' || !maze) return;
+        const next = stepTowardDot(m.c, m.r);
+        if (!next) return;
+        m.dir = next;
+        m.tc = m.c + next[0];
+        m.tr = m.r + next[1];
     }
-    if (m.zoom) {
-        m.zoom = false; // bonk: the wall stops it
-        beep(700, 'chomperBonk');
-    }
-    const d = stepTowardDot(m.c, m.r);
-    if (!d) return;
-    m.dir = d;
-    if (d[0]) m.face = d[0];
-    m.tc = m.c + d[0];
-    m.tr = m.r + d[1];
 }
 
-// The ball sends the chomper zooming off the way the ball was travelling (along whichever axis it was
-// travelling more), or along the other axis if that way is a wall
-function pushChomper(b) {
-    const m = maze.chomper;
-    const here = mazeCellAt(m.x, m.y);
-    const main = Math.abs(b.vx) > Math.abs(b.vy) ? [Math.sign(b.vx), 0] : [0, Math.sign(b.vy)];
-    const other = main[0] ? [0, Math.sign(b.vy) || -1] : [Math.sign(b.vx) || 1, 0];
-    const dir = [main, other, [-other[0], -other[1]]].find(d => mazeOpen(here.c + d[0], here.r + d[1], false));
-    if (!dir) return;
-    m.c = here.c;
-    m.r = here.r;
-    m.dir = dir;
-    if (dir[0]) m.face = dir[0];
-    m.tc = here.c + dir[0];
-    m.tr = here.r + dir[1];
-    m.zoom = true;
-    tone(900, 0.12, { type: 'triangle', vol: 0.16, slideTo: 1500, key: 'chomperZoom' });
-    spawnParticles(m.x, m.y, '#dfe3ff', 5);
+// Any ball hit boosts it: a few seconds at three times the speed
+function boostChomper(m) {
+    m.zoomT = CHOMPER_ZOOM_FRAMES;
+    m.pushed = true;
+    addPopup(m.x, m.y - 22, 'ZOOM!', m.color, { size: 16, life: 0.7, rise: 1 });
+    tone(700, 0.14, { type: 'triangle', vol: 0.16, slideTo: 1400, key: 'chompZoom' });
+    spawnParticles(m.x, m.y, m.color, 6);
     haptic(10);
 }
 
-// A ghost got the chomper: it's whisked home, and a couple of dots tumble back into the maze
-function catchChomper(ghost) {
-    const m = maze.chomper;
-    const home = mazeCenter(CHOMPER_HOME.c, CHOMPER_HOME.r);
-    spawnParticles(m.x, m.y, '#ffe14d', 12);
-    addPopup(m.x, m.y - 20, 'CAUGHT!', '#ff5a7a', { size: 20, life: 1.2, pop: true });
-    tone(600, 0.35, { type: 'sawtooth', vol: 0.2, slideTo: 150, key: 'chomperCaught', force: true });
+// A ghost got a chomper: it's whisked home, and a couple of dots go back into the maze (and off your count)
+function catchChomper(m, ghost) {
+    const p = mazeCenter(m.home.c, m.home.r);
+    spawnParticles(m.x, m.y, m.color, 12);
+    addPopup(m.x, m.y - 20, 'CAUGHT! -' + CHOMPER_CAUGHT_DROP, '#ff5a7a', { size: 20, life: 1.2, pop: true });
+    tone(600, 0.35, { type: 'sawtooth', vol: 0.2, slideTo: 150, key: 'chompCaught', force: true });
     addShake(5);
     haptic([30, 30, 50], true);
-    Object.assign(m, { x: home.x, y: home.y, c: CHOMPER_HOME.c, r: CHOMPER_HOME.r, tc: CHOMPER_HOME.c, tr: CHOMPER_HOME.r, zoom: false, safe: 180 });
-    // Knocked-loose dots land on empty cells
+    Object.assign(m, { x: p.x, y: p.y, c: m.home.c, r: m.home.r, tc: m.home.c, tr: m.home.r, zoomT: 0, safe: 180 });
     const empty = [];
-    maze.dots.forEach((row, r) => row.forEach((k, c) => { if (!k && MAZE_ART[r][c] !== '#' && MAZE_ART[r][c] !== 'G' && !(c === m.c && r === m.r)) empty.push([c, r]); }));
+    maze.dots.forEach((row, r) => row.forEach((k, c) => { if (!k && MAZE_ART[r][c] !== '#' && MAZE_ART[r][c] !== 'G' && MAZE_ART[r][c] !== 'M') empty.push([c, r]); }));
     for (let i = 0; i < CHOMPER_CAUGHT_DROP && empty.length; i++) {
         const [c, r] = empty.splice(Math.floor(Math.random() * empty.length), 1)[0];
         maze.dots[r][c] = 1;
-        bricksLeft++;
     }
-    levelBricksTotal = Math.max(levelBricksTotal, bricksLeft);
+    bricksLeft = Math.min(maze.goal, bricksLeft + CHOMPER_CAUGHT_DROP);
     ghostGoHome(ghost, 60 * 3); // the ghost's had its fun
     if (!mazeCatchTipShown) {
         mazeCatchTipShown = true;
-        addPopup(CANVAS_W / 2, 410, 'BOP THE GHOSTS WITH THE BALL TO PROTECT THE CHOMPER!', '#ffffff', { size: 18, life: 2.6, rise: 0.15, pop: true });
+        addPopup(CANVAS_W / 2, 440, 'BOP THE GHOSTS WITH THE BALL TO PROTECT THE CHOMPERS!', '#ffffff', { size: 17, life: 2.6, rise: 0.15, pop: true });
     }
 }
 
+// Out of time: costs a life, and the clock restarts (what's been eaten stays eaten)
+function mazeTimeUp() {
+    addPopup(CANVAS_W / 2, 300, 'TIME UP!', '#ff5a7a', { size: 30, life: 1.6, rise: 0.3, pop: true });
+    tone(300, 0.6, { type: 'sawtooth', vol: 0.25, slideTo: 80, key: 'timeUp', force: true });
+    maze.time = 60 * MAZE_EXTRA_SECONDS;
+    loseLife();
+}
+
 // --- Ghost brains ---
-// Where each ghost is heading when it isn't scared: the red chaser goes straight for the chomper, the pink
-// ambusher for where the chomper is going, the cyan patroller keeps to the bottom row above your paddle (it
+// Where each ghost is heading when it isn't scared: the red chaser goes straight for a chomper, the pink
+// ambusher for where it's going, the cyan patroller keeps to the bottom row above your paddle (it
 // does most of the swooping), and the orange shy one stalks the chomper until it's close, then loses its
 // nerve and wanders off to a corner.
 function ghostTarget(ghost) {
-    const m = maze.chomper;
+    // Each goes after whichever chomper is nearer to it
+    const m = maze.chompers.reduce((a, b) => (Math.hypot(a.x - ghost.x, a.y - ghost.y) <= Math.hypot(b.x - ghost.x, b.y - ghost.y) ? a : b));
     if (ghost.i === 0) return { x: m.x, y: m.y };
     if (ghost.i === 1) return { x: m.x + m.dir[0] * MAZE_CELL * 3, y: m.y + m.dir[1] * MAZE_CELL * 3 };
     if (ghost.i === 2) return { x: paddle.x + paddle.w / 2, y: mazeCenter(0, MAZE_ROWS - 1).y };
@@ -436,8 +447,17 @@ function updateMaze() {
     if (maze.fright > 0 && --maze.fright === 0) {
         for (const ghost of maze.ghosts) if (ghost.mode === 'fright') ghost.mode = 'chase';
     }
-    updateChomper();
-    if (!maze || gameState !== 'playing') return;
+    for (const m of maze.chompers) {
+        updateChomper(m);
+        if (!maze || gameState !== 'playing') return;
+    }
+    // The clock (ticking audibly through the last ten seconds)
+    maze.time--;
+    if (maze.time <= 600 && maze.time % 60 === 0 && maze.time > 0) tone(maze.time <= 180 ? 1200 : 900, 0.04, { type: 'square', vol: 0.1, key: 'mazeTick' });
+    if (maze.time <= 0) {
+        mazeTimeUp();
+        return;
+    }
     // Every so often a ghost on the bottom row (never a scared one) swoops at the paddle
     if (--maze.diveIn <= 0) {
         const bottom = maze.ghosts.filter(ghost => ghost.mode === 'chase' && ghost.r === MAZE_ROWS - 1);
@@ -455,32 +475,32 @@ function updateMaze() {
         if (free.length) {
             const [c, r] = free[Math.floor(Math.random() * free.length)];
             maze.dots[r][c] = 2;
-            bricksLeft++;
-            levelBricksTotal++;
         }
         maze.powerIn = 60 * 18;
     }
-    const m = maze.chomper;
     for (const ghost of maze.ghosts) {
         updateGhost(ghost);
-        // Ghost meets chomper: a hungry ghost catches it, a scared one gets chased off by it
+        // Ghost meets chomper: a hungry ghost catches it, a scared one gets eaten by it
         if (ghost.mode !== 'chase' && ghost.mode !== 'fright') continue;
-        if (Math.hypot(ghost.x - m.x, ghost.y - m.y) > GHOST_R + CHOMPER_R - 4) continue;
-        if (ghost.mode === 'fright') eatGhost(ghost);
-        else if (m.safe <= 0) catchChomper(ghost);
+        for (const m of maze.chompers) {
+            if (Math.hypot(ghost.x - m.x, ghost.y - m.y) > GHOST_R + CHOMPER_R - 4) continue;
+            if (ghost.mode === 'fright') eatGhost(ghost);
+            else if (m.safe <= 0) catchChomper(m, ghost);
+            break;
+        }
     }
 }
 
 // --- The ball in the maze ---
 function mazeBallCollision(b) {
     if (!maze) return;
-    // (The walls only steer the chomper and the ghosts: the ball flies straight over them)
-    // The chomper: send it zooming off the way the ball was going
-    const m = maze.chomper;
-    if (m.hitCool <= 0 && Math.hypot(b.x - m.x, b.y - m.y) < b.r + CHOMPER_R) {
-        m.hitCool = 12;
-        pushChomper(b); // (the ball's heading before it bounces off decides where the chomper goes)
-        bounceOffCircle(b, m.x, m.y, CHOMPER_R);
+    // (The walls only steer the chompers and the ghosts: the ball flies straight over them)
+    // A chomper: any touch boosts it, and the ball flies on through (no bounce to aim)
+    for (const m of maze.chompers) {
+        if (m.hitCool <= 0 && m.safe <= 0 && Math.hypot(b.x - m.x, b.y - m.y) < CHOMPER_HIT_R) {
+            m.hitCool = 30;
+            boostChomper(m);
+        }
     }
     // Ghosts
     for (const ghost of maze.ghosts) {
@@ -516,11 +536,11 @@ function mazeBreather() {
     });
 }
 
-// Guided ball: go for the chomper, or a scared ghost (the ball flies over the walls, so nothing blocks a shot)
+// Guided ball: go for a chomper that isn't boosted, or a ghost (a scared one best); the ball flies over the
+// walls, so nothing blocks a shot
 function bestAimMaze(x, y) {
     const speed = currentSpeed();
     let best = null, bestV = 0;
-    const m = maze.chomper;
     for (let deg = -70; deg <= 70; deg += 5) {
         const a = (deg * Math.PI) / 180;
         let dx = Math.sin(a);
@@ -531,7 +551,7 @@ function bestAimMaze(x, y) {
             py += dy * 5;
             if (px < BALL_RADIUS || px > CANVAS_W - BALL_RADIUS) dx = -dx;
             if (py < 0) break;
-            if (Math.hypot(m.x - px, m.y - py) < CHOMPER_R + BALL_RADIUS) v = 10;
+            for (const m of maze.chompers) if (Math.hypot(m.x - px, m.y - py) < CHOMPER_HIT_R) v = Math.max(v, m.zoomT > 60 ? 2 : 10);
             for (const ghost of maze.ghosts) if (Math.hypot(ghost.x - px, ghost.y - py) < GHOST_R + BALL_RADIUS) v = Math.max(v, ghostScared(ghost) ? 12 : 6);
         }
         v *= 1 - Math.abs(deg) / 400;
@@ -621,16 +641,22 @@ function drawGhostEyes(x, y, dir) {
     }
 }
 
-// The chomper: a yellow disc with a wedge mouth that opens and closes as it goes, facing its way. Our own
-// twist: a little antenna with a glowing tip, bobbing on top.
+// A chomper: a disc with a wedge mouth that opens and closes as it goes, facing its way (one yellow, one
+// green). Our own twist: a little antenna with a glowing tip, bobbing on top. Until the ball has boosted
+// it once, a blinking HIT ME! sign hangs over it.
 function drawChomper(m) {
     if (m.safe > 0 && Math.floor(m.safe / 6) % 2 === 0) return; // blinking while it's safe, just home
     const R = CHOMPER_R + 2;
     const heading = Math.atan2(m.dir[1], m.dir[0]);
-    const open = (0.08 + 0.3 * Math.abs(Math.sin(maze.t / (m.zoom ? 2.5 : 4)))) * Math.PI;
+    const zoom = m.zoomT > 0;
+    const open = (0.08 + 0.3 * Math.abs(Math.sin(maze.t / (zoom ? 2.5 : 4)))) * Math.PI;
     ctx.save();
     ctx.translate(m.x, m.y);
-    if (m.zoom) { // speed lines behind it
+    if (zoom) { // a glow and speed lines behind it
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+        ctx.beginPath();
+        ctx.arc(0, 0, R + 6, 0, Math.PI * 2);
+        ctx.fill();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -654,7 +680,7 @@ function drawChomper(m) {
     ctx.fill();
     // Body with the mouth cut out
     ctx.rotate(heading);
-    ctx.fillStyle = '#ffe14d';
+    ctx.fillStyle = m.color;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.arc(0, 0, R, open, Math.PI * 2 - open);
@@ -667,21 +693,30 @@ function drawChomper(m) {
     ctx.arc(2, up * R * 0.5, 2.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+    if (!m.pushed && Math.floor(maze.t / 20) % 2 === 0) {
+        ctx.font = pixelFont(9);
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.strokeText('HIT ME!', m.x, m.y + R + 16);
+        ctx.fillStyle = m.color;
+        ctx.fillText('HIT ME!', m.x, m.y + R + 16);
+    }
 }
 
 function drawMaze() {
     if (!maze) return;
     if (!mazeLayer) mazeLayer = makeSprite(CANVAS_W, CANVAS_H, paintMaze);
     ctx.drawImage(mazeLayer, 0, 0);
-    // Dots (one path); power pellets blink; the last few swell so you can find them
-    const pulse = bricksLeft <= 8 ? 2 + Math.sin(maze.t / 6) * 1.5 : 0;
+    // Dots (one path); power pellets blink
     ctx.fillStyle = '#ffb8ae';
     ctx.beginPath();
     for (let r = 0; r < MAZE_ROWS; r++) {
         for (let c = 0; c < MAZE_COLS; c++) {
             if (maze.dots[r][c] !== 1) continue;
             const p = mazeCenter(c, r);
-            const s = 3 + pulse;
+            const s = 4;
             ctx.rect(p.x - s, p.y - s, s * 2, s * 2);
         }
     }
@@ -692,13 +727,13 @@ function drawMaze() {
             for (let c = 0; c < MAZE_COLS; c++) {
                 if (maze.dots[r][c] !== 2) continue;
                 const p = mazeCenter(c, r);
-                ctx.moveTo(p.x + 9, p.y);
-                ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+                ctx.moveTo(p.x + 11, p.y);
+                ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
             }
         }
         ctx.fill();
     }
-    drawChomper(maze.chomper);
+    for (const m of maze.chompers) drawChomper(m);
     // Ghosts
     const frame = Math.floor(maze.t / 8) % 2;
     for (const ghost of maze.ghosts) {
@@ -727,9 +762,29 @@ function drawMaze() {
             ctx.fillText('!', x, y - GHOST_R - 8);
         }
     }
-    // How many dots are left
-    ctx.font = termFont(20);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#ffb8ae';
-    ctx.fillText('DOTS LEFT ' + bricksLeft, CANVAS_W - 14, 56);
+}
+
+// The goal bar across the top (over everything, like a boss's health bar): dots eaten toward the quota,
+// and the clock, which turns red and pulses for the last ten seconds
+function drawMazeBar() {
+    if (!maze || gameState === 'won') return;
+    const w = 460, x = (CANVAS_W - w) / 2, y = 64, h = 14;
+    const eaten = maze.goal - bricksLeft;
+    const secs = Math.max(0, Math.ceil(maze.time / 60));
+    const low = secs <= 10;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    ctx.fillStyle = '#ffe14d';
+    ctx.fillRect(x, y, w * Math.min(1, eaten / maze.goal), h);
+    ctx.font = pixelFont(12);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('EAT ' + maze.goal + ' DOTS   ' + eaten + ' / ' + maze.goal, CANVAS_W / 2, y - 8);
+    const pulse = low ? 1 + 0.15 * Math.abs(Math.sin(maze.t / 8)) : 1;
+    ctx.font = pixelFont(Math.round(16 * pulse));
+    ctx.textAlign = 'left';
+    ctx.fillStyle = low ? '#ff5a7a' : '#ffffff';
+    ctx.fillText(Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'), x + w + 16, y + h);
+    ctx.restore();
 }
