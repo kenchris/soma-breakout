@@ -2,14 +2,8 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
-function dropPowerup(type, x, y) {
-    const t = POWERUP_TYPES.find(p => p.type === type);
-    powerups.push({ x: x, y: y, type: t.type, label: t.label, color: t.color, vy: 2.5 });
-}
-
-
 function spawnCrates() {
-    const pool = POWERUP_TYPES.filter(p => unlockLevel() >= (POWERUP_UNLOCK[p.type] || 1));
+    const pool = unlockedPowerups();
     const pickFrom = names => {
         const list = pool.filter(p => names.includes(p.type));
         return list[Math.floor(Math.random() * list.length)];
@@ -57,16 +51,7 @@ function respawnCrate() {
     const spot = freeCrateSpot();
     if (!spot) return false;
     const taken = crates.filter(c => c.alive).map(c => c.type);
-    const options = POWERUP_TYPES.filter(p => unlockLevel() >= (POWERUP_UNLOCK[p.type] || 1) && !taken.includes(p.type));
-    let roll = Math.random() * options.reduce((sum, p) => sum + p.weight, 0);
-    let def = options[options.length - 1];
-    for (const p of options) {
-        roll -= p.weight;
-        if (roll < 0) {
-            def = p;
-            break;
-        }
-    }
+    const def = weightedPick(unlockedPowerups().filter(p => !taken.includes(p.type)));
     crates = crates.filter(c => c.alive); // drop the broken ones from the list
     crates.push({ x: spot.x, y: spot.y, w: BRICK_W, h: BRICK_H, alive: true, type: def.type, label: def.label, color: def.color, age: 0 });
     const cx = spot.x + BRICK_W / 2;
@@ -131,23 +116,10 @@ function breakCrate(cr) {
 function crateBallCollision(b) {
     for (const cr of crates) {
         if (!cr.alive) continue;
-        const cx = Math.max(cr.x, Math.min(b.x, cr.x + cr.w));
-        const cy = Math.max(cr.y, Math.min(b.y, cr.y + cr.h));
-        const dx = b.x - cx;
-        const dy = b.y - cy;
-        if (dx * dx + dy * dy >= b.r * b.r) continue;
+        const hit = rectContact(b, cr.x, cr.y, cr.w, cr.h);
+        if (!hit) continue;
         breakCrate(cr);
-        if (fireTimer <= 0) {
-            if (Math.abs(dx) > Math.abs(dy)) {
-                const dir = dx >= 0 ? 1 : -1;
-                b.vx = dir * Math.abs(b.vx);
-                b.x = dir > 0 ? cr.x + cr.w + b.r : cr.x - b.r;
-            } else {
-                const dir = dy >= 0 ? 1 : -1;
-                b.vy = dir * Math.abs(b.vy);
-                b.y = dir > 0 ? cr.y + cr.h + b.r : cr.y - b.r;
-            }
-        }
+        if (fireTimer <= 0) bounceOffRect(b, cr.x, cr.y, cr.w, cr.h, hit);
         return;
     }
 }

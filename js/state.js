@@ -12,6 +12,8 @@ let isMuted = false;
 
 let movingWalls = []; // sliding barriers from level 3+
 
+let bumpers = [];     // pinball bumpers: { x, y, r, lit, hits } — see bumpers.js
+
 let touchDetected = false;
 
 // Run stats and best score (shown on the end screen)

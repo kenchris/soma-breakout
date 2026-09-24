@@ -24,7 +24,8 @@ function spawnPortals() {
     // Two spots in the open band between the bricks (and walls) and the paddle, well apart from each other
     const spot = () => ({ x: 70 + Math.random() * (CANVAS_W - 140), y: 300 + Math.random() * 160 });
     let a = spot(), b = spot();
-    for (let i = 0; i < 30 && Math.hypot(a.x - b.x, a.y - b.y) < 320; i++) b = spot();
+    for (let i = 0; i < 30 && nearBumper(a.x, a.y, PORTAL_R + 30); i++) a = spot();
+    for (let i = 0; i < 30 && (Math.hypot(a.x - b.x, a.y - b.y) < 320 || nearBumper(b.x, b.y, PORTAL_R + 30)); i++) b = spot();
     portals = { a: { ...a, color: '#ff9a1f', tint: '255, 154, 31' }, b: { ...b, color: '#2de2e6', tint: '45, 226, 230' },
         warn: PORTAL_WARN_FRAMES, life: PORTAL_LIFE_FRAMES, t: 0 };
     addPopup(CANVAS_W / 2, 100, 'PORTALS OPENING…', '#ffb347', { size: 20, life: 1.6, rise: 0.2, pop: true });

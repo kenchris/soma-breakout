@@ -18,9 +18,15 @@ function canSpawnWarp() {
 
 
 function spawnWarpRift() {
+    let x, y;
+    for (let i = 0; i < 30; i++) { // (clear of any bumper, so it isn't sitting on one)
+        x = 90 + Math.random() * (CANVAS_W - 180);
+        y = 300 + Math.random() * 140;
+        if (!nearBumper(x, y, WARP_R + 30)) break;
+    }
     warpRift = {
-        x: 90 + Math.random() * (CANVAS_W - 180),
-        y: 300 + Math.random() * 140,
+        x,
+        y,
         r: WARP_R,
         pullR: WARP_PULL_R,
         warn: WARP_WARN_FRAMES,

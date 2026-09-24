@@ -578,6 +578,9 @@ function drawSnakeBoss() {
     if (!B) return;
     if (B.intro > 0) return; // the "A WILD SNAKE APPEARS!" popup is fired once from updateSnakeBoss
     drawSnakeObstacles();
+    // Chopped down to nothing: the death animation is all blasts, there's no body left to draw (drawing
+    // one anyway threw on every frame of it, cutting off the ball, paddle and popups drawn after it)
+    if (!B.segments.length) return;
     const pts = B.segments.map(snakeSegCenter);
     const w = SNAKE_CELL * 0.82;
     ctx.save();

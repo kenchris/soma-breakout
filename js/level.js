@@ -191,11 +191,39 @@ function resetGame(startLevel = 1) {
 
 // --- Level Generation ---
 // A level = a layout (which cells hold bricks) + a steel style (which bricks take two hits).
-// Layouts repeat every 8 levels and steel styles every 3, so combinations don't repeat for 24 levels.
-// Levels 1-5 keep the original layout order.
+// The first LAYOUT_FIXED levels after the tutorial play the original eight layouts in order; after that every
+// block of LAYOUTS.length levels deals each layout once, shuffled (see currentLayout). Steel styles cycle every 3.
+const LAYOUT_FIXED = 8;
 
 function currentLayout() {
-    return isTutorial() ? TUTORIAL[level - 1] : LAYOUTS[(curveLevel() - 1) % LAYOUTS.length];
+    if (isTutorial()) return TUTORIAL[level - 1];
+    const s = curveLevel();
+    if (s <= LAYOUT_FIXED) return LAYOUTS[s - 1];
+    // After the fixed opening run, the brick levels (boss and ghost levels have no layout) are dealt the
+    // layouts from a seeded, shuffled deck: every layout once per LAYOUTS.length brick levels. A plain cycle
+    // by level number kept boss and ghost levels landing on the same layouts' turns, so some layouts could
+    // go 50+ levels without ever showing up.
+    const n = brickLevelsBefore(level);
+    const block = Math.floor(n / LAYOUTS.length);
+    const deck = LAYOUTS.map((_, i) => i);
+    const rand = seededRandom(block * 2654435761 + 97);
+    for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    return LAYOUTS[deck[n % LAYOUTS.length]];
+}
+
+// How many brick levels (not a boss, not ghost rows) come after the fixed opening run and before level l
+const brickLevelCounts = {};
+function brickLevelsBefore(l) {
+    const first = TUTORIAL_LEVELS + LAYOUT_FIXED + 1;
+    if (l <= first) return 0;
+    if (brickLevelCounts[l] === undefined) {
+        const prev = l - 1;
+        brickLevelCounts[l] = brickLevelsBefore(prev) + (isBossLevel(prev) || isGhostLevel(prev) ? 0 : 1);
+    }
+    return brickLevelCounts[l];
 }
 
 // Small seeded PRNG (mulberry32) so a given level always generates the same layout, also for ?level=N
@@ -290,7 +318,7 @@ function planLevel(l) {
     // it's delivered: a gold brick, a ghost row clearing, or a boss nearing defeat) happens at runtime,
     // deliberately NOT seeded like the rest of this plan, so replaying — or reloading the same ?level=N —
     // can go either way each time; see placeCheatBrick, clearRows and maybeDropBossCheatCapsule.
-    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, aliens: null, chaos: null, cheatEligible: unlockLevel(l) >= UNLOCK.cheat, tutorial: null };
+    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, bumpers: 0, aliens: null, chaos: null, cheatEligible: unlockLevel(l) >= UNLOCK.cheat, tutorial: null };
     if (isTutorial(l)) { // exactly what that tutorial level shows, quickly: aliens and events come early
         const t = TUTORIAL[l - 1];
         p.tutorial = t;
@@ -314,12 +342,18 @@ function planLevel(l) {
     if (rand() < Math.min(0.55, 0.3 + 0.04 * Math.max(0, s - UNLOCK.chaos))) {
         p.chaos = { events: 1 + (s >= 9 && rand() < 0.5 ? 1 : 0) };
     }
-    // Ghost rows replace the bricks, so no TNT or sliding walls — but cheatEligible stays: see clearRows()
+    // Pinball bumpers: a sure thing on the level they debut, then on about a third of levels, three of them
+    // from curve level 10. (Their own random stream, so adding them didn't change anything else about a level.)
+    if (s >= UNLOCK.bumpers && (s === UNLOCK.bumpers || seededRandom(l * 49979687 + 13)() < 0.35)) {
+        p.bumpers = s >= 10 ? 3 : 2;
+    }
+    // Ghost rows replace the bricks, so no TNT, sliding walls or bumpers — but cheatEligible stays: see clearRows()
     // in ghostRows.js for how a ghost level delivers one instead of a gold brick (a roll per row cleared).
     if (isGhostLevel(l)) {
         p.tetris = true;
         p.tnt = 0;
         p.walls = 0;
+        p.bumpers = 0;
     }
     return p;
 }
@@ -446,6 +480,7 @@ function spawnLevel() {
     portals = null;
     portalTimer = 60 * (12 + Math.random() * 10); // the first pair of a level opens 12-22s in
     movingWalls = buildWalls(); // built before spawnBoss() so the snake boss can add its own wall to it
+    bumpers = buildBumpers();
     const layout = currentLayout();
     const isSteel = plan.tutorial
         ? (c, r) => !!(plan.tutorial.steel && plan.tutorial.steel(c, r))

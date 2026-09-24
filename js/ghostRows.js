@@ -256,19 +256,8 @@ function ghostBallCollision(b) {
             } else if (cell.state === 3 && !bounced && fireTimer <= 0) {
                 const x = ghostCellX(c);
                 const y = ghostCellY(r);
-                const cx = Math.max(x, Math.min(b.x, x + BRICK_W));
-                const cy = Math.max(y, Math.min(b.y, y + BRICK_H));
-                const dx = b.x - cx;
-                const dy = b.y - cy;
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    const dir = dx >= 0 ? 1 : -1;
-                    b.vx = dir * Math.abs(b.vx);
-                    b.x = dir > 0 ? x + BRICK_W + b.r : x - b.r;
-                } else {
-                    const dir = dy >= 0 ? 1 : -1;
-                    b.vy = dir * Math.abs(b.vy);
-                    b.y = dir > 0 ? y + BRICK_H + b.r : y - b.r;
-                }
+                const hit = rectContact(b, x, y, BRICK_W, BRICK_H);
+                if (hit) bounceOffRect(b, x, y, BRICK_W, BRICK_H, hit);
                 beep(240, 'tink');
                 bounced = true;
                 // A ball bouncing straight up and down between two solid cells (no sideways speed) could be trapped
