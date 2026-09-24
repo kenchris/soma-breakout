@@ -218,16 +218,12 @@ test('warp rift: opens within ~2 minutes of play and is reachable', '?level=8', 
     check(r.r >= 36 && r.life >= 600, 'rift big and long-lived enough to reach');
 });
 
-test('secret code (keyboard): opens a warp rift once per game', '?level=8', async (page, check) => {
+test('secret code (keyboard): opens a warp rift', '?level=8', async (page, check) => {
     await page.evaluate(() => { installHelpers(); T.play(3, () => false, { immortal: true }); warpRift = null; portals = null; });
     const keys = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
     for (const k of keys) await page.keyboard.press(k);
     const first = await page.evaluate(() => !!warpRift);
-    await page.evaluate(() => { warpRift = null; });
-    for (const k of keys) await page.keyboard.press(k);
-    const second = await page.evaluate(() => !!warpRift);
-    check(first, 'the code should open a warp rift');
-    check(!second, 'the code works only once per game');
+    check(first, 'the code should open a warp rift'); // (once per game: see the "only spent when" test)
     const again = await page.evaluate(() => { resetGame(8); return secretUsed; });
     check(!again, 'a new game gets the code back');
 });
@@ -303,6 +299,31 @@ test('secret code (touch): with a dialog open, swipe, tap B then A, from anywher
     check(await page.evaluate(() => level) === 8, 'a level-code chip under the pause dialog was pressed');
     check(await page.evaluate(() => gameState) === 'playing', 'a normal tap afterwards should resume');
 }, { width: 390, height: 844, isMobile: true, hasTouch: true });
+
+test('secret code: only spent when the warp is taken (timeout, Stay or level end give it back)', '?level=8', async (page, check) => {
+    const keys = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+    const enter = async () => { for (const k of keys) await page.keyboard.press(k); return page.evaluate(() => !!warpRift && secretUsed); };
+    await page.evaluate(() => { installHelpers(); T.play(3, () => false, { immortal: true }); warpRift = null; portals = null; warpTimer = 1e9; });
+    const step = (fn) => page.evaluate(fn);
+    // 1. It closes unused: the ball never got there
+    check(await enter(), 'timeout: the code opens a rift');
+    await step(() => { warpRift.warn = 0; warpRift.life = 1; T.step(); T.step(); });
+    check(await step(() => !warpRift && !secretUsed), 'timeout: a rift that closed unused gives the code back');
+    // 2. The ball reached it, but the player chose Stay
+    check(await enter(), 'stay: the code opens a rift again');
+    await step(() => { warpRift.warn = 0; offerWarp(balls[0]); declineWarp(); hideModal(); });
+    check(await step(() => !warpRift && !secretUsed), 'stay: choosing Stay gives the code back');
+    // 3. The level ended with the rift still open
+    check(await enter(), 'level end: the code opens a rift again');
+    await step(() => { completeLevel(); hideOverlay(); launchGame(); T.step(); });
+    check(await step(() => !secretUsed), 'level end: an unused rift gives the code back');
+    // 4. The warp is taken: now it's spent
+    await step(() => { warpRift = null; portals = null; hideOverlay(); gameState = 'playing'; });
+    check(await enter(), 'warp: the code opens a rift again');
+    await step(() => { warpRift.warn = 0; offerWarp(balls[0]); acceptWarp(); hideOverlay(); launchGame(); T.step(); });
+    check(await step(() => secretUsed), 'warp: taking the warp spends the code');
+    check(!(await enter()), 'warp: the code does not work again this game');
+});
 
 test('secret code: not used up where no rift can open (tutorial)', '?level=2', async (page, check) => {
     await page.evaluate(() => { installHelpers(); T.play(3, () => false, { immortal: true }); });
