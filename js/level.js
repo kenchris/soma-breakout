@@ -360,7 +360,7 @@ function planLevel(l) {
         p.chain = true;
         p.tnt = 0;
     }
-    // Space Mice: the maze is the whole level, and its cats are the only visitors
+    // Space Chomp: the maze is the whole level, and its ghosts are the only visitors
     if (isMazeLevel(l)) {
         p.maze = true;
         p.tnt = 0;
@@ -386,10 +386,10 @@ function showLevelIntro() {
         ghostIntroSeen = true;
     }
     if (plan.maze) {
-        title = 'SPACE MICE';
+        title = 'SPACE CHOMP';
         lines = mazeIntroSeen
-            ? ['Hit the mouse to steer it to the cheese. Bop the cats!']
-            : ['Hit the mouse: it zooms off the way the ball was going', 'It eats the cheese. Bop the cats to keep it safe!'];
+            ? ['Hit the chomper to steer it to the dots. Bop the ghosts!']
+            : ['Hit the chomper: it zooms off the way the ball was going', 'It eats the dots. Bop the ghosts to keep it safe!'];
         mazeIntroSeen = true;
     }
     if (plan.chain) {
