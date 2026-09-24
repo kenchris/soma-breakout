@@ -6,7 +6,7 @@
 // While a code is under way those taps don't resume the game. A wrong move starts it over.
 //
 // It works once per game (resetGame clears it). Where a rift can't open (the tutorial, a Space Chomp maze,
-// a boss arriving or dying, a rift already open) it says so and isn't used up.
+// a boss level, a rift already open) it says so and isn't used up.
 
 const SECRET_CODE = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right', 'b', 'a'];
 const SECRET_SWIPE_PX = 40;   // a touch that travels this far is a swipe...
@@ -38,8 +38,7 @@ function secretInput(move) {
 }
 
 function canOpenSecretRift() {
-    return (gameState === 'playing' || gameState === 'paused') && !warpRift && !isTutorial() && !maze &&
-        !(boss && (boss.intro > 0 || boss.dying > 0));
+    return (gameState === 'playing' || gameState === 'paused') && !warpRift && !isTutorial() && !maze && !plan.boss; // (a boss has to be beaten, not skipped)
 }
 
 function secretCodeEntered() {
@@ -69,30 +68,43 @@ function secretKey(e) {
     secretInput(move);
 }
 
-// Touch: only watched while paused, where a finger does nothing else but the tap that resumes
-function secretPointerDown(e) {
-    if (e.pointerType === 'mouse' || gameState !== 'paused' || modalOpen()) return;
-    secretTouch = { id: e.pointerId, x: e.clientX, y: e.clientY };
+// Touch: only watched while paused, where a finger does nothing else but the tap that resumes. This
+// listens to touch events, not pointer events: a swipe that starts on the pause dialog (which can scroll)
+// gets its pointer events cancelled by the browser mid-swipe, but the touch events still arrive.
+function secretTouchStart(e) {
+    if (gameState !== 'paused' || modalOpen() || e.touches.length !== 1) {
+        secretTouch = null;
+        return;
+    }
+    const p = e.changedTouches[0];
+    secretTouch = { id: p.identifier, x: p.clientX, y: p.clientY };
 }
 
-function secretPointerUp(e) {
+function secretTouchEnd(e) {
     const t = secretTouch;
-    if (!t || e.pointerId !== t.id) return;
+    const p = t && Array.from(e.changedTouches).find(c => c.identifier === t.id);
+    if (!p) return;
     secretTouch = null;
     if (gameState !== 'paused') return;
-    const dx = e.clientX - t.x, dy = e.clientY - t.y;
+    const dx = p.clientX - t.x, dy = p.clientY - t.y;
     const dist = Math.hypot(dx, dy);
     if (dist >= SECRET_SWIPE_PX) {
         secretInput(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
     } else if (dist <= SECRET_TAP_PX && secretProgress >= SECRET_CODE.indexOf('b')) {
         // The code is at its B A end: this tap is a button press, not "resume"
-        secretInput(e.clientX < window.innerWidth / 2 ? 'b' : 'a');
+        secretInput(p.clientX < window.innerWidth / 2 ? 'b' : 'a');
         secretSwallowUntil = performance.now() + 500;
     }
 }
 
 function secretSwallowsTap() {
     return performance.now() < secretSwallowUntil;
+}
+
+// The code is waiting for its B/A taps. A tap's pointerup (where the game resumes) comes before its touchend
+// (where the code reads it), so the game asks this first and leaves such a tap to the code.
+function secretAwaitingButtons() {
+    return secretProgress >= SECRET_CODE.indexOf('b') && performance.now() - secretLastAt < SECRET_TIMEOUT_MS;
 }
 
 function resetSecretCode() {
@@ -103,6 +115,12 @@ function resetSecretCode() {
 function initSecretCode() {
     document.addEventListener('keydown', secretKey);
     // Capture phase, so the code sees a tap before the game's own handlers decide it means "resume"
-    window.addEventListener('pointerdown', secretPointerDown, true);
-    window.addEventListener('pointerup', secretPointerUp, true);
+    window.addEventListener('touchstart', secretTouchStart, { capture: true, passive: true });
+    window.addEventListener('touchend', secretTouchEnd, { capture: true, passive: true });
+    // A B/A tap presses nothing else either (Resume, a HUD button...): its click is dropped
+    window.addEventListener('click', e => {
+        if (!secretSwallowsTap()) return;
+        e.stopPropagation();
+        e.preventDefault();
+    }, true);
 }

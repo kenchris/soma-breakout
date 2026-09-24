@@ -12,7 +12,8 @@ function canSpawnWarp() {
     return gameState === 'playing' && !warpRift && !portals && // never both at once: too much going on
         !isTutorial() && // a warp would skip you past the lessons
         !maze && // (the maze fills the space a rift opens in)
-        !(boss && (boss.intro > 0 || boss.dying > 0)) &&
+        !plan.boss && // a boss has to be beaten, not skipped
+
         !(ghost && ghostCount() <= 6) &&
         !(!ghost && !boss && bricksLeft <= 3);
 }

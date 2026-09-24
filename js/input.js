@@ -180,7 +180,7 @@ function handlePointerUp(e) {
         } else if (gameState === 'ready' || gameState === 'won') {
             launchGame();
             lastTapAt = 0;
-        } else if (gameState === 'paused' && !secretSwallowsTap()) {
+        } else if (gameState === 'paused' && !secretSwallowsTap() && !(e && e.pointerType !== 'mouse' && secretAwaitingButtons())) {
             togglePause();
             lastTapAt = 0;
         }
