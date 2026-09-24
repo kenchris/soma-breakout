@@ -1,12 +1,13 @@
 // === secretCode.js === The old arcade cheat code: once per game it tears open a warp rift on the spot.
 //
-// Keyboard: up up down down left right left right B A, any time during play.
-// Touch: pause first (so swiping doesn't steer the paddle), then swipe up, up, down, down, left, right,
-// left, right, and tap the left half of the screen for B, the right half for A, like a pad's buttons.
-// While a code is under way those taps don't resume the game. A wrong move starts it over.
+// Keyboard: up up down down left right left right B A, any time.
+// Touch: whenever a dialog is up (Pause, the launch / level cleared screen, Help, Sound: a swipe then
+// steers nothing), swipe up, up, down, down, left, right, left, right anywhere on the screen, and tap the
+// left half for B, the right half for A, like a pad's buttons. Those two taps don't launch, resume or press
+// anything. A wrong move starts it over.
 //
-// It works once per game (resetGame clears it). Where a rift can't open (the tutorial, a Space Chomp maze,
-// a boss level, a rift already open) it says so and isn't used up.
+// It works once per game (resetGame clears it). Where a rift can't open (training levels, Space Chomp,
+// boss fights, a rift already open) it says why and isn't used up.
 
 const SECRET_CODE = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right', 'b', 'a'];
 const SECRET_SWIPE_PX = 40;   // a touch that travels this far is a swipe...
@@ -25,6 +26,7 @@ function secretInput(move) {
     secretLastAt = now;
     if (move === SECRET_CODE[secretProgress]) {
         secretProgress++;
+        secretBuzz(secretProgress);
         if (secretProgress >= 3) tone(500 + secretProgress * 70, 0.05, { type: 'square', vol: 0.08, key: 'secretTick' });
         if (secretProgress === SECRET_CODE.length) {
             secretProgress = 0;
@@ -37,8 +39,44 @@ function secretInput(move) {
     return false;
 }
 
+// Why a rift can't open right now, or null if it can
+function secretRiftBlocker() {
+    if (isTutorial()) return 'No warp rift can open in training levels';
+    if (plan.boss) return 'No warp rift can open in boss fights'; // a boss has to be beaten, not skipped
+    if (plan.maze || maze) return 'No warp rift can open in Space Chomp';
+    if (warpRift) return 'A warp rift is already open';
+    if (gameState === 'lost') return 'No warp rift can open after game over';
+    return null;
+}
+
+// A buzz per correct move, stronger each time. A phone can't vibrate harder, only longer: 12ms at the first
+// move up to ~57ms at the last. iOS has no vibrate(), only a fixed tick (see iosHapticTick in audio.js), so
+// there it's more ticks instead: 1 at the start, up to 4 at the end.
+function secretBuzz(n) {
+    if (navigator.vibrate) {
+        haptic(7 + n * 5, true);
+        return;
+    }
+    const ticks = Math.ceil(n / 3);
+    for (let i = 0; i < ticks; i++) setTimeout(() => haptic(1, true), i * 70);
+}
+
+// The game does a silly jelly wobble (CSS: body.secret-wobble in index.html)
+function secretWobble() {
+    const el = document.body;
+    el.classList.remove('secret-wobble');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('secret-wobble');
+    setTimeout(() => el.classList.remove('secret-wobble'), 1000);
+}
+
 function canOpenSecretRift() {
-    return (gameState === 'playing' || gameState === 'paused') && !warpRift && !isTutorial() && !maze && !plan.boss; // (a boss has to be beaten, not skipped)
+    return secretRiftBlocker() === null;
+}
+
+// Touches count toward the code while a dialog is up (nothing else takes a swipe then)
+function secretPadActive() {
+    return gameState === 'paused' || modalOpen() || overlayOpen();
 }
 
 function secretCodeEntered() {
@@ -46,8 +84,9 @@ function secretCodeEntered() {
         showToast('The secret works once per game');
         return;
     }
-    if (!canOpenSecretRift()) {
-        showToast('No warp rift can open here');
+    const blocked = secretRiftBlocker();
+    if (blocked) {
+        showToast(blocked);
         return;
     }
     secretUsed = true;
@@ -55,16 +94,18 @@ function secretCodeEntered() {
     spawnWarpRift();
     warpTimer = warpInterval();
     addPopup(CANVAS_W / 2, 140, 'SECRET CODE!', '#ffd319', { size: 26, life: 2, rise: 0.2, pop: true });
-    showToast('SECRET CODE! A warp rift opens' + (gameState === 'paused' ? ': resume to use it' : ''));
-    haptic([30, 30, 30, 30, 80], true);
+    secretWobble();
+    addShake(12);
+    showToast('SECRET CODE! A warp rift opens');
+    if (navigator.vibrate) haptic([30, 30, 30, 30, 80], true);
+    else for (let i = 0; i < 5; i++) setTimeout(() => haptic(1, true), i * 90);
 }
 
 const SECRET_KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', b: 'b', B: 'b', a: 'a', A: 'a' };
 
 function secretKey(e) {
     const move = SECRET_KEYS[e.key];
-    if (!move || modalOpen()) return;
-    if (gameState !== 'playing' && gameState !== 'paused') return;
+    if (!move) return;
     secretInput(move);
 }
 
@@ -72,12 +113,30 @@ function secretKey(e) {
 // listens to touch events, not pointer events: a swipe that starts on the pause dialog (which can scroll)
 // gets its pointer events cancelled by the browser mid-swipe, but the touch events still arrive.
 function secretTouchStart(e) {
-    if (gameState !== 'paused' || modalOpen() || e.touches.length !== 1) {
+    if (!secretPadActive() || e.touches.length !== 1) {
         secretTouch = null;
         return;
     }
     const p = e.changedTouches[0];
-    secretTouch = { id: p.identifier, x: p.clientX, y: p.clientY };
+    secretTouch = { id: p.identifier, x: p.clientX, y: p.clientY, lastX: p.clientX, lastY: p.clientY };
+}
+
+function secretTouchMove(e) {
+    const t = secretTouch;
+    const p = t && Array.from(e.changedTouches).find(c => c.identifier === t.id);
+    if (p) { t.lastX = p.clientX; t.lastY = p.clientY; }
+}
+
+// If the browser takes the touch over anyway (a scroll, a system gesture), judge the swipe by where the
+// finger had got to
+function secretTouchCancel(e) {
+    const t = secretTouch;
+    if (!t || !Array.from(e.changedTouches).some(c => c.identifier === t.id)) return;
+    secretTouch = null;
+    const dx = t.lastX - t.x, dy = t.lastY - t.y;
+    if (Math.hypot(dx, dy) >= SECRET_SWIPE_PX) {
+        secretInput(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+    }
 }
 
 function secretTouchEnd(e) {
@@ -85,7 +144,6 @@ function secretTouchEnd(e) {
     const p = t && Array.from(e.changedTouches).find(c => c.identifier === t.id);
     if (!p) return;
     secretTouch = null;
-    if (gameState !== 'paused') return;
     const dx = p.clientX - t.x, dy = p.clientY - t.y;
     const dist = Math.hypot(dx, dy);
     if (dist >= SECRET_SWIPE_PX) {
@@ -117,6 +175,8 @@ function initSecretCode() {
     // Capture phase, so the code sees a tap before the game's own handlers decide it means "resume"
     window.addEventListener('touchstart', secretTouchStart, { capture: true, passive: true });
     window.addEventListener('touchend', secretTouchEnd, { capture: true, passive: true });
+    window.addEventListener('touchmove', secretTouchMove, { capture: true, passive: true });
+    window.addEventListener('touchcancel', secretTouchCancel, { capture: true, passive: true });
     // A B/A tap presses nothing else either (Resume, a HUD button...): its click is dropped
     window.addEventListener('click', e => {
         if (!secretSwallowsTap()) return;

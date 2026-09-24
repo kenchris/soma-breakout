@@ -2,7 +2,7 @@
 // list below changes (a new js/*.js file added/removed); code changes reach players on their next load
 // anyway (see the network-first fetch handler below). This is a static site with no build step, so this
 // list is maintained by hand, same as the <script> tags in index.html.
-const CACHE_VERSION = 'v37';
+const CACHE_VERSION = 'v38';
 const CACHE_NAME = 'breakout-' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -39,6 +39,7 @@ const APP_SHELL = [
     './js/sprites.js',
     './js/state.js',
     './js/ui.js',
+    './js/version.js',
     './js/warpRift.js',
     './icons/icon-192.png',
     './icons/icon-512.png',
