@@ -28,6 +28,10 @@ test now passes. Tests that were added this way (do not remove them):
   scroll) gets its pointer events cancelled by the browser, so touch input is read from touch events, and
   the test uses real touches (CDP), not synthetic events. B/A taps must not resume the paused game.
 - **No warp rifts on boss levels** (random, from a downed alien, or the secret code).
+- **Dialogs block the page under them**: on a phone the game's dialog (#overlay) is centred on the screen
+  with an invisible #dialog-shield under it, so the level-code list can't scroll and nothing under it can be
+  pressed. The secret code works whenever any dialog is up. The touch test aims at the part of the list the
+  dialog doesn't cover (it fails without the shield).
 - Assist tiers / score scaling, helpful drops, 5 lives + boss refill, level-code round-trip, Space Chomp
   clearable, every boss runs without errors.
 
@@ -35,6 +39,10 @@ Test helpers available inside `page.evaluate` (see `installHelpers`): `T.step()`
 { immortal })` (an autopilot), `T.count('fnName')`.
 
 ## House rules
+
+- **Release number**: bump `APP_RELEASE` in `js/version.js` in every PR that changes the game. It's shown
+  in the bottom-right corner so a tester can tell which version their phone is running, and a test fails
+  if game files changed against origin/main without a bump.
 
 - **Line endings**: most `js/*.js` files and `index.html` are CRLF. Preserve whatever a file uses; don't
   convert it. (Python edits that read text mode silently turn CRLF into LF across the whole file.)

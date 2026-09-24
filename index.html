@@ -325,6 +325,46 @@
             to { transform: translateX(-50%) scale(1.04); }
         }
 
+        /* A dialog blocks everything under it. The Help / Sound dialogs have #modal-backdrop; on a phone the
+           game's own dialog (#overlay: Launch, Paused, Game over...) is centred on the screen, so this invisible
+           shield under it catches every touch meant for the page below (the level-code list, HUD buttons...).
+           Taps on it still reach the game's window-level handlers: tap to launch / resume works as before.
+           (On a desktop the overlay sits on the canvas and covers nothing else.) */
+        #dialog-shield {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9; /* just under #overlay */
+            touch-action: none;
+        }
+        /* The secret code worked: the game does a silly jelly wobble (secretWobble in secretCode.js). Each
+           piece wobbles on its own, through the separate scale / rotate properties, so it adds to the canvas's
+           own flip transform and never moves a fixed dialog out of place (a transformed parent would). */
+        body.secret-wobble #hud, body.secret-wobble #canvas, body.secret-wobble #overlay { animation: secretWobble 0.9s ease-out; }
+        @keyframes secretWobble {
+            0% { scale: 1; rotate: 0deg; }
+            12% { scale: 1.06 0.92; rotate: -2deg; }
+            26% { scale: 0.94 1.07; rotate: 2.5deg; }
+            40% { scale: 1.04 0.96; rotate: -1.5deg; }
+            55% { scale: 0.98 1.03; rotate: 1deg; }
+            72% { scale: 1.01 0.99; rotate: -0.4deg; }
+            100% { scale: 1; rotate: 0deg; }
+        }
+        /* The pause box doesn't scroll either: a swipe on it is a swipe for the secret code (secretCode.js) */
+        body.paused #overlay { touch-action: none; overflow: hidden; }
+        /* The release number (js/version.js), tucked into the bottom-right corner */
+        #release {
+            position: fixed;
+            right: calc(6px + env(safe-area-inset-right));
+            bottom: calc(4px + env(safe-area-inset-bottom));
+            z-index: 51;
+            font-family: var(--px);
+            font-size: 8px;
+            letter-spacing: 1px;
+            color: rgba(154, 140, 192, 0.6);
+            pointer-events: none;
+        }
+
         /* --- Found cheat codes (below the canvas; clicking one loads that level) --- */
         #found-codes {
             width: 100%;
@@ -907,6 +947,7 @@
             #hud-actions { gap: 7px; }
             /* The canvas is only ~260px tall here, far too small to hold the dialog, so it centres on the
                screen instead of on the canvas (it's the only thing to act on while it's up anyway) */
+            body.overlay-open #dialog-shield { display: block; }
             #overlay { position: fixed; width: min(92vw, 460px); max-height: 88vh; max-height: 88dvh; padding: 22px 18px 20px;
                 box-shadow: 0 0 0 100vmax rgba(5, 2, 12, 0.72); } /* the spread doubles as a backdrop dimming the page behind */
             #overlay-message .ov-title { font-size: 13px; }
@@ -932,6 +973,7 @@
             #hud { margin-bottom: 8px; }
             .stat-chip { height: 30px; }
             .icon-btn { width: 34px; height: 34px; }
+            body.overlay-open #dialog-shield { display: block; }
             #overlay { position: fixed; width: min(80vw, 560px); max-height: 92vh; max-height: 92dvh; padding: 14px 20px 14px;
                 box-shadow: 0 0 0 100vmax rgba(5, 2, 12, 0.72); }
             #overlay-message .ov-title { font-size: 13px; }
@@ -952,6 +994,7 @@
         }
         @media (prefers-reduced-motion: reduce) {
             body::before, #overlay-message .ov-hint, #overlay-flag, #event-banner.warn { animation: none; }
+            body.secret-wobble #hud, body.secret-wobble #canvas, body.secret-wobble #overlay { animation: none; }
             #canvas { transition: none; }
         }
 </style>
@@ -959,6 +1002,8 @@
 <body>
     <div id="rotate-hint" aria-live="polite"><div class="phone"></div><div>Turn your phone upright<br>to play</div></div>
 
+    <div id="release"></div>
+    <div id="dialog-shield"></div>
     <div id="game-container">
         <div id="hud">
             <div id="hud-stats">
@@ -1115,7 +1160,7 @@
                 <span class="pu alien" style="--c:#ff9a1f"><i>&#9711;</i>portals: in one, out the other</span>
                 <span class="pu alien" style="--c:#3d8bff"><i>&#127336;</i>ping-pong: rally paddle &amp; walls for a bonus</span>
             </div>
-            <p class="sound-note secret-note">Psst: a famous old arcade cheat code opens a warp rift, once a game. On touch, pause first, swipe it, then tap left for B and right for A.</p>
+            <p class="sound-note secret-note">Psst: a famous old arcade cheat code opens a warp rift, once a game. On touch, with any dialog open (pause, say), swipe it anywhere, then tap left for B and right for A.</p>
         </div>
     </div>
 
@@ -1129,6 +1174,7 @@
         every other file just defines functions, which aren't called until the game loop starts, well
         after every script below has loaded.
     -->
+    <script src="js/version.js"></script>
     <script src="js/constants.js"></script>
     <script src="js/state.js"></script>
     <script src="js/physics.js"></script>

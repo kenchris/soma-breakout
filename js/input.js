@@ -161,6 +161,12 @@ function handlePointerUp(e) {
     if (e && e.pointerType !== 'mouse') {
         if (e.pointerId !== dragPointerId) return;
         dragPointerId = null;
+        // The secret code is waiting for its B/A taps: this tap is one of them (read in secretCode.js on its
+        // touchend, which comes after this), not a launch / resume / restart
+        if (isTap && secretAwaitingButtons()) {
+            isTap = false;
+            return;
+        }
     }
     if (isTap && introHold()) { // a tap skips the level's intro card and starts play
         skipIntroCard();
@@ -180,7 +186,7 @@ function handlePointerUp(e) {
         } else if (gameState === 'ready' || gameState === 'won') {
             launchGame();
             lastTapAt = 0;
-        } else if (gameState === 'paused' && !secretSwallowsTap() && !(e && e.pointerType !== 'mouse' && secretAwaitingButtons())) {
+        } else if (gameState === 'paused' && !secretSwallowsTap()) {
             togglePause();
             lastTapAt = 0;
         }

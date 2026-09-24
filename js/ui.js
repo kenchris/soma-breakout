@@ -56,6 +56,7 @@ function showOverlay(message, buttonText = 'Launch', summary = null) {
     renderSummary(summary);
     updateCheatCodeUi();
     if (overlay) overlay.style.display = 'block';
+    document.body.classList.add('overlay-open'); // on a phone, shields the page under it (see #dialog-shield)
 }
 
 // --- Level codes ---
@@ -268,6 +269,11 @@ function buildSummary(levelCleared) {
 function hideOverlay() {
     const overlay = document.getElementById('overlay');
     if (overlay) overlay.style.display = 'none';
+    document.body.classList.remove('overlay-open');
+}
+
+function overlayOpen() {
+    return document.body.classList.contains('overlay-open');
 }
 
 // Stray input right after an end screen appears shouldn't dismiss it before it can be read
@@ -459,7 +465,13 @@ function updateHUD() {
         if (heartsEl) heartsEl.querySelectorAll('svg').forEach((el, i) => el.classList.toggle('on', i < Math.max(0, lives)));
     }
     updateComboMeter();
+    const paused = gameState === 'paused';
+    if (paused !== shownPaused) { // lets CSS stop the code list scrolling while paused (see secretCode.js)
+        shownPaused = paused;
+        document.body.classList.toggle('paused', paused);
+    }
 }
+let shownPaused = false;
 
 // On a phone the HUD chips wrap onto two or three rows. If a chip grows mid-game (the score gains a
 // digit, the ASSIST chip appears) and spills onto a new row, the HUD gets taller and shoves the canvas
@@ -496,6 +508,8 @@ function queueHudReserve() {
 // Re-measure whenever the room or the chips' size can change: a resize or rotation, the pixel font
 // arriving, or a HUD button being shown or hidden (touch, pointer lock, fullscreen)
 function initHudReserve() {
+    const rel = document.getElementById('release');
+    if (rel) rel.textContent = 'R' + APP_RELEASE;
     reserveHudHeight();
     window.addEventListener('resize', queueHudReserve);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(queueHudReserve);

@@ -232,7 +232,7 @@ test('secret code (keyboard): opens a warp rift once per game', '?level=8', asyn
     check(!again, 'a new game gets the code back');
 });
 
-test('secret code (touch): pause, swipe, tap B then A, from anywhere on the screen', '?level=8', async (page, check) => {
+test('secret code (touch): with a dialog open, swipe, tap B then A, from anywhere on the screen', '?level=8', async (page, check) => {
     // Real touch input through the browser (CDP), not synthetic events: a swipe that starts on the pause
     // dialog gets its pointer events cancelled by the browser (the dialog can scroll), which synthetic
     // events never show. Each area of the screen is tried: HUD, canvas, the pause dialog, below, thumb pad.
@@ -246,28 +246,72 @@ test('secret code (touch): pause, swipe, tap B then A, from anywhere on the scre
         await wait(30);
     };
     const tap = async (x, y) => { await touch('touchStart', x, y); await wait(40); await touch('touchEnd'); await wait(80); };
-    await page.evaluate(() => { installHelpers(); T.play(3, () => false, { immortal: true }); });
-    for (const [name, y] of [['HUD', 60], ['canvas', 170], ['pause dialog', 420], ['below the canvas', 560], ['thumb pad', 800]]) {
-        await page.evaluate(() => { hideOverlay(); gameState = 'playing'; warpRift = null; portals = null; secretUsed = false; secretProgress = 0; togglePause(); });
+    // A long collection of found level codes, so the list under the canvas can scroll (it stole the swipes)
+    await page.evaluate(() => {
+        installHelpers();
+        for (let l = 6; l < 46; l++) foundCodes[l] = levelToCode(l);
+        renderFoundCodesPanel();
+        T.play(3, () => false, { immortal: true });
+    });
+    // A point on the level-code list that the centred dialog doesn't cover (else the touch lands on the dialog)
+    const listPoint = () => page.evaluate(() => {
+        const l = document.getElementById('found-codes-list').getBoundingClientRect();
+        const ov = document.getElementById('overlay');
+        const o = ov.style.display === 'block' ? ov.getBoundingClientRect() : { top: 0, bottom: 0 };
+        for (let y = l.bottom - 6; y > l.top; y -= 4) if (y < o.top || y > o.bottom) return Math.round(y);
+        return null;
+    });
+    const setups = {
+        paused: () => { hideOverlay(); gameState = 'playing'; togglePause(); },
+        launch: () => { hideOverlay(); gameState = 'ready'; showOverlay(getLaunchMessage(), 'Launch'); },
+        help: () => { hideOverlay(); gameState = 'playing'; showModal('legend-dialog'); }
+    };
+    const cases = [['paused', 'HUD', 60], ['paused', 'canvas', 170], ['paused', 'pause dialog', 420], ['paused', 'level-code list', 'list'],
+        ['paused', 'thumb pad', 800], ['launch', 'level-code list', 'list'], ['launch', 'launch dialog', 420], ['help', 'help dialog', 420]];
+    for (const [setup, where, at] of cases) {
+        const name = setup + ' / ' + where;
+        await page.evaluate((s) => { hideModal(); warpRift = null; portals = null; secretUsed = false; secretProgress = 0;
+            document.getElementById('found-codes-list').scrollTop = 0; new Function(s)(); }, '(' + setups[setup].toString() + ')()');
+        await wait(50);
+        const y = at === 'list' ? await listPoint() : at;
+        if (y === null) { check(false, name + ': the dialog covers the whole list, nothing to test'); continue; }
         for (const [dx, dy] of [[0, -80], [0, -80], [0, 80], [0, 80], [-80, 0], [80, 0], [-80, 0], [80, 0]]) await swipe(195, y, dx, dy);
         const afterSwipes = await page.evaluate(() => ({ p: secretProgress, s: gameState }));
         await tap(60, y);  // B: left half
         await tap(330, y); // A: right half
         const r = await page.evaluate(() => ({ rift: !!warpRift, s: gameState }));
-        check(afterSwipes.p === 8 && afterSwipes.s === 'paused', name + ': swipes should all count and keep the game paused (' + JSON.stringify(afterSwipes) + ')');
+        check(afterSwipes.p === 8, name + ': swipes should all count (' + JSON.stringify(afterSwipes) + ')');
+        if (at === 'list') check(await page.evaluate(() => document.getElementById('found-codes-list').scrollTop) === 0, name + ': the list scrolled under the dialog');
         check(r.rift, name + ': the code should open a warp rift');
-        check(r.s === 'paused', name + ': the B/A taps must not resume the game');
+        check(r.s === (setup === 'launch' ? 'ready' : 'paused'), name + ': the B/A taps must not launch or resume the game (' + r.s + ')');
     }
+    await page.evaluate(() => hideModal());
+    // A dialog blocks the page under it: a tap on a level-code chip does nothing but the dialog's own tap
     await wait(600);
-    await tap(195, 420); // an ordinary tap afterwards resumes as usual
+    await page.evaluate(() => { hideOverlay(); gameState = 'playing'; togglePause(); });
+    const chip = await page.evaluate(() => {
+        const o = document.getElementById('overlay').getBoundingClientRect();
+        for (const c of document.querySelectorAll('.found-code-chip')) {
+            const r = c.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+            const l = document.getElementById('found-codes-list').getBoundingClientRect();
+            if ((y < o.top || y > o.bottom) && y > l.top && y < l.bottom) return [x, y];
+        }
+        return null;
+    });
+    check(chip, 'no level-code chip visible outside the dialog to test with');
+    if (chip) await tap(chip[0], chip[1]);
+    check(await page.evaluate(() => level) === 8, 'a level-code chip under the pause dialog was pressed');
     check(await page.evaluate(() => gameState) === 'playing', 'a normal tap afterwards should resume');
 }, { width: 390, height: 844, isMobile: true, hasTouch: true });
 
 test('secret code: not used up where no rift can open (tutorial)', '?level=2', async (page, check) => {
     await page.evaluate(() => { installHelpers(); T.play(3, () => false, { immortal: true }); });
     for (const k of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a']) await page.keyboard.press(k);
-    const r = await page.evaluate(() => ({ rift: !!warpRift, used: secretUsed }));
+    const r = await page.evaluate(() => ({ rift: !!warpRift, used: secretUsed, toast: document.getElementById('toast').textContent }));
     check(!r.rift && !r.used, 'tutorial: no rift, code not spent');
+    check(/training levels/.test(r.toast), 'tutorial: says why, got ' + JSON.stringify(r.toast));
+    const boss = await page.evaluate(() => { resetGame(10); return secretRiftBlocker(); });
+    check(/boss fights/.test(boss || ''), 'boss level: says why, got ' + JSON.stringify(boss));
 });
 
 test('warp rift: never on a boss level (random, alien bonus or secret code)', '', async (page, check) => {
@@ -286,6 +330,19 @@ test('warp rift: never on a boss level (random, alien bonus or secret code)', ''
         check(!r.canAlien, 'level ' + lv + ': a downed alien could open a rift');
         check(!r.secretOk, 'level ' + lv + ': the secret code could open a rift');
     }
+});
+
+test('release number: shown in the corner, bumped against origin/main', '?level=6', async (page, check) => {
+    const r = await page.evaluate(() => ({ rel: APP_RELEASE, text: document.getElementById('release').textContent }));
+    check(r.text === 'R' + r.rel, 'corner shows ' + JSON.stringify(r.text));
+    // A branch that changes the game must bump APP_RELEASE (skipped when git or origin/main isn't there)
+    const { execSync } = await import('node:child_process');
+    try {
+        const git = (c) => execSync('git ' + c, { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+        const changed = git('diff --name-only origin/main -- index.html js sw.js manifest.json').trim();
+        const mainRel = +(git('show origin/main:js/version.js').match(/APP_RELEASE = (\d+)/) || [])[1];
+        if (changed && mainRel) check(r.rel > mainRel, 'game files changed but APP_RELEASE is still ' + r.rel + ' (main has ' + mainRel + ')');
+    } catch (e) { /* no git / no origin/main: nothing to compare */ }
 });
 
 test('space chomp: autopilot clears level 19', '?level=19', async (page, check) => {
