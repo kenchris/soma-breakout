@@ -25,10 +25,13 @@ const KONG_TAN = '#e8b27a';
 // The tower, top to bottom. Barrels roll downhill along each girder and drop off its low end; `gaps` are
 // ladder openings (x ranges) the ball passes through and barrels usually roll over.
 const KONG_GIRDERS = [
-    { x0: 270, y0: KONG_FEET_Y, x1: 630, y1: KONG_FEET_Y, gaps: [] },
-    { x0: 60, y0: 225, x1: 760, y1: 252, gaps: [[180, 216], [520, 556]] },
-    { x0: 140, y0: 338, x1: 840, y1: 311, gaps: [[300, 336], [640, 676]] },
-    { x0: 60, y0: 398, x1: 760, y1: 425, gaps: [[220, 256], [560, 596]] }
+    // Just a ledge under its feet: a ball that makes it up the tower can smack it from below or the sides
+    { x0: 380, y0: KONG_FEET_Y, x1: 540, y1: KONG_FEET_Y, gaps: [] },
+    { x0: 60, y0: 225, x1: 760, y1: 252, gaps: [[170, 222], [480, 532]] },
+    { x0: 140, y0: 338, x1: 840, y1: 311, gaps: [[300, 352], [620, 672]] },
+    { x0: 60, y0: 398, x1: 760, y1: 425, gaps: [[210, 262], [540, 592]] },
+    // The damsel's perch, up in the corner, out of the barrels' way
+    { x0: 40, y0: 128, x1: 140, y1: 128, gaps: [] }
 ];
 
 // Pixel art, 6px per cell. B brown fur, T tan face and chest, W eye white, K black.
@@ -77,8 +80,9 @@ function girderDownhill(g) {
     return g.y0 === g.y1 ? 1 : Math.sign(lowEnd - (g.x0 + g.x1) / 2);
 }
 
-// The solid stretches of each girder (between its ladder gaps) as segments, for the ball
-const KONG_PIECES = KONG_GIRDERS.flatMap(g => {
+// The solid stretches of each girder (between its ladder gaps) as segments, for the ball. Not the ledge
+// it stands on: a ball coming up from below hits the ape itself, never the plank under its feet.
+const KONG_PIECES = KONG_GIRDERS.slice(1).flatMap(g => {
     const cuts = [girderLeft(g)];
     for (const [a, b] of g.gaps) cuts.push(a, b);
     cuts.push(girderRight(g));
@@ -322,7 +326,7 @@ function updateKongBoss() {
     }
     updateBarrels();
     updateKongHammer();
-    if (B.t === 400) bossTip('ladders', 'THE BALL SLIPS UP THROUGH THE LADDER GAPS', 440);
+    if (B.t === 115) bossTip('ladders', 'BASH THE APE! THE BALL GOES UP THROUGH THE LADDERS', 470);
 }
 
 function kongBallCollision(b) {
@@ -559,7 +563,7 @@ function drawKongBoss() {
     ctx.drawImage(girderLayer, 0, shakeY);
 
     // The damsel on the top girder's left end, calling for help
-    const dx = 292, dy = KONG_FEET_Y - GIRDER_HALF;
+    const dx = 90, dy = 128 - GIRDER_HALF;
     ctx.fillStyle = '#ff7ad9';
     ctx.fillRect(dx - 5, dy - 18, 10, 12);
     ctx.fillStyle = KONG_TAN;
@@ -574,6 +578,24 @@ function drawKongBoss() {
         ctx.textAlign = 'center';
         ctx.fillStyle = B.dying > 0 ? '#ff4d8a' : '#ffffff';
         ctx.fillText(B.dying > 0 ? '♥' : 'HELP!', dx, dy - 36);
+    }
+
+    // For the first seconds of the fight, arrows blink up through every ladder: that's the way to the ape
+    if (B.t < 60 * 12 && Math.floor(B.t / 20) % 2 === 0) {
+        ctx.fillStyle = '#ffd23f';
+        for (const g of KONG_GIRDERS) {
+            for (const [a, b] of g.gaps) {
+                const mx = (a + b) / 2, my = girderY(g, mx);
+                for (const off of [4, -8]) {
+                    ctx.beginPath();
+                    ctx.moveTo(mx, my + off - 8);
+                    ctx.lineTo(mx + 9, my + off + 2);
+                    ctx.lineTo(mx - 9, my + off + 2);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+        }
     }
 
     // The hammer on its hook (or falling)

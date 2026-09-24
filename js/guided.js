@@ -3,6 +3,7 @@
 // here needed import/export changes. See index.html for the required load order.)
 
 function hitValue(c, r) {
+    if (plan.chain && !explosiveReady && fireTimer <= 0) return chainHitValue(c, r);
     const t = bricks[c][r];
     const worth = q => (q.steel ? (q.hitsLeft > 1 ? 8 : 20) : q.points);
     if (explosiveReady || t.tnt) {
@@ -79,6 +80,7 @@ function castRay(x, y, dx, dy) {
 
 function bestAim(x, y) {
     if (ghost) return bestAimGhost(x, y);
+    if (maze) return bestAimMaze(x, y);
     const speed = currentSpeed();
     let best = null;
     let bestValue = 0;

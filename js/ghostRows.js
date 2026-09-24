@@ -3,7 +3,7 @@
 // here needed import/export changes. See index.html for the required load order.)
 
 function isGhostLevel(l) {
-    if (isTutorial(l) || unlockLevel(l) < UNLOCK.tetris || isBossLevel(l)) return false;
+    if (isTutorial(l) || unlockLevel(l) < UNLOCK.tetris || isBossLevel(l) || isChainLevel(l) || isMazeLevel(l)) return false; // one special level type at a time
     if (ghostLevelCache[l] === undefined) {
         ghostLevelCache[l] = unlockLevel(l) === UNLOCK.tetris || (seededRandom(l * 7368787 + 3)() < 0.3 && !isGhostLevel(l - 1));
     }

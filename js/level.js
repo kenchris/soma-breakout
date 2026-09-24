@@ -318,7 +318,7 @@ function planLevel(l) {
     // it's delivered: a gold brick, a ghost row clearing, or a boss nearing defeat) happens at runtime,
     // deliberately NOT seeded like the rest of this plan, so replaying — or reloading the same ?level=N —
     // can go either way each time; see placeCheatBrick, clearRows and maybeDropBossCheatCapsule.
-    const p = { boss: isBossLevel(l), tetris: false, tnt: 0, walls: 0, bumpers: 0, aliens: null, chaos: null, cheatEligible: unlockLevel(l) >= UNLOCK.cheat, tutorial: null };
+    const p = { boss: isBossLevel(l), tetris: false, chain: false, maze: false, tnt: 0, walls: 0, bumpers: 0, aliens: null, chaos: null, cheatEligible: unlockLevel(l) >= UNLOCK.cheat, tutorial: null };
     if (isTutorial(l)) { // exactly what that tutorial level shows, quickly: aliens and events come early
         const t = TUTORIAL[l - 1];
         p.tutorial = t;
@@ -355,6 +355,19 @@ function planLevel(l) {
         p.walls = 0;
         p.bumpers = 0;
     }
+    // Colour Chain: the colours are the puzzle, so no TNT (sliding walls, bumpers and visitors stay)
+    if (isChainLevel(l)) {
+        p.chain = true;
+        p.tnt = 0;
+    }
+    // Dot Maze: the maze is the whole level, and its ghosts are the only visitors
+    if (isMazeLevel(l)) {
+        p.maze = true;
+        p.tnt = 0;
+        p.walls = 0;
+        p.bumpers = 0;
+        p.aliens = null;
+    }
     return p;
 }
 
@@ -371,6 +384,20 @@ function showLevelIntro() {
             ? ['Fill whole rows to clear them']
             : ['Fly the ball THROUGH ghost bricks to make them solid', 'Fill a whole row and it clears, like Tetris'];
         ghostIntroSeen = true;
+    }
+    if (plan.maze) {
+        title = 'DOT MAZE';
+        lines = mazeIntroSeen
+            ? ['Eat every dot. Big dots turn the ghosts blue']
+            : ['Fly the ball over every dot to clear the maze', 'Big dots turn the ghosts blue: ram them!'];
+        mazeIntroSeen = true;
+    }
+    if (plan.chain) {
+        title = 'COLOUR CHAIN';
+        lines = chainIntroSeen
+            ? ['Match your ball\'s colour. Let falling bricks chain']
+            : ['Your ball pops bricks of its OWN colour, and every one touching them', 'Other colours repaint the ball. Falling bricks can CHAIN'];
+        chainIntroSeen = true;
     }
     if (boss && !bossIntroSeen[boss.kind]) {
         bossIntroSeen[boss.kind] = true;
@@ -482,7 +509,7 @@ function spawnLevel() {
     movingWalls = buildWalls(); // built before spawnBoss() so the snake boss can add its own wall to it
     bumpers = buildBumpers();
     const layout = currentLayout();
-    const isSteel = plan.tutorial
+    const isSteel = plan.chain ? () => false : plan.tutorial
         ? (c, r) => !!(plan.tutorial.steel && plan.tutorial.steel(c, r))
         : buildSteelMask(layout, STEEL_STYLES[(curveLevel() - 1) % STEEL_STYLES.length]);
 
@@ -492,12 +519,14 @@ function spawnLevel() {
             const brick = bricks[c][r];
             brick.x = (c * BRICK_W) + BRICK_OFFSET_LEFT;
             brick.y = (r * BRICK_H) + BRICK_OFFSET_TOP;
-            brick.alive = !plan.boss && !plan.tetris && layout.alive(c, r); // boss arenas and ghost rows have no ordinary bricks
+            brick.alive = !plan.boss && !plan.tetris && !plan.maze && layout.alive(c, r); // boss arenas and ghost rows have no ordinary bricks
             brick.tnt = false;
             brick.cheat = false;
             brick.crack = null;
             brick.sprite = null;
             brick.flash = 0;
+            brick.dy = 0;
+            brick.chainColor = undefined;
             if (brick.alive) bricksLeft++;
 
             if (brick.alive && isSteel(c, r)) {
@@ -518,9 +547,12 @@ function spawnLevel() {
     }
     placeTnt();
     placeCheatBrick();
+    if (plan.chain) paintChainBricks();
     ghost = plan.tetris ? buildGhostGrid(level) : null;
     ghostFlashes = [];
     if (ghost) bricksLeft = ghostCount();
+    maze = null;
+    if (plan.maze) bricksLeft = buildMaze(); // (its dots are the level's "bricks")
     levelBricksTotal = bricksLeft;
     resetAliens(plan.aliens ? plan.aliens.grace : 999, 8); // no aliens carry over; a grace period before the first
     initChaos();
