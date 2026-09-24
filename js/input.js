@@ -303,6 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     updateFullscreenBtn(); // (hidden when already running installed, fullscreen)
     initRotateHint();
+    initHudReserve();
     // Safari can still start a selection from a long press or a double tap despite the CSS; nothing here but
     // the level-code box is text to select
     document.addEventListener('selectstart', e => {

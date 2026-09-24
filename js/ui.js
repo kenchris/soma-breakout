@@ -461,6 +461,50 @@ function updateHUD() {
     updateComboMeter();
 }
 
+// On a phone the HUD chips wrap onto two or three rows. If a chip grows mid-game (the score gains a
+// digit, the ASSIST chip appears) and spills onto a new row, the HUD gets taller and shoves the canvas
+// down in the middle of play. So the HUD reserves the height of its widest possible state up front:
+// lay that state out for a moment (long score, best and level, the assist chip showing), measure it,
+// and keep that as its min-height. Any spare room sits above the chips, away from the canvas.
+const HUD_WORST = { score: '9999999', best: '9999999', level: '999', 'assist-val': '100%' };
+let hudReserveQueued = false;
+
+function reserveHudHeight() {
+    const hud = document.getElementById('hud');
+    const assistChip = document.getElementById('hud-assist');
+    if (!hud) return;
+    const saved = {};
+    for (const id in HUD_WORST) {
+        const el = document.getElementById(id);
+        if (el) { saved[id] = el.textContent; el.textContent = HUD_WORST[id]; }
+    }
+    const assistDisplay = assistChip ? assistChip.style.display : '';
+    if (assistChip) assistChip.style.display = '';
+    hud.style.minHeight = '';
+    const h = hud.offsetHeight;
+    for (const id in saved) document.getElementById(id).textContent = saved[id];
+    if (assistChip) assistChip.style.display = assistDisplay;
+    hud.style.minHeight = h + 'px';
+}
+
+function queueHudReserve() {
+    if (hudReserveQueued) return;
+    hudReserveQueued = true;
+    requestAnimationFrame(() => { hudReserveQueued = false; reserveHudHeight(); });
+}
+
+// Re-measure whenever the room or the chips' size can change: a resize or rotation, the pixel font
+// arriving, or a HUD button being shown or hidden (touch, pointer lock, fullscreen)
+function initHudReserve() {
+    reserveHudHeight();
+    window.addEventListener('resize', queueHudReserve);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(queueHudReserve);
+    const actions = document.getElementById('hud-actions');
+    if (actions && window.MutationObserver) {
+        new MutationObserver(queueHudReserve).observe(actions, { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
+    }
+}
+
 // Score goes through here so the best score is saved and beating it is announced
 
 function updateTouchUi() {
