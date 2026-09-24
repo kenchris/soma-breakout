@@ -48,7 +48,7 @@ const CHOMPER_SNIFF_SPEED = 0.3;   // px per step, left to itself: a slow amble,
 const CHOMPER_ZOOM_SPEED = 2.7;    // px per step while boosted (nine times as fast)
 const CHOMPER_ZOOM_FRAMES = 180;
 const CHOMPER_CAUGHT_DROP = 2;     // dots a caught chomper knocks loose
-const MAZE_GOAL_SHARE = 0.7;       // of the maze's dots, to clear the level
+const MAZE_GOAL = 100;             // dots to clear the level (of the maze's 140): a nice round number
 const MAZE_EXTRA_SECONDS = 40;     // the clock after running out once
 // Our own four ghosts (see ghostTarget for what each one is after)
 const GHOST_DEFS = [
@@ -108,7 +108,7 @@ function buildMaze() {
     for (const row of dots) for (const d of row) if (d) total++;
     maze = {
         bricks: mazeBricks(), dots, t: 0, fright: 0, eaten: 0, powerIn: 0, diveIn: 60 * 9,
-        goal: Math.round(total * MAZE_GOAL_SHARE),
+        goal: Math.min(MAZE_GOAL, total),
         time: 60 * Math.max(55, 85 - n), // 71s on its debut, a little less later on
         chompers: CHOMPER_HOMES.map((h, i) => {
             const p = mazeCenter(h.c, h.r);
