@@ -136,7 +136,7 @@ function clearRows(full) {
     const points = 100 * n * n * (doubleTimer > 0 ? 2 : 1);
     addScore(points);
     runStats.bricks += removed;
-    const label = ['', 'LINE!', 'DOUBLE!', 'TRIPLE!', 'TETRIS!'][Math.min(n, 4)];
+    const label = ['', 'LINE!', 'DOUBLE!', 'TRIPLE!', 'QUAD!'][Math.min(n, 4)];
     const topY = ghostCellY(full[0]);
     addPopup(CANVAS_W / 2, topY + 34, label + '  +' + points, ['', '#ffffff', '#ffd23f', '#ff9a2e', '#ff4d6a'][Math.min(n, 4)],
         { size: 20 + 4 * Math.min(n, 4), life: 1.5, rise: 0.4, pop: true });

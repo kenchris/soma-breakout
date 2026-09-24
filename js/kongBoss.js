@@ -1,5 +1,5 @@
 // === kongBoss.js ===
-// --- Kong boss: "Space Kong" ---
+// --- Space Gorilla boss (kind 'kong' in the code) ---
 // A giant space gorilla in a bubble helmet stands on top of a Donkey Kong-style tower of space-station
 // girders and fights you with barrels. They roll down the sloped girders, drop off each end onto the next
 // one down (or, now and then, down a ladder gap), and finally fall at your paddle: one that lands on it
@@ -9,7 +9,8 @@
 // at the ape, homing in, for heavy damage, smashing any barrel in its way. The girders only carry the barrels: the ball flies straight through them, so the whole
 // screen is yours to play in, and you can hit the ape directly too.
 // Mind the princess up in the corner: the ball bounces off her, but she has three hearts, and the third
-// hit fails the fight (a life lost, and the ape and the princess both back to full).
+// hit fails the fight (a life lost, and the ape and the princess both back to full). Her hearts heal: one
+// back after PRINCESS_HEAL_FRAMES without a hit, so only three hits close together fail it.
 // The ladders are launchers: a ball that touches one on its way up is fired at the ape (with a little
 // spread, so it hits more often than not).
 // Now and then a smashed barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME.
@@ -100,7 +101,7 @@ function spawnKongBoss(n) {
     boss = {
         kind: 'kong', n, hp, maxHp: hp, x: KONG_X, y: -KONG_H, intro: 110, dying: 0, cool: 0, flash: 0, t: 0,
         barrels: [], throwIn: 150, pose: 'idle', poseT: 0, pending: null, lastPhase: 1, pound: 0,
-        hammers: [], hammerTime: 0, princess: { hearts: 3, cool: 0, flash: 0 }
+        hammers: [], hammerTime: 0, princess: { hearts: 3, cool: 0, flash: 0, heal: 0 }
     };
 }
 
@@ -202,7 +203,7 @@ function updateBarrels() {
                     blockMirrorBolt(br.x);
                 } else {
                     punchHole(br.x, BOSS_HOLE_SECONDS);
-                    bossTip('smash', 'HIT THE BARRELS: THEY FLY BACK AT KONG!', 440);
+                    bossTip('smash', 'HIT THE BARRELS: THEY FLY BACK AT THE GORILLA!', 440);
                 }
                 spawnParticles(br.x, br.y, br.wild ? '#5b8cff' : '#c0782e', 10);
             }
@@ -313,7 +314,7 @@ function updateKongBoss() {
         return;
     }
     if (B.intro > 0) {
-        if (B.intro === 110) announceBoss('SPACE KONG IS ANGRY!', '#ff8a2a');
+        if (B.intro === 110) announceBoss('SPACE GORILLA IS ANGRY!', '#ff8a2a');
         B.intro--;
         // Drops in from the top and lands on its girder with a thud
         const k = Math.min(1, (110 - B.intro) / 50);
@@ -329,6 +330,14 @@ function updateKongBoss() {
     if (B.flash > 0) B.flash--;
     if (B.cool > 0) B.cool--;
     if (B.princess.cool > 0) B.princess.cool--;
+    // Her hearts heal, one at a time, while she's left alone
+    const P = B.princess;
+    if (P.hearts < 3 && --P.heal <= 0) {
+        P.hearts++;
+        P.heal = PRINCESS_HEAL_FRAMES;
+        addPopup(PRINCESS_BOX.x + PRINCESS_BOX.w / 2, PRINCESS_BOX.y + PRINCESS_BOX.h + 30, '\u2665', '#ff4d8a', { size: 16, life: 1, rise: 0.4 });
+        tone(880, 0.1, { type: 'triangle', vol: 0.12, slideTo: 1320, key: 'princessHeal' });
+    }
     if (B.princess.flash > 0) B.princess.flash--;
     if (B.pound > 0) B.pound--;
     if (B.pending) {
@@ -338,7 +347,7 @@ function updateKongBoss() {
     }
     updateBarrels();
     updateKongHammer();
-    if (B.t === 115) bossTip('ladder', 'HIT A LADDER: IT FIRES THE BALL AT KONG!', 470);
+    if (B.t === 115) bossTip('ladder', 'HIT A LADDER: IT FIRES THE BALL AT THE GORILLA!', 470);
     if (B.t === 115 + 60 * 8) bossTip('kick', 'HIT THE BARRELS: THEY FLY BACK AT HIM!', 470);
     if (B.ladderFlash && --B.ladderFlash.t <= 0) B.ladderFlash = null;
 }
@@ -425,11 +434,13 @@ function launchAtKong(b, lx, ly) {
 }
 
 const PRINCESS_BOX = { x: 72, y: 64, w: 36, h: 58 };
+const PRINCESS_HEAL_FRAMES = 60 * 12;
 
 function hitPrincess() {
     const B = boss;
     const P = B.princess;
     P.hearts--;
+    P.heal = PRINCESS_HEAL_FRAMES;
     P.cool = 40;
     P.flash = 20;
     const cx = PRINCESS_BOX.x + PRINCESS_BOX.w / 2;
@@ -559,8 +570,8 @@ function killKong() {
     addShake(12);
     haptic([60, 40, 60, 40, 120], true);
     tone(300, 0.7, { type: 'sawtooth', vol: 0.3, slideTo: 40, key: 'bossDie', force: true });
-    noteMoment(100, 'KONG IS DOWN!', 30);
-    addPopup(CANVAS_W / 2, 250, 'KONG IS DOWN!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
+    noteMoment(100, 'GORILLA DOWN!', 30);
+    addPopup(CANVAS_W / 2, 250, 'GORILLA DOWN!', '#ffd23f', { size: 28, life: 2.2, rise: 0.2, pop: true });
 }
 
 // It staggers, then topples off its girder and falls head over heels off the bottom of the screen
@@ -901,7 +912,7 @@ function drawKongBall(b) {
 
 function drawKongBossBar() {
     const B = boss;
-    drawSimpleBossBar('SPACE KONG   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
+    drawSimpleBossBar('SPACE GORILLA   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
     if (B.hammerTime > 0 && (B.hammerTime > 2 || Math.floor(B.t / 6) % 2 === 0)) {
         // HAMMER TIME, big and pulsing above the paddle (blinking as it runs out)
         const s = 1 + 0.08 * Math.sin(B.t / 4);

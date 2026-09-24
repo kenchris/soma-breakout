@@ -67,12 +67,12 @@ function prepareShareCard(summary) {
     const newBest = !!(summary && summary.newBest);
     const card = drawShareCard(newBest);
     const text = (newBest ? 'New high score: ' + score.toLocaleString() + ' points' : score.toLocaleString() + ' points')
-        + ' and level ' + level + ' in Breakout. Can you beat it? ' + gameUrl();
+        + ' and level ' + level + ' in Neon Smash. Can you beat it? ' + gameUrl();
     card.toBlob(blob => {
         if (!blob || gameState !== 'lost') return; // already restarted
         if (shareCard) URL.revokeObjectURL(shareCard.url);
         shareCard = {
-            file: new File([blob], 'breakout-' + score + '.png', { type: 'image/png' }),
+            file: new File([blob], 'neon-smash-' + score + '.png', { type: 'image/png' }),
             url: URL.createObjectURL(blob),
             text
         };
@@ -116,13 +116,13 @@ function drawShareCard(newBest) {
     // Logo
     g.font = pixelFont(64);
     g.fillStyle = '#4a0d6b';
-    g.fillText('BREAKOUT', S / 2 + 5, 115);
+    g.fillText('NEON SMASH', S / 2 + 5, 115);
     const logo = g.createLinearGradient(0, 55, 0, 115);
     logo.addColorStop(0, '#fff7d1');
     logo.addColorStop(0.45, '#ffd319');
     logo.addColorStop(1, '#ff2fb4');
     g.fillStyle = logo;
-    g.fillText('BREAKOUT', S / 2, 110);
+    g.fillText('NEON SMASH', S / 2, 110);
     // What happened
     g.font = pixelFont(26);
     g.fillStyle = '#2de2e6';
@@ -163,7 +163,7 @@ function shareRun() {
     const files = [shareCard.file];
     if (navigator.canShare && navigator.canShare({ files })) {
         // The link rides in the text, not a separate url field: several apps drop that field when a file is attached
-        navigator.share({ files, title: 'Breakout', text: shareCard.text }).catch(() => {});
+        navigator.share({ files, title: 'Neon Smash', text: shareCard.text }).catch(() => {});
     } else {
         downloadFile(shareCard.url, shareCard.file.name);
         copyText(shareCard.text, 'Screenshot saved. Share text copied!', 'Screenshot saved!');
@@ -173,9 +173,9 @@ function shareRun() {
 // --- Cheat codes ---
 function shareCheatCode(lvl, code) {
     const url = gameUrl() + '?code=' + encodeURIComponent(code);
-    const text = 'I found a secret Breakout level code: ' + code + '. It unlocks level ' + lvl + '.';
+    const text = 'I found a secret Neon Smash level code: ' + code + '. It unlocks level ' + lvl + '.';
     if (navigator.share) {
-        navigator.share({ title: 'Breakout level code', text, url }).catch(() => {});
+        navigator.share({ title: 'Neon Smash level code', text, url }).catch(() => {});
     } else {
         copyText(text + ' ' + url, 'Level code link copied!', 'Copy failed. The code is ' + code);
     }

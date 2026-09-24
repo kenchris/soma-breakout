@@ -246,30 +246,60 @@ function updatePopups() {
     });
 }
 
+// A popup's text is painted once into a little image (and cached by text, colour and size, since the same
+// ones keep coming: +30, ZOOM!, PONG!...) and then drawn as an image. Painting the shadow, outline and fill
+// of every popup's text on every frame was one of the costliest things on a busy screen, and a "pop"
+// popup, re-rasterised at a new scale each frame for its punch-in, caused visible stutters on phones.
+const popupSprites = new Map();
+const POPUP_SPRITE_CACHE = 80;
+
+function popupSprite(p) {
+    const key = p.text + '|' + (p.color || '#ffffff') + '|' + p.size;
+    let sp = popupSprites.get(key);
+    if (sp) return sp;
+    // Headlines in the pixel font with a hard arcade drop shadow; everything smaller in the terminal font
+    const headline = p.size >= 20;
+    const px = headline ? Math.round(p.size * 0.62) : Math.round(p.size * 1.4);
+    const font = headline ? pixelFont(px) : termFont(px);
+    ctx.font = font;
+    const w = Math.ceil(ctx.measureText(p.text).width) + 12;
+    const baseline = Math.ceil(px * 1.1) + 4;
+    const h = baseline + Math.ceil(px * 0.35) + 8;
+    sp = makeSprite(w, h, g => {
+        g.font = font;
+        g.textAlign = 'center';
+        g.lineJoin = headline ? 'miter' : 'round';
+        const x = w / 2 - (headline ? 1.5 : 0);
+        if (headline) {
+            g.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            g.fillText(p.text, x + 3, baseline + 3);
+        }
+        g.strokeStyle = 'rgba(0, 0, 0, 0.6)'; // dark outline keeps text readable (cheaper than a shadow blur)
+        g.lineWidth = 3;
+        g.strokeText(p.text, x, baseline);
+        g.fillStyle = p.color || '#ffffff';
+        g.fillText(p.text, x, baseline);
+    });
+    sp.baseline = baseline;
+    sp.cx = w / 2 - (headline ? 1.5 : 0);
+    if (popupSprites.size >= POPUP_SPRITE_CACHE) popupSprites.delete(popupSprites.keys().next().value); // oldest out
+    popupSprites.set(key, sp);
+    return sp;
+}
+
 function drawPopups() {
     for (const p of popups) {
+        const sp = p.sprite || (p.sprite = popupSprite(p));
         const age = p.maxLife - p.life;
         const scale = p.pop ? 1 + 0.8 * Math.max(0, 1 - age / 0.12) : 1;
-        ctx.save();
         ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2));
-        // Headlines in the pixel font with a hard arcade drop shadow; everything smaller in the terminal font
-        const headline = p.size >= 20;
-        ctx.font = headline ? pixelFont(Math.round(p.size * 0.62)) : termFont(Math.round(p.size * 1.4));
-        ctx.textAlign = 'center';
-        ctx.lineJoin = headline ? 'miter' : 'round';
-        ctx.translate(p.x, p.y);
-        ctx.scale(scale, scale);
-        if (headline) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-            ctx.fillText(p.text, 3, 3);
+        if (scale === 1) {
+            ctx.drawImage(sp, Math.round(p.x - sp.cx), Math.round(p.y - sp.baseline));
+        } else {
+            ctx.drawImage(sp, p.x - sp.cx * scale, p.y - sp.baseline * scale, sp.width * scale, sp.height * scale);
         }
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)'; // dark outline keeps text readable (cheaper than a shadow blur)
-        ctx.lineWidth = 3;
-        ctx.strokeText(p.text, 0, 0);
-        ctx.fillStyle = p.color || '#ffffff';
-        ctx.fillText(p.text, 0, 0);
-        ctx.restore();
     }
+    ctx.globalAlpha = 1;
 }
 
 // Time Warp: a warm tint with speed streaks in turbo, a cool tint in slow-mo
