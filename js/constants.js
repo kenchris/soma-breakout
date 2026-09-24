@@ -363,6 +363,8 @@ const ALIEN_SPRITES = [
 // -- Paddle holes --
 // The solid parts of the paddle as [x0, x1] intervals in canvas coordinates
 
+const SLOW_RECOVER_FRAMES = 30; // when Slow runs out, the balls ease back up to speed over this many steps
+
 const STEP_MS = 1000 / 60;
 
 const MAX_STEPS_PER_FRAME = 3; // if the device can't keep up, drop the backlog instead of spiralling

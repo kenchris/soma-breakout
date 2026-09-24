@@ -128,6 +128,7 @@ let iosHapticEl = null;
 let powerups = [];
 
 let slowTimer = 0;
+let slowRecover = 0;       // steps left bringing the balls back up to speed after Slow ends (see update)
 
 let wideTimer = 0;
 

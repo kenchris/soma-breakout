@@ -158,6 +158,78 @@ function musicRateTarget() {
     return timeScale * (slowTimer > 0 ? 0.85 : 1);
 }
 
+// --- Under water ---
+// While the world is flipped (UPSIDE DOWN, FULL FLIP, the snake's mirror poison) or your controls are
+// reversed, the game sounds like it's under water: the music heavily muffled behind a slowly swaying
+// filter, its pitch warbling (a slowly modulated delay), the effects muffled a little too, with a dive on
+// the way in, bubbles while it lasts and a splash coming out. Both buses always run through these nodes;
+// on dry land the filters are wide open and the warble is silent.
+const WATER_EVENTS = ['upsideDown', 'fullFlip', 'reverse'];
+let water = null;
+let underwater = false;
+let nextBubbleAt = 0;
+
+function buildWater(ac) {
+    const lp = (freq, q) => {
+        const f = ac.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = freq;
+        f.Q.value = q;
+        return f;
+    };
+    const gain = v => {
+        const g = ac.createGain();
+        g.gain.value = v;
+        return g;
+    };
+    const lfo = (hz, depth, target) => { // a slow sine nudging an AudioParam; depth 0 = no effect
+        const osc = ac.createOscillator();
+        const amount = gain(depth);
+        osc.frequency.value = hz;
+        osc.connect(amount);
+        amount.connect(target);
+        osc.start();
+        return amount;
+    };
+    const musicIn = lp(20000, 0.7);
+    const dry = gain(1);
+    const warble = ac.createDelay(0.1);
+    warble.delayTime.value = 0.015;
+    const wet = gain(0);
+    musicIn.connect(dry);
+    dry.connect(ac.destination);
+    musicIn.connect(warble);
+    warble.connect(wet);
+    wet.connect(ac.destination);
+    const sway = lfo(0.3, 0, musicIn.frequency); // the filter swaying open and shut, like a current
+    lfo(0.9, 0.005, warble.delayTime); // the pitch wobble (only heard through wet)
+    const sfxIn = lp(20000, 0.7);
+    sfxIn.connect(ac.destination);
+    water = { musicIn, dry, wet, sway, sfxIn };
+    return water;
+}
+
+function updateUnderwater(ac) {
+    const want = !!chaos.type && WATER_EVENTS.includes(chaos.type) && gameState !== 'lost';
+    if (water && want !== underwater) {
+        underwater = want;
+        const t = ac.currentTime, tau = 0.25; // eases in and out over about a second
+        water.musicIn.frequency.setTargetAtTime(want ? 480 : 20000, t, tau);
+        water.musicIn.Q.setTargetAtTime(want ? 3 : 0.7, t, tau); // a little resonance: murky, not boomy
+        water.sway.gain.setTargetAtTime(want ? 260 : 0, t, tau);
+        water.dry.gain.setTargetAtTime(want ? 0.35 : 1, t, tau);
+        water.wet.gain.setTargetAtTime(want ? 0.7 : 0, t, tau);
+        water.sfxIn.frequency.setTargetAtTime(want ? 1500 : 20000, t, tau);
+        if (want) sfxDive(); else sfxSurface();
+        nextBubbleAt = t + 0.8;
+    }
+    if (underwater && gameState === 'playing' && ac.currentTime >= nextBubbleAt) {
+        sfxBubble();
+        if (Math.random() < 0.5) sfxBubble(0.06 + Math.random() * 0.06);
+        nextBubbleAt = ac.currentTime + 0.4 + Math.random() * 0.9;
+    }
+}
+
 function startMusic() {
     if (musicTimer || !audioCtx) return;
     nextStepTime = audioCtx.currentTime + 0.1;
@@ -183,6 +255,7 @@ function scheduleMusic() {
     const ac = audioCtx;
     if (!ac || ac.state !== 'running') return;
     if (musicGain) musicGain.gain.setTargetAtTime(musicLevel(), ac.currentTime, 0.1); // follows the pause duck
+    updateUnderwater(ac); // (before the early return below: the effects go under water even with the music off)
     // Nothing to hear (music off, or the tab hidden): don't queue notes, just keep the clock current
     if (document.hidden || musicLevel() === 0) {
         nextStepTime = ac.currentTime + 0.05;

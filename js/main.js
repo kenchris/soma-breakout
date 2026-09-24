@@ -656,6 +656,19 @@ function update() {
             }
         }
         slowTimer -= 1 / 60;
+        if (slowTimer <= 0) slowRecover = SLOW_RECOVER_FRAMES;
+    } else if (slowRecover > 0) {
+        // Slow has run out: bring every ball back up to speed over half a second, wherever it is. Only a
+        // paddle bounce used to, and a shallow ball rallying between the walls could stay slow for half a minute.
+        slowRecover--;
+        const target = currentSpeed();
+        for (const b of balls) {
+            const mag = Math.hypot(b.vx, b.vy);
+            if (b.stuck || mag === 0 || mag >= target) continue; // a faster ball (a smash, say) is left alone
+            const f = (mag + (target - mag) / (slowRecover + 1)) / mag;
+            b.vx *= f;
+            b.vy *= f;
+        }
     }
     if (wideTimer > 0) {
         wideTimer -= 1 / 60;

@@ -71,6 +71,7 @@ function drawParticles() {
 
 function clearTimedEffects() {
     slowTimer = 0;
+    slowRecover = 0;
     wideTimer = 0;
     narrowTimer = 0;
     splitTimer = 0;

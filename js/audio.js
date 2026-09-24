@@ -22,8 +22,10 @@ function ensureAudio() {
             sfxGain = audioCtx.createGain();
             musicGain.gain.value = musicLevel();
             sfxGain.gain.value = sfxLevel();
-            musicGain.connect(audioCtx.destination);
-            sfxGain.connect(audioCtx.destination);
+            // ...both through the underwater effect (see buildWater in music.js), clear unless the world flips
+            const water = buildWater(audioCtx);
+            musicGain.connect(water.musicIn);
+            sfxGain.connect(water.sfxIn);
         }
         if (audioCtx.state === 'suspended') audioCtx.resume();
         startMusic();
@@ -357,6 +359,25 @@ function sfxShieldBreak() {
     noise(0.18, { vol: 0.28, type: 'highpass', from: 4000, to: 7000, q: 0.8, force: true });
     tone(1800, 0.2, { type: 'square', vol: 0.07, slideTo: 600, force: true });
     tone(2600, 0.15, { type: 'triangle', vol: 0.08, slideTo: 1200, delay: 0.03, force: true });
+}
+
+// Going under (the world flipping): a deep glug of water closing over, and a burst of bubbles
+function sfxDive() {
+    noise(0.7, { vol: 0.4, type: 'lowpass', from: 1400, to: 150, q: 4, force: true });
+    tone(420, 0.45, { type: 'sine', vol: 0.2, slideTo: 90, force: true });
+    for (let i = 0; i < 6; i++) sfxBubble(0.15 + i * 0.07 + Math.random() * 0.05);
+}
+
+// Coming back up: a rising splash
+function sfxSurface() {
+    noise(0.5, { vol: 0.3, type: 'bandpass', from: 400, to: 3500, q: 1.5, force: true });
+    tone(150, 0.35, { type: 'sine', vol: 0.16, slideTo: 700, force: true });
+}
+
+// One bubble: a quick sine chirp upward, the sound of air rising through water
+function sfxBubble(delay = 0) {
+    const f = 300 + Math.random() * 500;
+    tone(f, 0.07, { type: 'sine', vol: 0.12, slideTo: f * 2.6, delay, force: true });
 }
 
 // The mothership's crew groaning over the clang of the hull: a low alien warble
