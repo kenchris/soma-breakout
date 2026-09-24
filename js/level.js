@@ -360,13 +360,15 @@ function planLevel(l) {
         p.chain = true;
         p.tnt = 0;
     }
-    // Space Chomp: the maze is the whole level, and its ghosts are the only visitors
+    // Space Chomp: the maze is the whole level, and its ghosts are the only visitors. No weird events
+    // either: against the clock, a speed-up or a flipped screen is just annoying.
     if (isMazeLevel(l)) {
         p.maze = true;
         p.tnt = 0;
         p.walls = 0;
         p.bumpers = 0;
         p.aliens = null;
+        p.chaos = null;
     }
     return p;
 }
