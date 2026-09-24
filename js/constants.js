@@ -37,6 +37,10 @@ const BRICK_OFFSET_LEFT = (CANVAS_W - BRICK_COLS * BRICK_W) / 2;
 
 const PADDLE_W = 110;
 
+const START_LIVES = 5;
+
+const MAX_LIVES = 6; // one above the start, so an extra life right away still counts
+
 const PADDLE_H = 12;
 
 const BALL_RADIUS = 8;

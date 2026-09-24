@@ -4,6 +4,7 @@
 
 function addScore(points) {
     if (points <= 0) return;
+    points = Math.max(1, Math.round(points * assistScoreMult())); // assist: helped points count less (assist.js)
     score += points;
     if (score > bestScore) {
         bestScore = score;
@@ -90,7 +91,7 @@ function clearTimedEffects() {
     stickyCatches = 0;
     explosiveReady = false;
     multiReady = false;
-    paddle.w = PADDLE_W;
+    paddle.w = paddleBaseW();
     paddleHoles.length = 0; // a new ball / level comes with a repaired paddle
 }
 

@@ -223,6 +223,7 @@ function loseLife() {
     balls.length = 0;
     lives = Math.max(0, lives - 1);
     combo = 0;
+    assistOnLifeLost();
     // Drops go with the ball, except a level-code capsule: those are rare enough that losing one to an
     // unrelated miss would sting. It hangs where it is while the ball waits, and falls on after the relaunch.
     keepWhere(powerups, p => p.type === 'cheatcode');
@@ -503,7 +504,7 @@ function hitBrick(b, c, r, hit, onFire) {
 
 
 function restorePaddleWidth() {
-    paddle.w = PADDLE_W;
+    paddle.w = paddleBaseW();
     paddle.x = Math.max(0, Math.min(paddle.x, CANVAS_W - paddle.w));
 }
 
@@ -782,7 +783,7 @@ function render() {
 // level 20 (or during Turbo) the way it comfortably could at level 1, instead of the ball quietly becoming
 // faster than the paddle can ever move and turning the level uncatchable no matter how well you play.
 function keyboardStepSpeed() {
-    return 10 * (currentSpeed() / 5) * timeScale;
+    return 10 * (currentSpeed() / 5) * timeScale / assistSpeed(); // assist slows the game, not your paddle
 }
 
 // Everything that animates frame by frame (particles, popups, blasts, shake, stars, the intro card, brick
@@ -870,8 +871,9 @@ function fixedStep() {
     // Continuous paddle keyboard control (works before launch too)
     if (gameState === 'ready' || gameState === 'playing') {
         if (followTarget !== null) { // touch follow mode: slide toward the finger at a capped speed
+            const followStep = FOLLOW_MAX_STEP / assistSpeed(); // (assist slows the steps, not your thumb)
             const d = followTarget - paddle.x;
-            paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + Math.max(-FOLLOW_MAX_STEP, Math.min(FOLLOW_MAX_STEP, d))));
+            paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, paddle.x + Math.max(-followStep, Math.min(followStep, d))));
             paddleTargetX = paddle.x;
         }
         const dir = mapMirror() ? -1 : 1; // reversed controls / a flipped view swap left and right
@@ -907,7 +909,8 @@ function gameLoop(now) {
     lastFrameTime = now;
     // Frame times jitter around 16.7 ms on a 60 Hz display: snap those to exactly one step
     if (Math.abs(dt - STEP_MS) < 2) dt = STEP_MS;
-    stepAccumulator += dt; // (Time Warp scales movement per step instead, so it is smooth and the paddle stays responsive)
+    // Assist (assist.js) runs the whole game in slow motion by feeding it less time per frame
+    stepAccumulator += dt * assistSpeed(); // (Time Warp scales movement per step instead, so it is smooth and the paddle stays responsive)
 
     let steps = 0;
     while (stepAccumulator >= STEP_MS && steps < MAX_STEPS_PER_FRAME) {

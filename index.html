@@ -161,6 +161,7 @@
         .stat-chip.level { --chip: var(--cyan); }
         .stat-chip.lives { --chip: var(--red); gap: 5px; }
         .stat-chip.combo { --chip: var(--magenta); }
+        .stat-chip.assist { --chip: #8fd3ff; }
         .stat-chip .lbl {
             font-family: var(--px);
             font-size: 8px;
@@ -821,6 +822,8 @@
             color: var(--magenta);
         }
         #legend-dialog h2 + h3 { margin-top: 0; }
+        #legend-dialog .assist-row { flex-direction: column; align-items: flex-start; }
+        #legend-dialog .assist-row .sound-note { margin: 0; font-size: 14px; }
         .modal-close {
             position: absolute;
             top: 10px;
@@ -976,6 +979,11 @@
                     <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
                     <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
                     <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
+                    <svg viewBox="0 0 7 6" aria-hidden="true"><path d="M1 0h2v1h-2zM4 0h2v1h-2zM0 1h7v2h-7zM1 3h5v1h-5zM2 4h3v1h-3zM3 5h1v1h-1z" /></svg>
+                </div>
+                <div id="hud-assist" class="stat-chip assist" style="display: none;">
+                    <span class="lbl">ASSIST</span>
+                    <span class="val" id="assist-val">100%</span>
                 </div>
                 <div id="combo" class="stat-chip combo" title="Combo multiplier: chain bricks without touching the paddle">
                     <span id="combo-label">&times;1</span>
@@ -1082,6 +1090,11 @@
                 <span><kbd>F</kbd> fullscreen</span>
                 <span><kbd>L</kbd> pointer lock</span>
             </div>
+            <h3>ASSIST</h3>
+            <div class="row assist-row">
+                <label class="sound-switch"><input type="checkbox" id="assist-on"><span class="knob"></span><span class="name">AUTO-ASSIST</span></label>
+                <p class="sound-note">Lose two balls on one level and the game slows down to help, but points count less (shown as ASSIST in the bar). Clear a level without losing a ball and it eases off.</p>
+            </div>
             <h3>POWER-UPS &amp; HAZARDS</h3>
             <div class="row legend">
                 <span class="pu" style="--c:#33cc33"><i>+</i>Life</span>
@@ -1119,6 +1132,7 @@
     <script src="js/physics.js"></script>
     <script src="js/audio.js"></script>
     <script src="js/music.js"></script>
+    <script src="js/assist.js"></script>
     <script src="js/fx.js"></script>
     <script src="js/sprites.js"></script>
     <script src="js/level.js"></script>

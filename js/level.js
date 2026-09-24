@@ -91,6 +91,8 @@ function initGame() {
     canvas.height = CANVAS_H;
     ctx = canvas.getContext('2d');
 
+    loadAssist();
+    initAssistUi();
     try {
         bestScore = parseInt(localStorage.getItem('breakout-best'), 10) || 0;
     } catch (e) {
@@ -132,7 +134,8 @@ function initGame() {
 
 function resetGame(startLevel = 1) {
     score = 0;
-    lives = 3;
+    lives = START_LIVES;
+    assistLosses = assistLevelLosses = 0;
     level = startLevel;
     gameState = 'ready';
     runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0, warps: 0 };
@@ -143,9 +146,9 @@ function resetGame(startLevel = 1) {
 
     // Paddle setup
     paddle = {
-        x: CANVAS_W / 2 - PADDLE_W / 2,
+        x: CANVAS_W / 2 - paddleBaseW() / 2,
         y: CANVAS_H - 30,
-        w: PADDLE_W,
+        w: paddleBaseW(),
         h: PADDLE_H
     };
 
@@ -413,6 +416,7 @@ function showLevelIntro() {
 
 function completeLevel() {
     const bossBeaten = plan.boss; // read before spawnLevel replaces the plan
+    assistOnLevelCleared();
     level++;
     gameState = 'won';
     powerups.length = 0;
