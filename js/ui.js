@@ -15,7 +15,7 @@ function isTouchDevice() {
 // Every launch screen (a fresh run, the next level, or relaunching after a lost ball) names the level
 function getLaunchMessage(levelWon = false) {
     const isTouch = isTouchDevice();
-    const name = plan.boss ? 'Boss fight' : plan.tetris ? 'Ghost rows' : currentLayout().name;
+    const name = plan.boss ? 'Boss fight' : plan.tetris ? 'Ghost rows' : plan.maze ? 'Space Chomp' : plan.chain ? 'Colour Chain' : currentLayout().name;
     const title = 'Level ' + level + ' · ' + name;
     if (levelWon) return title + '\n' + (isTouch ? 'Tap to continue' : 'Press SPACE to continue');
     return title + '\n' + (isTouch ? 'Tap or press SPACE to launch' : 'Press SPACE to launch');

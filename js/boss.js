@@ -37,7 +37,8 @@ function bossTip(key, text, y = 300) {
 //   rects()          [x0, y0, x1, y1] boxes the guided ball may aim for
 // Optional: breather() after you lose a ball, tick() per-step cosmetics, movers() objects to draw
 // interpolated between steps, health() 1..0 for the music (default hp / maxHp), blocks(x, y) whether
-// a guided-ball ray is stopped at that point.
+// a guided-ball ray is stopped at that point, chips() extra status chips ({ text, color }), tune() which
+// BOSS_TUNES entry to play right now (default: its kind).
 const BOSS_KINDS = {};
 
 function bossHooks() {

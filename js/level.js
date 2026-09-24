@@ -388,8 +388,8 @@ function showLevelIntro() {
     if (plan.maze) {
         title = 'SPACE CHOMP';
         lines = mazeIntroSeen
-            ? ['Hit the chomper to steer it to the dots. Bop the ghosts!']
-            : ['Hit the chomper: it zooms off the way the ball was going', 'It eats the dots. Bop the ghosts to keep it safe!'];
+            ? ['Eat ' + maze.goal + ' dots in time. Hit chompers to ZOOM!']
+            : ['The chompers must eat ' + maze.goal + ' dots before time runs out', 'Hit a chomper with the ball and it ZOOMS', 'Bop the ghosts away from them'];
         mazeIntroSeen = true;
     }
     if (plan.chain) {

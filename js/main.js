@@ -187,6 +187,7 @@ function drawStatusChips() {
     if (shield > 0) chips.push({ text: 'SHIELD ×' + shield, color: '#33ddff' });
     if (explosiveReady) chips.push({ text: 'BOOM READY', color: '#ff3366' });
     if (multiReady) chips.push({ text: 'MULTI READY', color: '#3399ff' });
+    if (boss && bossHooks().chips) chips.push(...bossHooks().chips()); // a boss's own timers (Kong's HAMMER)
     if (!chips.length) return;
 
     ctx.save();
@@ -762,6 +763,7 @@ function render() {
     drawTimeWarpFx();
     drawStatusChips();
     drawBossBar();
+    drawMazeBar();
     captureMomentIfDue(); // before the perf readout, so it never ends up in a shared screenshot
     if (PERF) drawPerf();
     updateHUD();
@@ -822,7 +824,7 @@ function snapshotMovers() {
     if (boss && bossHooks().movers) bossHooks().movers().forEach(add);
     if (maze) {
         maze.ghosts.forEach(add);
-        add(maze.chomper);
+        maze.chompers.forEach(add);
     }
     paddleStepX = paddle.x;
 }

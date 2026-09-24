@@ -6,11 +6,14 @@
 // punches a hole. From phase 2 it also hurls blue steel barrels straight at you through the girders, and
 // when ENRAGED it pounds its chest, which bounces every barrel on the tower and hurries them along.
 // The barrels are also your best weapon: hit one from below and it flies back up at the ape (steered a
-// little toward it, straight through the girders) for heavy damage, smashing any barrel in its way.
-// A ball hitting one from above just smashes it.
-// To hurt it you have to get the ball up to it: the girders are solid, but the ball slips through the
-// ladder gaps and around the girder ends. A hammer hangs on the left of the tower; knock it down with the
-// ball and catch it for HAMMER TIME: for a few seconds your paddle smashes any barrel that lands on it.
+// little toward it) for heavy damage, smashing any barrel in its way. A ball hitting one from above just
+// smashes it. The girders only carry the barrels: the ball flies straight through them, so the whole
+// screen is yours to play in, and you can hit the ape directly too.
+// The ladders are launchers: a ball that touches one on its way up is fired at the ape (with a little
+// spread, so it hits more often than not).
+// Now and then a smashed barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME.
+// The music goes frantic, every ladder becomes a sure hit for double damage, and barrels landing on your
+// paddle just break.
 
 const KONG_W = 96;
 const KONG_H = 72;
@@ -22,13 +25,13 @@ const BARREL_KICK_SPEED = 8;
 const BARREL_KICK_DAMAGE = 3;
 const BARREL_GRAVITY = 0.18;
 const BARREL_MAX_FALL = 6;
-const KONG_HAMMER_SECONDS = 8;
-const KONG_HAMMER_POS = { x: 92, y: 282 };
+const KONG_HAMMER_SECONDS = 12;
+const KONG_HAMMER_DROP_CHANCE = 0.15; // per smashed barrel, while no hammer is falling or in use
 const KONG_BROWN = '#8a4a1c';
 const KONG_TAN = '#e8b27a';
 
 // The tower, top to bottom. Barrels roll downhill along each girder and drop off its low end; `gaps` are
-// ladder openings (x ranges) the ball passes through and barrels usually roll over.
+// ladder openings (x ranges): barrels usually roll over them, but now and then one takes the ladder down.
 const KONG_GIRDERS = [
     // Just a ledge under its feet: a ball that makes it up the tower can smack it from below or the sides
     { x0: 380, y0: KONG_FEET_Y, x1: 540, y1: KONG_FEET_Y, gaps: [] },
@@ -85,30 +88,16 @@ function girderDownhill(g) {
     return g.y0 === g.y1 ? 1 : Math.sign(lowEnd - (g.x0 + g.x1) / 2);
 }
 
-// The solid stretches of each girder (between its ladder gaps) as segments, for the ball. Not the ledge
-// it stands on: a ball coming up from below hits the ape itself, never the plank under its feet.
-const KONG_PIECES = KONG_GIRDERS.slice(1).flatMap(g => {
-    const cuts = [girderLeft(g)];
-    for (const [a, b] of g.gaps) cuts.push(a, b);
-    cuts.push(girderRight(g));
-    const pieces = [];
-    for (let i = 0; i < cuts.length; i += 2) {
-        pieces.push({ x0: cuts[i], y0: girderY(g, cuts[i]), x1: cuts[i + 1], y1: girderY(g, cuts[i + 1]) });
-    }
-    return pieces;
-});
-
 function kongPhase() {
     return bossPhase();
 }
 
 function spawnKongBoss(n) {
-    const hp = 12 + 5 * n; // 27 on its debut
+    const hp = 18 + 6 * n; // 36 on its debut
     boss = {
         kind: 'kong', n, hp, maxHp: hp, x: KONG_X, y: -KONG_H, intro: 110, dying: 0, cool: 0, flash: 0, t: 0,
         barrels: [], throwIn: 150, pose: 'idle', poseT: 0, pending: null, lastPhase: 1, pound: 0,
-        hammer: { state: 'hang', x: KONG_HAMMER_POS.x, y: KONG_HAMMER_POS.y, vy: 0, respawn: 0 },
-        hammerTime: 0, cheatRolled: false
+        hammers: [], hammerTime: 0, cheatRolled: false
     };
 }
 
@@ -144,12 +133,12 @@ function updateBarrels() {
     const B = boss;
     const roll = barrelRollSpeed() * timeScale;
     for (const br of B.barrels) {
-        br.spin += (br.state === 'roll' ? br.dir || 1 : 1) * 0.15 * timeScale;
         if (br.state === 'roll') {
             const g = KONG_GIRDERS[br.g];
             br.dir = girderDownhill(g);
             const px = br.x;
             br.x += br.dir * roll;
+            br.spin += (br.dir * roll) / BARREL_R; // turns exactly as far as it rolls, so it reads as rolling
             br.y = girderY(g, br.x) - GIRDER_HALF - BARREL_R;
             // Crossing the middle of a ladder gap: sometimes it takes the ladder down instead of rolling on
             for (const [a, b] of g.gaps) {
@@ -170,6 +159,7 @@ function updateBarrels() {
             }
         } else if (br.state === 'fall' || br.state === 'hop') {
             const py = br.y;
+            br.spin += (br.vx || 0) / BARREL_R * timeScale; // keeps tumbling as it falls
             br.vy = Math.min(br.vy + BARREL_GRAVITY * timeScale, BARREL_MAX_FALL);
             br.x += br.vx * timeScale;
             br.y += br.vy * timeScale;
@@ -190,6 +180,7 @@ function updateBarrels() {
                 }
             }
         } else if (br.state === 'wild') {
+            br.spin += 0.2 * timeScale;
             br.x += br.vx * timeScale;
             br.y += br.vy * timeScale;
             if (br.x < BARREL_R || br.x > CANVAS_W - BARREL_R) br.vx = -br.vx;
@@ -227,7 +218,13 @@ function smashBarrel(br, points, label) {
     noise(0.12, { vol: 0.2, from: 1800, to: 300, key: 'barrelSmash' });
     addShake(3);
     haptic(12);
-    if (Math.random() < 0.15) spawnPowerup(br.x, br.y);
+    boss.smashed = (boss.smashed || 0) + 1;
+    const hammerDue = boss.smashed === 3 || Math.random() < KONG_HAMMER_DROP_CHANCE; // the 3rd always drops one
+    if (hammerDue && !boss.hammers.length && boss.hammerTime <= 0) {
+        boss.hammers.push({ x: br.x, y: br.y, vy: 2 });
+    } else if (Math.random() < 0.12) {
+        spawnPowerup(br.x, br.y);
+    }
 }
 
 // --- The ape ---
@@ -280,28 +277,30 @@ function kongPound() {
     bossTip('pound', 'IT POUNDS ITS CHEST: THE BARRELS GO FLYING!', 440);
 }
 
+// Hammer capsules fall like any drop; catching one starts HAMMER TIME
 function updateKongHammer() {
     const B = boss;
-    const H = B.hammer;
-    if (B.hammerTime > 0) B.hammerTime -= 1 / 60;
-    if (H.state === 'fall') {
+    if (B.hammerTime > 0) B.hammerTime = Math.max(0, B.hammerTime - 1 / 60);
+    for (const H of B.hammers) {
         H.y += H.vy * timeScale;
         if (paddleOverlap(H.x, H.y, 16)) {
-            H.state = 'gone';
-            H.respawn = 60 * 20;
+            H.done = true;
             B.hammerTime = KONG_HAMMER_SECONDS;
-            addPopup(paddle.x + paddle.w / 2, paddle.y - 30, 'HAMMER TIME!', '#ffd23f', { size: 24, life: 1.4, rise: 0.6, pop: true });
+            if (!kongHammerExplained) {
+                kongHammerExplained = true;
+                addPopup(CANVAS_W / 2, 440, 'EVERY LADDER IS A SURE HIT NOW!', '#ffffff', { size: 18, life: 2.4, rise: 0.15, pop: true });
+            }
+            addShake(6);
             noteMoment(45, 'HAMMER TIME!');
             sfxPowerup();
             haptic([15, 20, 15], true);
         } else if (H.y > CANVAS_H + 20) {
-            H.state = 'gone';
-            H.respawn = 60 * 12;
+            H.done = true;
         }
-    } else if (H.state === 'gone' && B.hammerTime <= 0 && --H.respawn <= 0) {
-        Object.assign(H, { state: 'hang', x: KONG_HAMMER_POS.x, y: KONG_HAMMER_POS.y, vy: 0 });
     }
+    keepWhere(B.hammers, H => !H.done);
 }
+let kongHammerExplained = false;
 
 function updateKongBoss() {
     const B = boss;
@@ -334,20 +333,27 @@ function updateKongBoss() {
     }
     updateBarrels();
     updateKongHammer();
-    if (B.t === 115) bossTip('kick', 'HIT BARRELS FROM BELOW: THEY FLY BACK AT KONG!', 470);
+    if (B.t === 115) bossTip('ladder', 'HIT A LADDER: IT FIRES THE BALL AT KONG!', 470);
+    if (B.t === 115 + 60 * 8) bossTip('kick', 'HIT BARRELS FROM BELOW: THEY FLY BACK AT HIM!', 470);
+    if (B.ladderFlash && --B.ladderFlash.t <= 0) B.ladderFlash = null;
 }
 
 function kongBallCollision(b) {
     const B = boss;
     if (B.dying > 0) return;
-    // The girders: solid everywhere except the ladder gaps
-    for (const p of KONG_PIECES) {
-        if (bounceOffSegment(b, p.x0, p.y0, p.x1, p.y1, GIRDER_HALF)) {
-            if (Math.abs(b.vx) < 0.6) b.vx = (Math.random() < 0.5 ? -1 : 1) * 0.9; // never stuck bouncing straight up and down
-            beep(300, 'girder');
-            break;
+    // (The girders only carry the barrels: the ball flies straight through them)
+    // Ladders: a ball touching one on its way up is fired at the ape
+    if (B.intro <= 0 && b.vy < 0 && !(b.ladderCool > 0)) {
+        for (const g of KONG_GIRDERS) {
+            for (const [a, c] of g.gaps) {
+                const ym = girderY(g, (a + c) / 2);
+                if (b.x < a + 4 || b.x > c - 4 || b.y < ym - 26 || b.y > ym + 30) continue;
+                launchAtKong(b, (a + c) / 2, ym);
+                break;
+            }
         }
     }
+    if (b.ladderCool > 0) b.ladderCool--;
     if (B.intro > 0) return;
     // Barrels
     for (const br of B.barrels) {
@@ -363,22 +369,14 @@ function kongBallCollision(b) {
         break;
     }
     keepWhere(B.barrels, br => !br.dead);
-    // The hammer on its hook
-    const H = B.hammer;
-    if (H.state === 'hang' && Math.hypot(b.x - H.x, b.y - H.y) < b.r + 16) {
-        H.state = 'fall';
-        H.vy = 2.2;
-        bounceOffCircle(b, H.x, H.y, 16);
-        tone(900, 0.1, { type: 'triangle', vol: 0.2, key: 'hammerFree' });
-        bossTip('hammer', 'CATCH THE HAMMER!', 440);
-    }
     // The ape itself
     if (B.cool > 0) return;
     const k = kongBox();
     const hit = rectContact(b, k.x, k.y, k.w, k.h);
     if (!hit) return;
     B.cool = 10;
-    let dmg = fireTimer > 0 ? 2 : 1;
+    let dmg = (fireTimer > 0 ? 2 : 1) * (b.hammerShot ? 2 : 1);
+    b.hammerShot = false;
     if (explosiveReady) {
         explosiveReady = false;
         dmg += 4;
@@ -387,6 +385,22 @@ function kongBallCollision(b) {
     }
     if (fireTimer <= 0) bounceOffRect(b, k.x, k.y, k.w, k.h, hit);
     hurtKong(dmg, b.x, b.y, '-' + dmg);
+}
+
+// Fire the ball from a ladder at the ape: its speed kept (at least a brisk one), aimed with a little spread
+function launchAtKong(b, lx, ly) {
+    const k = kongBox();
+    const sure = boss.hammerTime > 0; // HAMMER TIME: dead on target, and it hits twice as hard
+    const aim = Math.atan2(k.y + k.h / 2 - b.y, k.x + k.w / 2 - b.x) + (sure ? 0 : (Math.random() - 0.5) * 0.3);
+    b.hammerShot = sure;
+    const speed = Math.max(Math.hypot(b.vx, b.vy), currentSpeed() * 1.25);
+    b.vx = Math.cos(aim) * speed;
+    b.vy = Math.sin(aim) * speed;
+    b.ladderCool = 40; // one launch per ladder pass
+    boss.ladderFlash = { x: lx, y: ly, t: 12 };
+    spawnParticles(b.x, b.y, '#2de2e6', 8);
+    tone(420, 0.16, { type: 'square', vol: 0.18, slideTo: 1300, key: 'ladderLaunch' });
+    haptic(12);
 }
 
 function hurtKong(dmg, x, y, label) {
@@ -526,11 +540,6 @@ function kongRects() {
     return rects;
 }
 
-// A guided ball plans around the girders
-function kongBlocks(x, y) {
-    return KONG_PIECES.some(p => pointSegmentDistance(x, y, p.x0, p.y0, p.x1, p.y1) < GIRDER_HALF + BALL_RADIUS);
-}
-
 // --- Drawing ---
 const kongSprites = {};
 
@@ -605,32 +614,32 @@ function paintGirders(g) {
     }
 }
 
-// Barrels, in pixel art at 2px a pixel: a round wooden barrel with iron hoops. Three frames per colour, the
-// staves shifting one step each, so it looks like it's rolling without blurring the pixels by rotating.
-// Wooden ones roll down the girders; the blue steel ones are the wild throws.
+// Barrels, in pixel art at 2px a pixel, seen end-on as they roll toward the side: a round lid of wooden
+// planks with a dark iron rim and a bright cross-brace. Drawn rotated by how far it has rolled, so it
+// plainly turns as it goes. Wooden ones roll down the girders; the blue steel ones are the wild throws.
 const BARREL_PALETTES = {
-    wood: { wood: '#c0782e', stave: '#8f531c', light: '#e8a860', hoop: '#3b3550', hoopLight: '#8a86a8', rim: '#4a260a' },
-    steel: { wood: '#3d6bd6', stave: '#2a4aa0', light: '#8fb0ff', hoop: '#1a1f40', hoopLight: '#c9d2ff', rim: '#101838' }
+    wood: { plank: '#c0782e', seam: '#7a4214', light: '#e8a860', rim: '#3b3550', rimLight: '#8a86a8', brace: '#f2c27a' },
+    steel: { plank: '#3d6bd6', seam: '#1f3a8a', light: '#8fb0ff', rim: '#1a1f40', rimLight: '#c9d2ff', brace: '#dfe7ff' }
 };
 const barrelSprites = {};
 
-function barrelSprite(wild, frame) {
-    const key = (wild ? 's' : 'w') + frame;
+function barrelSprite(wild) {
+    const key = wild ? 'steel' : 'wood';
     if (!barrelSprites[key]) {
-        const P = BARREL_PALETTES[wild ? 'steel' : 'wood'];
+        const P = BARREL_PALETTES[key];
         const N = BARREL_R; // cells across (2px each)
         barrelSprites[key] = makeSprite(N * 2, N * 2, g => {
             const c = (N - 1) / 2;
             for (let y = 0; y < N; y++) {
                 for (let x = 0; x < N; x++) {
-                    const d = Math.hypot(x - c, (y - c) * 1.08);
+                    const d = Math.hypot(x - c, y - c);
                     if (d > c + 0.5) continue;
-                    let col = P.wood;
-                    if (d > c - 0.6) col = P.rim;
-                    else if (y === 3 || y === N - 4) col = P.hoop;
-                    else if (y === 2 || y === N - 5) col = P.hoopLight;
-                    else if ((x + frame) % 4 === 0) col = P.stave;
-                    else if (x < c - 1 && y < c - 1 && x + y < c) col = P.light;
+                    let col = P.plank;
+                    if (d > c - 0.7) col = (x + y < N ? P.rimLight : P.rim);      // the iron rim, lit top-left
+                    else if (d > c - 1.7) col = P.rim;
+                    else if (Math.abs(x - y) < 0.6 || Math.abs(x + y - (N - 1)) < 0.6) col = P.brace; // the X brace
+                    else if (y % 3 === 0) col = P.seam;                          // plank seams
+                    else if (x < c && y < c) col = P.light;
                     g.fillStyle = col;
                     g.fillRect(x * 2, y * 2, 2, 2);
                 }
@@ -654,8 +663,11 @@ function drawBarrel(br, x, y) {
         });
         ctx.restore();
     }
-    const frame = ((Math.floor(br.spin * 2) % 3) + 3) % 3;
-    ctx.drawImage(barrelSprite(br.wild, frame), Math.round(x - BARREL_R), Math.round(y - BARREL_R));
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(br.spin);
+    ctx.drawImage(barrelSprite(br.wild), -BARREL_R, -BARREL_R);
+    ctx.restore();
 }
 
 // The princess, in pixel art at 3px: crown, golden hair, big eyes and a pink gown
@@ -703,27 +715,23 @@ function drawKongBoss() {
     // The princess on her perch, calling for help
     drawPrincess(90, 128 - GIRDER_HALF, B.t, B.dying > 0);
 
-    // For the first seconds of the fight, arrows blink up through every ladder: that's the way to the ape
-    if (B.t < 60 * 12 && Math.floor(B.t / 20) % 2 === 0) {
+    // Falling hammer capsules: a gold capsule with the hammer on it, and its name, so it's plain what it is
+    for (const H of B.hammers) {
+        const pulse = 1 + 0.1 * Math.sin(B.t / 7);
+        ctx.fillStyle = 'rgba(255, 210, 63, 0.3)';
+        ctx.beginPath();
+        ctx.arc(H.x, H.y, 20 * pulse, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = '#ffd23f';
-        for (const g of KONG_GIRDERS) {
-            for (const [a, b] of g.gaps) {
-                const mx = (a + b) / 2, my = girderY(g, mx);
-                for (const off of [4, -8]) {
-                    ctx.beginPath();
-                    ctx.moveTo(mx, my + off - 8);
-                    ctx.lineTo(mx + 9, my + off + 2);
-                    ctx.lineTo(mx - 9, my + off + 2);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-            }
-        }
+        ctx.beginPath();
+        ctx.arc(H.x, H.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+        drawPixelHammer(H.x, H.y, 1);
+        ctx.font = pixelFont(8);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffe98a';
+        ctx.fillText('HAMMER', H.x, H.y + 30);
     }
-
-    // The hammer on its hook (or falling)
-    const H = B.hammer;
-    if (H.state === 'hang' || H.state === 'fall') drawHammerGlyph(H.x, H.y, H.state === 'hang' ? Math.sin(B.t / 20) * 0.25 : B.t / 4);
 
     // The ape
     if (B.y > -KONG_H) {
@@ -775,38 +783,59 @@ function drawKongBoss() {
         }
     }
 
+    // A ladder that just launched the ball lights up
+    if (B.ladderFlash) {
+        const f = B.ladderFlash;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = f.t / 12;
+        ctx.fillStyle = '#2de2e6';
+        ctx.fillRect(f.x - 26, f.y - 28, 52, 60);
+        ctx.restore();
+    }
     // Barrels
     for (const br of B.barrels) drawBarrel(br, br.x, br.y + (br.state === 'roll' ? shakeY : 0));
 }
 
-function drawHammerGlyph(x, y, angle) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    ctx.fillStyle = '#c98a4a';
-    ctx.fillRect(-2, -4, 4, 22);   // handle
-    ctx.fillStyle = '#d9d9e3';
-    ctx.fillRect(-11, -14, 22, 11); // head
-    ctx.fillStyle = '#8f8fa3';
-    ctx.fillRect(-11, -6, 22, 3);
-    ctx.restore();
+// A chunky pixel-art hammer (2px pixels): a steel head on a wooden handle, centred on (x, y)
+function drawPixelHammer(x, y, scale) {
+    const px = 2 * scale;
+    const art = ['.HHHHHHH.', 'HHHHHHHHH', 'hhhhhhhhh', '....W....', '....W....', '....W....', '....W....', '...WWW...'];
+    const colors = { H: '#e6e8f2', h: '#8f93ab', W: '#a8672a' };
+    const x0 = Math.round(x - 4.5 * px), y0 = Math.round(y - 4 * px);
+    art.forEach((row, r) => {
+        for (let c = 0; c < row.length; c++) {
+            const col = colors[row[c]];
+            if (!col) continue;
+            ctx.fillStyle = col;
+            ctx.fillRect(x0 + c * px, y0 + r * px, px, px);
+        }
+    });
 }
 
 function drawKongBossBar() {
     const B = boss;
     drawSimpleBossBar('SPACE KONG   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
-    if (B.hammerTime > 0) {
-        // Hammers swinging over both ends of the paddle, and the time left
-        const swing = Math.sin(performance.now() / 70) * 0.9;
-        drawHammerGlyph(paddle.x + 6, paddle.y - 8, -0.6 + swing * 0.5);
-        drawHammerGlyph(paddle.x + paddle.w - 6, paddle.y - 8, 0.6 - swing * 0.5);
+    if (B.hammerTime > 0 && (B.hammerTime > 2 || Math.floor(B.t / 6) % 2 === 0)) {
+        // HAMMER TIME, big and pulsing above the paddle (blinking as it runs out)
+        const s = 1 + 0.08 * Math.sin(B.t / 4);
         ctx.save();
-        ctx.font = pixelFont(10);
+        ctx.translate(CANVAS_W / 2, 505);
+        ctx.scale(s, s);
+        ctx.font = pixelFont(26);
         ctx.textAlign = 'center';
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = '#7a1560';
+        ctx.fillText('HAMMER TIME!', 3, 3);
         ctx.fillStyle = '#ffd23f';
-        ctx.fillText('HAMMER TIME ' + Math.ceil(B.hammerTime), CANVAS_W - 110, 100);
+        ctx.fillText('HAMMER TIME!', 0, 0);
         ctx.restore();
     }
+}
+
+// The status chip strip shows how long HAMMER TIME has left
+function kongChips() {
+    return boss.hammerTime > 0 ? [{ text: 'HAMMER ' + Math.ceil(boss.hammerTime), color: '#ffd23f' }] : [];
 }
 
 BOSS_KINDS.kong = {
@@ -817,6 +846,7 @@ BOSS_KINDS.kong = {
     bar: drawKongBossBar,
     rects: kongRects,
     breather: kongBreather,
-    blocks: kongBlocks,
-    movers: () => boss.barrels.concat(boss.hammer.state === 'fall' ? [boss.hammer] : [])
+    chips: kongChips,
+    tune: () => (boss.hammerTime > 0 ? 'hammer' : 'kong'),
+    movers: () => boss.barrels.concat(boss.hammers)
 };
