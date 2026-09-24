@@ -100,7 +100,7 @@ function spawnKongBoss(n) {
     boss = {
         kind: 'kong', n, hp, maxHp: hp, x: KONG_X, y: -KONG_H, intro: 110, dying: 0, cool: 0, flash: 0, t: 0,
         barrels: [], throwIn: 150, pose: 'idle', poseT: 0, pending: null, lastPhase: 1, pound: 0,
-        hammers: [], hammerTime: 0, princess: { hearts: 3, cool: 0, flash: 0 }, cheatRolled: false
+        hammers: [], hammerTime: 0, princess: { hearts: 3, cool: 0, flash: 0 }
     };
 }
 
@@ -536,7 +536,6 @@ function checkKongPhase() {
     addShake(9);
     haptic([50, 30, 50], true);
     tone(180, 0.5, { type: 'sawtooth', vol: 0.28, slideTo: 90, key: 'phase', force: true });
-    if (p === 3) maybeDropBossCheatCapsule(B.x, B.y + 20);
 }
 
 function kongBreather() {

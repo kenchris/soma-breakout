@@ -302,6 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fsBtn.addEventListener('click', toggleFullscreen);
     }
     updateFullscreenBtn(); // (hidden when already running installed, fullscreen)
+    initRotateHint();
     // Safari can still start a selection from a long press or a double tap despite the CSS; nothing here but
     // the level-code box is text to select
     document.addEventListener('selectstart', e => {
@@ -393,6 +394,19 @@ document.addEventListener('DOMContentLoaded', () => {
     requestAnimationFrame(gameLoop);
 });
 
+
+// A phone turned sideways gets the "turn it back" card (CSS, #rotate-hint in index.html) and the game pauses,
+// so the ball doesn't fall through while it's behind the card. Resuming is left to the player.
+function initRotateHint() {
+    if (!window.matchMedia) return;
+    const sideways = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
+    const check = () => {
+        if (sideways.matches && gameState === 'playing') togglePause();
+    };
+    if (sideways.addEventListener) sideways.addEventListener('change', check);
+    else if (sideways.addListener) sideways.addListener(check); // (older Safari)
+    check();
+}
 
 function initPointerLock() {
     const btn = document.getElementById('lock-btn');

@@ -439,6 +439,41 @@
             border-radius: 0;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
         }
+        /* A phone turned sideways: iOS won't lock the orientation (no screen.orientation.lock on iPhone, and the
+           manifest's orientation is ignored), so the game hides behind a "turn it back" card and pauses
+           (see initRotateHint in input.js). Tablets and desktops aren't affected (short screens only). */
+        #rotate-hint {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            background: var(--bg-0);
+            color: var(--ink);
+            font-family: var(--px);
+            font-size: 14px;
+            line-height: 1.8;
+            text-align: center;
+            padding: 24px;
+        }
+        #rotate-hint .phone {
+            width: 44px;
+            height: 72px;
+            border: 4px solid #2de2e6;
+            border-radius: 8px;
+            box-shadow: 0 0 12px rgba(45, 226, 230, 0.6);
+            animation: rotateBack 1.6s ease-in-out infinite;
+        }
+        @keyframes rotateBack {
+            0%, 20% { transform: rotate(-90deg); }
+            60%, 100% { transform: rotate(0deg); }
+        }
+        @media (orientation: landscape) and (max-height: 500px) {
+            #rotate-hint { display: flex; }
+        }
         #overlay {
             position: absolute;
             top: 50%;
@@ -918,6 +953,7 @@
 </style>
 </head>
 <body>
+    <div id="rotate-hint" aria-live="polite"><div class="phone"></div><div>Turn your phone upright<br>to play</div></div>
 
     <div id="game-container">
         <div id="hud">

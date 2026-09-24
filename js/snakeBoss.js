@@ -78,7 +78,7 @@ function spawnSnakeBoss(n) {
         segments, dir, history: [], startLength: segments.length,
         moveT: 0, moveEvery: Math.max(8, 16 - n),
         sinceHit: 0, regrowT: SNAKE_REGROW_INTERVAL_FRAMES,
-        obstacles: [], flashT: 0, cool: 0, cheatRolled: false
+        obstacles: [], flashT: 0, cool: 0
     };
     snakeObstacleTimer = 0;
     snakeSpitTimer = SNAKE_SPIT_GRACE_FRAMES;
@@ -404,12 +404,6 @@ function snakeBallCollision(b) {
         const effectiveIndex = Math.max(i, minSurvivors);
         const cut = B.segments.length - effectiveIndex; // how much of it this hit actually chops off
         B.segments.length = effectiveIndex;
-        // Down to its last few segments: the snake's own shot at a cheat-code capsule (mirrors the
-        // mothership's ENRAGED phase 3 — see maybeDropBossCheatCapsule), a single roll regardless of how
-        // many more hits land after this point.
-        if (B.segments.length > 0 && B.segments.length <= SNAKE_ASSIST_SEGMENTS) {
-            maybeDropBossCheatCapsule(x + SNAKE_CELL / 2, y + SNAKE_CELL / 2);
-        }
         B.sinceHit = 0;
         B.regrowT = SNAKE_REGROW_INTERVAL_FRAMES;
         B.flashT = 6;
@@ -480,14 +474,7 @@ function updateSnakeDeath() {
 }
 
 function finishSnakeBoss() {
-    const points = 1500 * boss.n * (doubleTimer > 0 ? 2 : 1);
-    addScore(points);
-    runStats.bosses++;
-    lives = Math.min(lives + 1, 5);
-    boss = null;
-    addPopup(CANVAS_W / 2, 210, 'BOSS DEFEATED! +' + points, '#8dffab', { size: 26, life: 2.4, rise: 0.2, pop: true });
-    addPopup(CANVAS_W / 2, 245, '+1 LIFE', '#33cc33', { size: 20, life: 2.4, rise: 0.2 });
-    completeLevel();
+    winBossLevel('#8dffab');
 }
 
 // For the guided ball: every solid (non-ghost) segment and obstacle as a target rectangle

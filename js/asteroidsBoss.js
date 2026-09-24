@@ -62,8 +62,7 @@ function spawnAsteroidsBoss(n) {
         kind: 'asteroids', n, hp, maxHp: hp, x: CANVAS_W / 2, intro: 90, dying: 0, cool: 0,
         rocks, alienIn: 60 * 5, lastX: CANVAS_W / 2, lastY: 290,
         keys: 0, freed: [], vault: buildVault(), t: 0,
-        restart: false, // set by loseKey when the fight starts over: no second free shield then
-        cheatRolled: false
+        restart: false // set by loseKey when the fight starts over: no second free shield then
     };
 }
 
@@ -310,7 +309,6 @@ function hitRock(r, b) {
         }
     }
     haptic(r.tier >= 2 ? [15, 15, 25] : 12);
-    if (B.hp / B.maxHp <= 0.33) maybeDropBossCheatCapsule(r.x, r.y); // one roll for the last stretch (guarded inside)
 }
 
 function vaultCracked() {

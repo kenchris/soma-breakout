@@ -60,7 +60,7 @@ function spawnMothership(strength) {
     boss = {
         kind: 'mothership', n: strength, hp, maxHp: hp, x: CANVAS_W / 2, y: -70, homeY: 150, t: 0, mt: 0, intro: 100,
         atk: null, atkIn: 150, lastAtk: null, minionIn: 60 * 12, flash: 0, cool: 0,
-        dying: 0, beamFx: 0, beamX: 0, lastPhase: 1, chain: 0, chainT: 0, cheatRolled: false
+        dying: 0, beamFx: 0, beamX: 0, lastPhase: 1, chain: 0, chainT: 0
     };
     spawnCrates();
 }
@@ -242,8 +242,6 @@ function checkBossPhase() {
     addShake(9);
     haptic([50, 30, 50], true);
     tone(180, 0.5, { type: 'sawtooth', vol: 0.28, slideTo: 90, key: 'phase', force: true });
-    // Entering the last stretch: the boss's own shot at a cheat-code capsule (see maybeDropBossCheatCapsule)
-    if (p === 3) maybeDropBossCheatCapsule(B.x, B.y + 20);
 }
 
 
@@ -397,13 +395,19 @@ function updateBossDeath() {
 
 
 function finishBoss() {
+    winBossLevel('#ffd23f');
+}
+
+// Every boss's victory: points, an extra life, the level's code (always: see level.js), and on to the next level
+function winBossLevel(color) {
     const points = 1500 * boss.n * (doubleTimer > 0 ? 2 : 1);
     addScore(points);
     runStats.bosses++;
     lives = Math.min(lives + 1, 5);
     boss = null;
-    addPopup(CANVAS_W / 2, 210, 'BOSS DEFEATED! +' + points, '#ffd23f', { size: 26, life: 2.4, rise: 0.2, pop: true });
+    addPopup(CANVAS_W / 2, 210, 'BOSS DEFEATED! +' + points, color, { size: 26, life: 2.4, rise: 0.2, pop: true });
     addPopup(CANVAS_W / 2, 245, '+1 LIFE', '#33cc33', { size: 20, life: 2.4, rise: 0.2 });
+    if (plan.cheatEligible) revealLevelCode(310); // (before completeLevel moves on: it's this level's code)
     completeLevel();
 }
 

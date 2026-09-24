@@ -2,7 +2,7 @@
 // list below changes (a new js/*.js file added/removed); code changes reach players on their next load
 // anyway (see the network-first fetch handler below). This is a static site with no build step, so this
 // list is maintained by hand, same as the <script> tags in index.html.
-const CACHE_VERSION = 'v31';
+const CACHE_VERSION = 'v33';
 const CACHE_NAME = 'breakout-' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -67,14 +67,17 @@ self.addEventListener('fetch', (event) => {
     const req = event.request;
     if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
 
+    // Every page load (?level=N, a shared ?code=XXXX link, ...) is the same page: cache it under one key, so
+    // an offline launch from any link finds it, and each new link doesn't add another copy
+    const key = req.mode === 'navigate' ? './index.html' : req;
     event.respondWith((async () => {
         const cache = await caches.open(CACHE_NAME);
         try {
             const res = await fetch(req, { cache: 'no-cache' });
-            if (res.ok) cache.put(req, res.clone());
+            if (res.ok) cache.put(key, res.clone());
             return res;
         } catch (e) {
-            return (await cache.match(req)) || Response.error(); // offline and never cached: nothing to give
+            return (await cache.match(key)) || Response.error(); // offline and never cached: nothing to give
         }
     })());
 });

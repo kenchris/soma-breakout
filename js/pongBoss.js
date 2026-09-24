@@ -17,7 +17,7 @@ function spawnPongBoss(n) {
     boss = {
         kind: 'pong', n, hp: goals, maxHp: goals, x: CANVAS_W / 2, intro: 90, dying: 0, cool: 0, flash: 0,
         paddles: [{ x: (CANVAS_W - w) / 2, w }], err: 0, tracking: null, rivalScore: 0, lastPhase: 1,
-        rage: 0, backup: 0, backupIn: 0, wall: buildPongWall(), cheatRolled: false
+        rage: 0, backup: 0, backupIn: 0, wall: buildPongWall()
     };
 }
 
@@ -253,7 +253,6 @@ function pongGoal(b) {
         tone(90, 0.7, { type: 'sawtooth', vol: 0.3, slideTo: 55, key: 'rivalRage', force: true }); // a low growl
         haptic([60, 40, 60, 40, 60], true);
         addShake(6); // on top of the phase shake below: the angriest moment of the fight
-        maybeDropBossCheatCapsule(CANVAS_W / 2, PONG_Y + 30);
     }
     addShake(9);
     tone(180, 0.5, { type: 'sawtooth', vol: 0.28, slideTo: 90, key: 'phase', force: true });

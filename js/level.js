@@ -219,11 +219,16 @@ const brickLevelCounts = {};
 function brickLevelsBefore(l) {
     const first = TUTORIAL_LEVELS + LAYOUT_FIXED + 1;
     if (l <= first) return 0;
-    if (brickLevelCounts[l] === undefined) {
-        const prev = l - 1;
-        brickLevelCounts[l] = brickLevelsBefore(prev) + (isBossLevel(prev) || isGhostLevel(prev) || isMazeLevel(prev) ? 0 : 1);
+    // Counted up in a loop from the highest level already known (recursing down from ?level=200000 blew the stack)
+    let known = l;
+    while (known > first && brickLevelCounts[known] === undefined) known--;
+    let count = known > first ? brickLevelCounts[known] : 0;
+    for (let n = known + 1; n <= l; n++) {
+        const prev = n - 1;
+        count += isBossLevel(prev) || isGhostLevel(prev) || isMazeLevel(prev) ? 0 : 1;
+        brickLevelCounts[n] = count;
     }
-    return brickLevelCounts[l];
+    return count;
 }
 
 // Small seeded PRNG (mulberry32) so a given level always generates the same layout, also for ?level=N
@@ -301,23 +306,16 @@ function cheatChance(l = curveLevel()) {
     return CHEAT_CHANCE_FLOOR + (CHEAT_CHANCE_START - CHEAT_CHANCE_FLOOR) * decay;
 }
 
-// A boss fight's own shot at a cheat-code capsule, since it has no gold brick to place one in: a single
-// roll at the same per-level chance a normal level's brick would have, made once, right as the boss enters
-// its last stretch (the mothership's ENRAGED phase 3, the snake dropping to its last few segments — see
-// checkBossPhase in boss.js and the collision handler in snakeBoss.js). boss.cheatRolled keeps it to that
-// one shot regardless of how many more hits land after that point.
-function maybeDropBossCheatCapsule(x, y) {
-    if (!plan.cheatEligible || boss.cheatRolled) return;
-    boss.cheatRolled = true;
-    if (Math.random() < cheatChance()) spawnCheatCapsule(x, y);
-}
+// Beating a boss always earns its level code, handed over with the victory (see winBossLevel in boss.js):
+// a boss fight is hard enough to deserve it, and a chance-based capsule could be missed or never drop.
 
 function planLevel(l) {
     const rand = seededRandom(l * 15485863 + 7);
     // Whether this level is old enough to ever have a cheat-code drop at all. The roll itself (and how
     // it's delivered: a gold brick, a ghost row clearing, or a boss nearing defeat) happens at runtime,
     // deliberately NOT seeded like the rest of this plan, so replaying — or reloading the same ?level=N —
-    // can go either way each time; see placeCheatBrick, clearRows and maybeDropBossCheatCapsule.
+    // can go either way each time; see placeCheatBrick, clearRows and maybeDropMazeCheatCapsule. (Beating a boss
+    // always earns its code: see winBossLevel.)
     const p = { boss: isBossLevel(l), tetris: false, chain: false, maze: false, tnt: 0, walls: 0, bumpers: 0, aliens: null, chaos: null, cheatEligible: unlockLevel(l) >= UNLOCK.cheat, tutorial: null };
     if (isTutorial(l)) { // exactly what that tutorial level shows, quickly: aliens and events come early
         const t = TUTORIAL[l - 1];
