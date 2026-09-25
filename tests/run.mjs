@@ -453,6 +453,33 @@ test('release number: shown in the corner, bumped against origin/main', '?level=
     } catch (e) { /* no git / no origin/main: nothing to compare */ }
 });
 
+test('space chomp: the last 30s count down out loud, and the goal bar flashes as they eat', '?level=19', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        T.play(2, () => false, { immortal: true });
+        const ticks = [];
+        const tone0 = window.tone;
+        window.tone = (f, d, o) => { if (o && /^mazeTick/.test(o.key || '')) ticks.push(Math.ceil(maze.time / 60)); return tone0(f, d, o); };
+        const said = [];
+        const addPopup0 = window.addPopup;
+        window.addPopup = (x, y, text, ...rest) => { said.push(text); return addPopup0(x, y, text, ...rest); };
+        maze.time = 60 * 31;
+        T.play(40, () => !maze || maze.time <= 60, { immortal: true }); // (the autopilot keeps the ball in play)
+        window.tone = tone0;
+        window.addPopup = addPopup0;
+        if (!maze) return { seconds: -1, said: '', flash: 0, heat: 0 };
+        // A bite: the bar flashes and heats up
+        maze.barFlash = 0; maze.eatHeat = 0;
+        let dot = null;
+        for (let rr = 0; rr < maze.dots.length && !dot; rr++) for (let c = 0; c < maze.dots[rr].length; c++) if (maze.dots[rr][c] === 1) { dot = { r: rr, c }; break; }
+        chomperEat({ r: dot.r, c: dot.c, x: 100, y: 100, zoomT: 0 });
+        return { seconds: new Set(ticks).size, said: said.join('|'), flash: maze.barFlash, heat: maze.eatHeat };
+    });
+    check(r.seconds >= 28, 'a countdown sound every second from 30, got ' + r.seconds + ' distinct seconds');
+    check(/30 SECONDS LEFT/.test(r.said), '"30 SECONDS LEFT!" should be called out');
+    check(r.flash > 0 && r.heat > 0, 'a bite should flash and heat the goal bar');
+});
+
 test('space chomp: autopilot clears level 19', '?level=19', async (page, check) => {
     const r = await page.evaluate(() => {
         installHelpers();
