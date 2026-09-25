@@ -24,6 +24,8 @@ test now passes. Tests that were added this way (do not remove them):
   play barrels are knocked back, not smashed.
 - **HAMMER TIME felt like a normal ball**: now it's a short (6s) punch-out; every paddle hit punches the ball
   at the gorilla (>2x speed, homing, past the princess) for 3 damage, then it drops back.
+- **Gorilla's barrels too easy to avoid**: wild throws about twice as fast, and the drop off the bottom
+  girder takes about half a second.
 - **Warp rift never seen**: too rare, too small and too short-lived on a phone.
 - **Canvas jumping down on phones**: HUD chips re-wrapping when the score grew or the ASSIST chip appeared.
 - **Secret code on touch only worked on part of the screen**: a swipe starting on the pause dialog (it can
