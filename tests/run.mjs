@@ -239,22 +239,41 @@ test('space gorilla: HAMMER TIME punches: every paddle hit lands fast for 3, pas
     }
 });
 
-test('space gorilla: barrels thrown at you are fast (wild throw, and the drop off the bottom girder)', '?level=30', async (page, check) => {
+test('space gorilla: blue barrels are fast, aimed ahead of a moving paddle, and take two hits', '?level=30', async (page, check) => {
+    // (Measured as speeds and aim, not travel time: how far a throw goes depends on where the ape stands)
     const r = await page.evaluate(() => {
         installHelpers();
         T.play(8, () => false, { immortal: true }); // past the intro
         boss.throwIn = 1e9; // no other throws meanwhile
-        const reach = (br) => { let s = 0; while (br.y < paddle.y - BARREL_R - 4 && s < 400 && !br.dead) { T.step(); s++; } return s; };
         boss.barrels.length = 0;
-        throwWildBarrel(paddle.x + paddle.w / 2);
-        const wild = reach(boss.barrels[0]);
+        const out = {};
+        paddle.x = 400;
+        boss.padV = 0;
+        throwWildBarrel();
+        let br = boss.barrels[0];
+        out.speed = Math.hypot(br.vx, br.vy);
+        const still = br.vx / br.vy;
         boss.barrels.length = 0;
-        const drop = { state: 'fall', from: 3, g: 3, x: 300, y: girderY(KONG_GIRDERS[3], 300), vx: 0, vy: 0, spin: 0, wild: false };
-        boss.barrels.push(drop);
-        return { wild, drop: reach(drop) };
+        boss.padV = 4; // the paddle sliding right
+        throwWildBarrel();
+        out.leads = boss.barrels[0].vx / boss.barrels[0].vy > still + 0.05;
+        // Heavy: the first hit only dents it, the second knocks it back
+        boss.barrels.length = 0;
+        throwWildBarrel();
+        br = boss.barrels[0];
+        br.x = 450; br.y = 400;
+        const hit = () => { const b = balls[0]; b.x = br.x; b.y = br.y + 20; b.vx = 0; b.vy = -6; kongBallCollision(b); };
+        hit();
+        out.afterOne = br.state;
+        for (let i = 0; i < 15; i++) { if (br.dentCool > 0) br.dentCool--; }
+        hit();
+        out.afterTwo = br.state;
+        return out;
     });
-    check(r.wild < 85, 'a wild barrel should reach the paddle in under ~1.4s, took ' + r.wild + ' steps');
-    check(r.drop < 32, 'the drop off the bottom girder should take about half a second, took ' + r.drop + ' steps');
+    check(r.speed >= 7, 'a blue barrel should fly at 7+ px/step (was 3.6), got ' + r.speed.toFixed(1));
+    check(r.leads, 'a blue barrel should be aimed ahead of a moving paddle');
+    check(r.afterOne === 'wild', 'the first hit should only dent a blue barrel, got ' + r.afterOne);
+    check(r.afterTwo === 'kick', 'the second hit should knock it back, got ' + r.afterTwo);
 });
 
 test('warp rift: opens within ~2 minutes of play and is reachable', '?level=8', async (page, check) => {
