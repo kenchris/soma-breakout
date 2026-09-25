@@ -12,7 +12,8 @@ node tests/run.mjs gorilla    # just the tests whose name contains "gorilla"
 
 `tests/run.mjs` serves the repo itself and drives the real game in headless Chromium (Playwright; no
 install needed in the Claude cloud environment). It steps the fixed-timestep simulation directly, so
-minutes of play take a second. **All tests must pass before pushing.** If one fails, fix the cause; never
+minutes of play take a second. **All tests must pass before pushing**: check the run's own exit code (don't
+pipe it through `tail`, which hides a failure). If one fails, fix the cause; never
 loosen a test just to get it green unless the test itself was wrong (and say so in the PR).
 
 ### Every fix and feature gets a test
@@ -24,8 +25,8 @@ test now passes. Tests that were added this way (do not remove them):
   play barrels are knocked back, not smashed.
 - **HAMMER TIME felt like a normal ball**: now it's a short (6s) punch-out; every paddle hit punches the ball
   at the gorilla (>2x speed, homing, past the princess) for 3 damage, then it drops back.
-- **Gorilla's barrels too easy to avoid**: wild throws about twice as fast, and the drop off the bottom
-  girder takes about half a second.
+- **Blue barrels too easy to avoid and to knock back**: thrown about twice as fast, aimed ahead of a moving
+  paddle, and heavy (the first hit only dents one). Measured as speed/aim, not travel time (that varies).
 - **Warp rift never seen**: too rare, too small and too short-lived on a phone.
 - **Canvas jumping down on phones**: HUD chips re-wrapping when the score grew or the ASSIST chip appeared.
 - **Secret code on touch only worked on part of the screen**: a swipe starting on the pause dialog (it can

@@ -29,13 +29,11 @@ const BARREL_HIT_REACH = 12;      // extra reach for the ball on a barrel: they 
 const HAMMER_BALL_REACH = 10;     // and more again while the ball is a hammer
 const BARREL_KICK_SPEED = 10;     // a knocked-back barrel still out-runs anything thrown at you
 const BARREL_KICK_DAMAGE = 3;
-const BARREL_GRAVITY = 0.25;
-const BARREL_MAX_FALL = 7;
-// Off the bottom girder the barrel comes at you for real: it drops hard and fast (about half a second to the
-// paddle), so it's something to dodge. Rolling along that girder first is its warning.
-const BARREL_DROP_GRAVITY = 0.45;
-const BARREL_DROP_MAX = 10;
-const BOTTOM_GIRDER = 3;
+const BARREL_GRAVITY = 0.18;
+const BARREL_MAX_FALL = 6;
+// The blue barrels it throws straight at you are the real threat: fast, aimed where the paddle is heading,
+// and heavy: the first ball hit only dents one (it keeps coming), the second knocks it back
+const WILD_BARREL_HITS = 2;
 const KONG_HAMMER_SECONDS = 6;      // short and wild: about 4-5 punches
 const PUNCH_SPEED = 2.2;             // a punch flies this much faster than the level's ball...
 const PUNCH_RETURN_SPEED = 1.3;      // ...and drops back to the paddle a bit faster than usual, for the next
@@ -121,7 +119,7 @@ function kongBox() {
 
 // --- Barrels ---
 function barrelRollSpeed() {
-    return Math.min(2.4 + 0.25 * boss.n + 0.4 * (kongPhase() - 1), 5);
+    return Math.min(1.8 + 0.2 * boss.n + 0.35 * (kongPhase() - 1), 4);
 }
 
 function throwRollingBarrel() {
@@ -129,12 +127,16 @@ function throwRollingBarrel() {
     tone(160, 0.12, { type: 'square', vol: 0.18, slideTo: 110, key: 'kongThrow' });
 }
 
-// A wild barrel flies straight at where the paddle is, crashing down through the girders
-function throwWildBarrel(tx) {
+// A wild barrel flies straight at the paddle, crashing down through the girders: fast, and aimed where the
+// paddle is heading (it leads a moving target), so it takes a real dodge, not just keeping on moving
+function throwWildBarrel() {
     const x0 = boss.x, y0 = boss.y - KONG_H + 10;
-    const speed = Math.min(6 + 0.3 * boss.n, 8.5); // about twice the old pace: a real thing to dodge
+    const speed = Math.min(7 + 0.35 * boss.n, 10); // about twice the old pace
+    const px = paddle.x + paddle.w / 2;
+    const flight = Math.hypot(px - x0, paddle.y - y0) / speed; // steps until it gets there
+    const tx = Math.max(BARREL_R, Math.min(CANVAS_W - BARREL_R, px + (boss.padV || 0) * flight * 0.75));
     const d = Math.hypot(tx - x0, paddle.y - y0);
-    boss.barrels.push({ state: 'wild', x: x0, y: y0, vx: (tx - x0) / d * speed, vy: (paddle.y - y0) / d * speed, spin: 0, wild: true });
+    boss.barrels.push({ state: 'wild', x: x0, y: y0, vx: (tx - x0) / d * speed, vy: (paddle.y - y0) / d * speed, spin: 0, wild: true, hits: WILD_BARREL_HITS });
     tone(420, 0.2, { type: 'sawtooth', vol: 0.2, slideTo: 140, key: 'kongWild' });
     bossTip('wild', 'BLUE BARRELS COME STRAIGHT AT YOU!', 440);
 }
@@ -174,8 +176,7 @@ function updateBarrels() {
         } else if (br.state === 'fall' || br.state === 'hop') {
             const py = br.y;
             br.spin += (br.vx || 0) / BARREL_R * timeScale; // keeps tumbling as it falls
-            const drop = br.state === 'fall' && br.from === BOTTOM_GIRDER; // the last drop, down at you
-            br.vy = Math.min(br.vy + (drop ? BARREL_DROP_GRAVITY : BARREL_GRAVITY) * timeScale, drop ? BARREL_DROP_MAX : BARREL_MAX_FALL);
+            br.vy = Math.min(br.vy + BARREL_GRAVITY * timeScale, BARREL_MAX_FALL);
             br.x += br.vx * timeScale;
             br.y += br.vy * timeScale;
             if (br.vy > 0) {
@@ -195,7 +196,9 @@ function updateBarrels() {
                 }
             }
         } else if (br.state === 'wild') {
-            br.spin += 0.2 * timeScale;
+            if (br.dentCool > 0) br.dentCool--;
+            if (br.dent > 0) br.dent--;
+            br.spin += (br.dent > 0 ? 0.6 : 0.2) * timeScale; // a dented one lurches into a wild spin
             br.x += br.vx * timeScale;
             br.y += br.vy * timeScale;
             if (br.x < BARREL_R || br.x > CANVAS_W - BARREL_R) br.vx = -br.vx;
@@ -272,7 +275,7 @@ function releaseKongAttack() {
     const B = boss;
     const a = B.pending;
     if (a.kind === 'roll') throwRollingBarrel();
-    else if (a.kind === 'wild') throwWildBarrel(a.x);
+    else if (a.kind === 'wild') throwWildBarrel();
     else kongPound();
     B.pending = null;
     B.pose = 'idle';
@@ -326,6 +329,7 @@ function updateKongBoss() {
     const B = boss;
     B.t++;
     if (B.powFlash > 0) B.powFlash--;
+    B.padV = (B.padV || 0) * 0.9 + paddleVX * 0.1; // the paddle's smoothed speed, for leading a wild throw
     if (B.dying > 0) {
         updateKongDeath();
         return;
@@ -414,6 +418,11 @@ function kongBallCollision(b) {
             continue;
         }
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        if (br.dentCool > 0) continue; // just dented: the same contact doesn't count again
+        if (br.hits > 1 && B.dying <= 0) { // a heavy wild barrel: this hit only dents it
+            dentWildBarrel(b, br, dx / d, dy / d);
+            break;
+        }
         // Any hit knocks it back up at the ape (the ball bounces off it, unless it's a fire ball)
         if (fireTimer <= 0) {
             const along = b.vx * (dx / d) + b.vy * (dy / d);
@@ -567,6 +576,27 @@ function hurtKong(dmg, x, y, label) {
 
 // Knocked back up: it flies off the way it was struck, bent toward the ape and homing in on it, straight
 // through the girders
+// A heavy wild barrel takes the hit: the ball bounces off it (even a fire ball), it lurches and slows a
+// little, and keeps on coming. The next hit knocks it back.
+function dentWildBarrel(b, br, nx, ny) {
+    br.hits--;
+    br.dentCool = 12;
+    br.dent = 10;
+    const along = b.vx * nx + b.vy * ny;
+    if (along < 0) {
+        b.vx -= 2 * along * nx;
+        b.vy -= 2 * along * ny;
+    }
+    br.vx *= 0.8;
+    br.vy *= 0.8;
+    addPopup(br.x, br.y - 18, 'CLONK!', '#9fc0ff', { size: 15, life: 0.8 });
+    spawnParticles(br.x, br.y, '#9fc0ff', 8);
+    tone(180, 0.14, { type: 'square', vol: 0.22, slideTo: 120, key: 'barrelDent' });
+    tone(900, 0.08, { type: 'triangle', vol: 0.12, key: 'barrelDentRing' });
+    haptic(15);
+    bossTip('heavy', 'BLUE BARRELS ARE HEAVY: HIT THEM TWICE!', 440);
+}
+
 function kickBarrel(br, nx, ny) {
     const k = kongBox();
     let tx = k.x + k.w / 2 - br.x, ty = k.y + k.h / 2 - br.y;
@@ -806,11 +836,30 @@ function drawBarrel(br, x, y) {
         });
         ctx.restore();
     }
+    if (br.state === 'wild') { // fast: a short streak behind it, so it reads at speed
+        ctx.save();
+        for (let i = 3; i >= 1; i--) {
+            ctx.globalAlpha = 0.1 * (4 - i);
+            ctx.drawImage(barrelSprite(true), x - br.vx * i * 1.6 - BARREL_R, y - br.vy * i * 1.6 - BARREL_R);
+        }
+        ctx.restore();
+    }
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(br.spin);
     ctx.drawImage(barrelSprite(br.wild), -BARREL_R, -BARREL_R);
     ctx.restore();
+    if (br.wild && (br.hits > 1 || br.dent > 0)) {
+        // Heavy: a glowing armour ring until it's dented (a dent flashes white)
+        ctx.save();
+        ctx.strokeStyle = br.dent > 0 ? '#ffffff' : '#7fb0ff';
+        ctx.globalAlpha = br.dent > 0 ? br.dent / 10 : 0.8;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, BARREL_R + 3, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
 }
 
 // The princess, in pixel art at 3px: crown, golden hair, big eyes and a pink gown
