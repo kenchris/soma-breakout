@@ -239,7 +239,7 @@ test('space gorilla: HAMMER TIME punches: every paddle hit lands fast for 3, pas
     }
 });
 
-test('space gorilla: blue barrels are fast, aimed ahead of a moving paddle, and take two hits', '?level=30', async (page, check) => {
+test('space gorilla: blue barrels are frequent, fast, barely telegraphed, aimed ahead, and take two hits', '?level=30', async (page, check) => {
     // (Measured as speeds and aim, not travel time: how far a throw goes depends on where the ape stands)
     const r = await page.evaluate(() => {
         installHelpers();
@@ -268,9 +268,21 @@ test('space gorilla: blue barrels are fast, aimed ahead of a moving paddle, and 
         for (let i = 0; i < 15; i++) { if (br.dentCool > 0) br.dentCool--; }
         hit();
         out.afterTwo = br.state;
+        // How often, and how long it holds one up first: sampled at full health (the start of the fight)
+        boss.hp = boss.maxHp;
+        let wild = 0;
+        for (let i = 0; i < 400; i++) {
+            boss.barrels.length = 0; boss.pending = null;
+            startKongAttack();
+            if (boss.pending && boss.pending.kind === 'wild') { wild++; out.windup = boss.pending.t; }
+        }
+        boss.pending = null;
+        out.wildShare = wild / 400;
         return out;
     });
-    check(r.speed >= 7, 'a blue barrel should fly at 7+ px/step (was 3.6), got ' + r.speed.toFixed(1));
+    check(r.speed >= 11, 'a blue barrel should fly at 11+ px/step (was 3.6), got ' + r.speed.toFixed(1));
+    check(r.wildShare >= 0.25, 'at full health at least a quarter of the throws should be blue, got ' + (r.wildShare * 100).toFixed(0) + '%');
+    check(r.windup <= 20, 'the ape should hold a blue barrel up only briefly (<= 20 steps), got ' + r.windup);
     check(r.leads, 'a blue barrel should be aimed ahead of a moving paddle');
     check(r.afterOne === 'wild', 'the first hit should only dent a blue barrel, got ' + r.afterOne);
     check(r.afterTwo === 'kick', 'the second hit should knock it back, got ' + r.afterTwo);

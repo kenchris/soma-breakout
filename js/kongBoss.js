@@ -34,6 +34,7 @@ const BARREL_MAX_FALL = 6;
 // The blue barrels it throws straight at you are the real threat: fast, aimed where the paddle is heading,
 // and heavy: the first ball hit only dents one (it keeps coming), the second knocks it back
 const WILD_BARREL_HITS = 2;
+const WILD_WINDUP = 18;          // the ape holds a blue barrel up this long (~0.3s) before throwing: a glimpse, not a warning
 const KONG_HAMMER_SECONDS = 6;      // short and wild: about 4-5 punches
 const PUNCH_SPEED = 2.2;             // a punch flies this much faster than the level's ball...
 const PUNCH_RETURN_SPEED = 1.3;      // ...and drops back to the paddle a bit faster than usual, for the next
@@ -131,7 +132,7 @@ function throwRollingBarrel() {
 // paddle is heading (it leads a moving target), so it takes a real dodge, not just keeping on moving
 function throwWildBarrel() {
     const x0 = boss.x, y0 = boss.y - KONG_H + 10;
-    const speed = Math.min(7 + 0.35 * boss.n, 10); // about twice the old pace
+    const speed = Math.min(11 + 0.4 * boss.n, 14); // about three times the old pace: under a second to the paddle
     const px = paddle.x + paddle.w / 2;
     const flight = Math.hypot(px - x0, paddle.y - y0) / speed; // steps until it gets there
     const tx = Math.max(BARREL_R, Math.min(CANVAS_W - BARREL_R, px + (boss.padV || 0) * flight * 0.75));
@@ -260,14 +261,14 @@ function startKongAttack() {
     const phase = kongPhase();
     const r = Math.random();
     let kind = 'roll';
-    if (phase >= 2 && r < 0.3) kind = 'wild';
+    if (r < [0.35, 0.5, 0.55][phase - 1]) kind = 'wild'; // blue barrels from the start, more as it gets angry
     if (phase >= 3 && r > 0.82) kind = 'pound';
     if (kind !== 'pound' && B.barrels.length >= barrelLimit()) kind = phase >= 3 ? 'pound' : null;
     if (!kind) {
         B.throwIn = 30;
         return;
     }
-    B.pending = { kind, t: kind === 'wild' ? 50 : kind === 'pound' ? 60 : 22, x: paddle.x + paddle.w / 2 };
+    B.pending = { kind, t: kind === 'wild' ? WILD_WINDUP : kind === 'pound' ? 60 : 22, x: paddle.x + paddle.w / 2 };
     B.pose = 'throw';
 }
 
