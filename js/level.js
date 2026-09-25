@@ -188,7 +188,7 @@ function resetGame(startLevel = 1) {
     popups.length = 0;
     blasts.length = 0;
     warpRift = null;
-    warpTimer = warpInterval() + 60 * 8; // a fresh run gets ~8s of grace before the first rift can appear
+    warpTimer = 60 * 30; // a fresh run's first rift can come about half a minute in
 
     // Show the launch prompt
     showOverlay(getLaunchMessage(), 'Launch');
@@ -510,6 +510,7 @@ function spawnLevel() {
     crates = [];
     crateTimer = 0;
     warpRift = null; // any rift belonged to the level just left
+    riftThisLevel = false;
     checkSecretRift(); // (one the secret code opened and nobody took gives the code back)
     portals = null;
     portalTimer = 60 * (12 + Math.random() * 10); // the first pair of a level opens 12-22s in

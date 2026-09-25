@@ -28,7 +28,8 @@ test now passes. Tests that were added this way (do not remove them):
 - **Blue barrels too easy to avoid and to knock back**: frequent from the start (35%+ of throws), barely
   held up first (0.3s), thrown at 11+ px/step, aimed ahead of a moving paddle, and heavy (the first hit only
   dents one). Measured as speed/aim, not travel time (that varies).
-- **Warp rift never seen**: too rare, too small and too short-lived on a phone.
+- **Warp rift never seen**, then **too often**: big and long-lived enough to reach, about every 70-150s of
+  play and at most one a level (about every other ordinary level).
 - **Canvas jumping down on phones**: HUD chips re-wrapping when the score grew or the ASSIST chip appeared.
 - **Secret code on touch only worked on part of the screen**: a swipe starting on the pause dialog (it can
   scroll) gets its pointer events cancelled by the browser, so touch input is read from touch events, and
