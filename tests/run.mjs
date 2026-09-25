@@ -239,6 +239,24 @@ test('space gorilla: HAMMER TIME punches: every paddle hit lands fast for 3, pas
     }
 });
 
+test('space gorilla: barrels thrown at you are fast (wild throw, and the drop off the bottom girder)', '?level=30', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        T.play(8, () => false, { immortal: true }); // past the intro
+        boss.throwIn = 1e9; // no other throws meanwhile
+        const reach = (br) => { let s = 0; while (br.y < paddle.y - BARREL_R - 4 && s < 400 && !br.dead) { T.step(); s++; } return s; };
+        boss.barrels.length = 0;
+        throwWildBarrel(paddle.x + paddle.w / 2);
+        const wild = reach(boss.barrels[0]);
+        boss.barrels.length = 0;
+        const drop = { state: 'fall', from: 3, g: 3, x: 300, y: girderY(KONG_GIRDERS[3], 300), vx: 0, vy: 0, spin: 0, wild: false };
+        boss.barrels.push(drop);
+        return { wild, drop: reach(drop) };
+    });
+    check(r.wild < 85, 'a wild barrel should reach the paddle in under ~1.4s, took ' + r.wild + ' steps');
+    check(r.drop < 32, 'the drop off the bottom girder should take about half a second, took ' + r.drop + ' steps');
+});
+
 test('warp rift: opens within ~2 minutes of play and is reachable', '?level=8', async (page, check) => {
     // The timer only runs while a rift is allowed (not while portals are open, not with the level nearly
     // cleared...), so give it a worst case of 8s grace + ~52s interval, doubled for blocked time

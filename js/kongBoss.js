@@ -27,10 +27,15 @@ const GIRDER_HALF = 6;             // half the beam's thickness
 const BARREL_R = 14;
 const BARREL_HIT_REACH = 12;      // extra reach for the ball on a barrel: they should be easy to hit
 const HAMMER_BALL_REACH = 10;     // and more again while the ball is a hammer
-const BARREL_KICK_SPEED = 8;
+const BARREL_KICK_SPEED = 10;     // a knocked-back barrel still out-runs anything thrown at you
 const BARREL_KICK_DAMAGE = 3;
-const BARREL_GRAVITY = 0.18;
-const BARREL_MAX_FALL = 6;
+const BARREL_GRAVITY = 0.25;
+const BARREL_MAX_FALL = 7;
+// Off the bottom girder the barrel comes at you for real: it drops hard and fast (about half a second to the
+// paddle), so it's something to dodge. Rolling along that girder first is its warning.
+const BARREL_DROP_GRAVITY = 0.45;
+const BARREL_DROP_MAX = 10;
+const BOTTOM_GIRDER = 3;
 const KONG_HAMMER_SECONDS = 6;      // short and wild: about 4-5 punches
 const PUNCH_SPEED = 2.2;             // a punch flies this much faster than the level's ball...
 const PUNCH_RETURN_SPEED = 1.3;      // ...and drops back to the paddle a bit faster than usual, for the next
@@ -116,7 +121,7 @@ function kongBox() {
 
 // --- Barrels ---
 function barrelRollSpeed() {
-    return Math.min(1.8 + 0.2 * boss.n + 0.35 * (kongPhase() - 1), 4);
+    return Math.min(2.4 + 0.25 * boss.n + 0.4 * (kongPhase() - 1), 5);
 }
 
 function throwRollingBarrel() {
@@ -127,7 +132,7 @@ function throwRollingBarrel() {
 // A wild barrel flies straight at where the paddle is, crashing down through the girders
 function throwWildBarrel(tx) {
     const x0 = boss.x, y0 = boss.y - KONG_H + 10;
-    const speed = Math.min(3.4 + 0.2 * boss.n, 5.2);
+    const speed = Math.min(6 + 0.3 * boss.n, 8.5); // about twice the old pace: a real thing to dodge
     const d = Math.hypot(tx - x0, paddle.y - y0);
     boss.barrels.push({ state: 'wild', x: x0, y: y0, vx: (tx - x0) / d * speed, vy: (paddle.y - y0) / d * speed, spin: 0, wild: true });
     tone(420, 0.2, { type: 'sawtooth', vol: 0.2, slideTo: 140, key: 'kongWild' });
@@ -169,7 +174,8 @@ function updateBarrels() {
         } else if (br.state === 'fall' || br.state === 'hop') {
             const py = br.y;
             br.spin += (br.vx || 0) / BARREL_R * timeScale; // keeps tumbling as it falls
-            br.vy = Math.min(br.vy + BARREL_GRAVITY * timeScale, BARREL_MAX_FALL);
+            const drop = br.state === 'fall' && br.from === BOTTOM_GIRDER; // the last drop, down at you
+            br.vy = Math.min(br.vy + (drop ? BARREL_DROP_GRAVITY : BARREL_GRAVITY) * timeScale, drop ? BARREL_DROP_MAX : BARREL_MAX_FALL);
             br.x += br.vx * timeScale;
             br.y += br.vy * timeScale;
             if (br.vy > 0) {
