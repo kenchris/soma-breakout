@@ -628,6 +628,8 @@ function update() {
                         balls.push(twin);
                     }
                 }
+                // A boss can react to the bounce (the Space Gorilla's HAMMER TIME turns it into a punch)
+                if (!b.stuck && boss && bossHooks().paddleBounce) bossHooks().paddleBounce(b);
             } else if (b.y + b.r > CANVAS_H && (shield > 0 || (boss && boss.dying > 0) || mazeCelebrating())) {
                 // Shield: shields compound, so this consumes just one banked miss and any others carry over.
                 // (While a boss is blowing up you can't lose a life to it: the edge bounces for free.)

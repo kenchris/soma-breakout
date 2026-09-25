@@ -13,9 +13,11 @@
 // back after PRINCESS_HEAL_FRAMES without a hit, so only three hits close together fail it.
 // The ladders are launchers: a ball that touches one on its way up is fired at the ape (with a little
 // spread, so it hits more often than not).
-// Now and then a hit barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME.
-// The music goes frantic, the ball becomes the hammer, spinning, every ladder becomes a sure hit for double
-// damage, and barrels landing on your paddle just break.
+// Now and then a hit barrel drops a hammer capsule (the 3rd one always does): catch it for HAMMER TIME, a
+// short, wild punch-out. The music goes frantic and the ball becomes the hammer: every time it leaves your
+// paddle (or a ladder) it's PUNCHED straight at the ape, twice as fast, homing in, smashing through barrels
+// and past the princess, and lands for triple damage, then drops back to the paddle for the next one.
+// Barrels landing on your paddle just break.
 
 const KONG_W = 96;
 const KONG_H = 72;
@@ -29,7 +31,10 @@ const BARREL_KICK_SPEED = 8;
 const BARREL_KICK_DAMAGE = 3;
 const BARREL_GRAVITY = 0.18;
 const BARREL_MAX_FALL = 6;
-const KONG_HAMMER_SECONDS = 12;
+const KONG_HAMMER_SECONDS = 6;      // short and wild: about 4-5 punches
+const PUNCH_SPEED = 2.2;             // a punch flies this much faster than the level's ball...
+const PUNCH_RETURN_SPEED = 1.3;      // ...and drops back to the paddle a bit faster than usual, for the next
+const PUNCH_DAMAGE = 3;
 const KONG_HAMMER_DROP_CHANCE = 0.15; // per smashed barrel, while no hammer is falling or in use
 const KONG_BROWN = '#8a4a1c';
 const KONG_TAN = '#e8b27a';
@@ -297,7 +302,7 @@ function updateKongHammer() {
             B.hammerTime = KONG_HAMMER_SECONDS;
             if (!kongHammerExplained) {
                 kongHammerExplained = true;
-                addPopup(CANVAS_W / 2, 440, 'EVERY LADDER IS A SURE HIT NOW!', '#ffffff', { size: 18, life: 2.4, rise: 0.15, pop: true });
+                addPopup(CANVAS_W / 2, 440, 'EVERY HIT PUNCHES THE GORILLA!', '#ffffff', { size: 18, life: 2.4, rise: 0.15, pop: true });
             }
             addShake(6);
             noteMoment(45, 'HAMMER TIME!');
@@ -314,6 +319,7 @@ let kongHammerExplained = false;
 function updateKongBoss() {
     const B = boss;
     B.t++;
+    if (B.powFlash > 0) B.powFlash--;
     if (B.dying > 0) {
         updateKongDeath();
         return;
@@ -373,9 +379,17 @@ function kongBallCollision(b) {
         }
     }
     if (b.ladderCool > 0) b.ladderCool--;
-    // The princess: don't hit her
+    if (b.punch) { // a punch homes in on the ape: nothing can make it miss
+        const k = kongBox();
+        const speed = Math.hypot(b.vx, b.vy);
+        const a = Math.atan2(k.y + k.h / 2 - b.y, k.x + k.w / 2 - b.x);
+        b.vx = Math.cos(a) * speed;
+        b.vy = Math.sin(a) * speed;
+        if (Math.random() < 0.7) spawnParticles(b.x, b.y, Math.random() < 0.5 ? '#ffd23f' : '#ffffff', 1);
+    }
+    // The princess: don't hit her (a punch flies past)
     const P = B.princess;
-    const ph = rectContact(b, PRINCESS_BOX.x, PRINCESS_BOX.y, PRINCESS_BOX.w, PRINCESS_BOX.h);
+    const ph = !b.punch && rectContact(b, PRINCESS_BOX.x, PRINCESS_BOX.y, PRINCESS_BOX.w, PRINCESS_BOX.h);
     if (ph && B.dying <= 0) {
         bounceOffRect(b, PRINCESS_BOX.x, PRINCESS_BOX.y, PRINCESS_BOX.w, PRINCESS_BOX.h, ph);
         if (P.cool <= 0) hitPrincess();
@@ -389,6 +403,10 @@ function kongBallCollision(b) {
         const reach = b.r + BARREL_R + BARREL_HIT_REACH + (B.hammerTime > 0 ? HAMMER_BALL_REACH : 0);
         if (dx * dx + dy * dy >= reach * reach) continue;
         if (br.state === 'kick') continue; // already on its way up
+        if (b.punch) { // a punch smashes straight through
+            smashBarrel(br, 100, 'SMASH!');
+            continue;
+        }
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
         // Any hit knocks it back up at the ape (the ball bounces off it, unless it's a fire ball)
         if (fireTimer <= 0) {
@@ -410,8 +428,11 @@ function kongBallCollision(b) {
     const hit = rectContact(b, k.x - grow, k.y - grow, k.w + 2 * grow, k.h + 2 * grow);
     if (!hit) return;
     B.cool = 10;
-    let dmg = (fireTimer > 0 ? 2 : 1) * (b.hammerShot ? 2 : 1);
-    b.hammerShot = false;
+    if (b.punch) {
+        landPunch(b);
+        return;
+    }
+    let dmg = fireTimer > 0 ? 2 : 1;
     if (explosiveReady) {
         explosiveReady = false;
         dmg += 4;
@@ -422,17 +443,69 @@ function kongBallCollision(b) {
     hurtKong(dmg, b.x, b.y, '-' + dmg);
 }
 
+// HAMMER TIME: the ball leaves the paddle as a punch (see kongPaddleBounce and the ladders)
+function punchAtKong(b) {
+    const k = kongBox();
+    const a = Math.atan2(k.y + k.h / 2 - b.y, k.x + k.w / 2 - b.x);
+    const speed = currentSpeed() * PUNCH_SPEED;
+    b.vx = Math.cos(a) * speed;
+    b.vy = Math.sin(a) * speed;
+    b.punch = true;
+    tone(200, 0.12, { type: 'sawtooth', vol: 0.22, slideTo: 900, key: 'punchGo' });
+    haptic(15);
+}
+
+// It lands: triple damage, a big POW, and the ball drops back toward the paddle for the next punch
+function landPunch(b) {
+    b.punch = false;
+    let dmg = PUNCH_DAMAGE * (fireTimer > 0 ? 2 : 1);
+    if (explosiveReady) {
+        explosiveReady = false;
+        dmg += 4;
+        addBlast(b.x, b.y);
+        boom();
+    }
+    hurtKong(dmg, b.x, b.y, 'POW! -' + dmg);
+    addShake(12);
+    haptic([20, 20, 40], true);
+    spawnParticles(b.x, b.y, '#ffd23f', 18);
+    sfxPunch();
+    boss.powFlash = 8; // the whole screen flashes white for an instant (drawKongBoss)
+    const tx = paddle.x + paddle.w / 2 + (Math.random() - 0.5) * paddle.w * 0.6;
+    const a = Math.atan2(paddle.y - b.y, tx - b.x);
+    const speed = currentSpeed() * PUNCH_RETURN_SPEED;
+    b.vx = Math.cos(a) * speed;
+    b.vy = Math.abs(Math.sin(a) * speed);
+}
+
+// The punch landing: an intense, layered hit, nothing like an ordinary bonk. A deep body thump, a metallic
+// clang from the hammer, a sharp crack on top, and a low boom a moment later.
+function sfxPunch() {
+    tone(110, 0.4, { type: 'square', vol: 0.34, slideTo: 38, key: 'punchThump', force: true });
+    tone(1500, 0.22, { type: 'triangle', vol: 0.22, slideTo: 620, key: 'punchClang', force: true });
+    tone(2300, 0.12, { type: 'square', vol: 0.1, slideTo: 1800, delay: 0.01, key: 'punchRing', force: true });
+    noise(0.12, { vol: 0.34, type: 'highpass', from: 1200, key: 'punchCrack', force: true });
+    noise(0.5, { vol: 0.3, from: 500, to: 60, delay: 0.05, key: 'punchBoom', force: true });
+}
+
+// A paddle bounce (hook from main.js): in HAMMER TIME every one is a punch
+function kongPaddleBounce(b) {
+    if (boss.hammerTime > 0 && boss.dying <= 0 && boss.intro <= 0) punchAtKong(b);
+}
+
 // Fire the ball from a ladder at the ape: its speed kept (at least a brisk one), aimed with a little spread
 function launchAtKong(b, lx, ly) {
+    b.ladderCool = 40; // one launch per ladder pass
+    boss.ladderFlash = { x: lx, y: ly, t: 12 };
+    if (boss.hammerTime > 0) {
+        punchAtKong(b);
+        return;
+    }
     const k = kongBox();
-    const sure = boss.hammerTime > 0; // HAMMER TIME: dead on target, and it hits twice as hard
-    const aim = Math.atan2(k.y + k.h / 2 - b.y, k.x + k.w / 2 - b.x) + (sure ? 0 : (Math.random() - 0.5) * 0.3);
-    b.hammerShot = sure;
+    const aim = Math.atan2(k.y + k.h / 2 - b.y, k.x + k.w / 2 - b.x) + (Math.random() - 0.5) * 0.3;
     const speed = Math.max(Math.hypot(b.vx, b.vy), currentSpeed() * 1.25);
     b.vx = Math.cos(aim) * speed;
     b.vy = Math.sin(aim) * speed;
-    b.ladderCool = 40; // one launch per ladder pass
-    boss.ladderFlash = { x: lx, y: ly, t: 12 };
     spawnParticles(b.x, b.y, '#2de2e6', 8);
     tone(420, 0.16, { type: 'square', vol: 0.18, slideTo: 1300, key: 'ladderLaunch' });
     haptic(12);
@@ -909,15 +982,26 @@ function drawHammer(x, y, angle, scale) {
     ctx.restore();
 }
 
-// HAMMER TIME: the ball is the hammer, spinning as it flies
+// HAMMER TIME: the ball is the hammer, spinning as it flies, with a speed streak behind a punch
 function drawKongBall(b) {
-    if (boss.hammerTime <= 0) return false;
-    drawHammer(b.x, b.y, boss.t * 0.35, 1.35);
+    if (boss.hammerTime <= 0 && !b.punch) return false;
+    if (b.punch) {
+        for (let i = 3; i >= 1; i--) {
+            ctx.globalAlpha = 0.12 * (4 - i);
+            drawHammer(b.x - b.vx * i * 1.2, b.y - b.vy * i * 1.2, boss.t * 0.6, 1.35);
+        }
+        ctx.globalAlpha = 1;
+    }
+    drawHammer(b.x, b.y, boss.t * (b.punch ? 0.6 : 0.35), b.punch ? 1.6 : 1.35);
     return true;
 }
 
 function drawKongBossBar() {
     const B = boss;
+    if (B.powFlash > 0 && !reduceMotion) { // a punch landing: white flash over the whole arena, fading fast
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (B.powFlash / 8) * 0.45 + ')';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    }
     drawSimpleBossBar('SPACE GORILLA   ' + Math.max(0, B.hp) + ' / ' + B.maxHp, B.hp / B.maxHp);
     if (B.hammerTime > 0 && (B.hammerTime > 2 || Math.floor(B.t / 6) % 2 === 0)) {
         // HAMMER TIME, big and pulsing above the paddle (blinking as it runs out)
@@ -945,6 +1029,7 @@ BOSS_KINDS.kong = {
     spawn: spawnKongBoss,
     update: updateKongBoss,
     collide: kongBallCollision,
+    paddleBounce: kongPaddleBounce,
     draw: drawKongBoss,
     bar: drawKongBossBar,
     rects: kongRects,

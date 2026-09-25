@@ -205,6 +205,40 @@ test('space gorilla: hitting barrels back drops a hammer (3rd always)', '?level=
     check(r.playGot, 'autopilot never got HAMMER TIME in 3 minutes of play');
 });
 
+test('space gorilla: HAMMER TIME punches: every paddle hit lands fast for 3, past the princess, short', '?level=30', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        T.play(8, () => false, { immortal: true }); // past the intro
+        const out = { shots: [] };
+        boss.barrels.length = 0;
+        boss.hammers.push({ x: paddle.x + paddle.w / 2, y: paddle.y - 5, vy: 2 });
+        T.step();
+        out.seconds = boss.hammerTime;
+        // Three punches from different spots, one straight up under the princess
+        for (const px of [700, 400, 90]) {
+            const b = balls[0];
+            paddle.x = Math.max(0, Math.min(CANVAS_W - paddle.w, px - paddle.w / 2));
+            b.x = px; b.y = paddle.y - b.r - 2; b.vx = 0; b.vy = 5;
+            const hp = boss.hp, hearts = boss.princess.hearts;
+            T.step();
+            const fast = Math.hypot(b.vx, b.vy) / currentSpeed();
+            let steps = 0;
+            while (boss.hp === hp && steps < 120) { T.step(); steps++; }
+            out.shots.push({ punch: fast, dmg: hp - boss.hp, steps, hearts: boss.princess.hearts - hearts, back: b.vy > 0 });
+            boss.cool = 0;
+        }
+        return out;
+    });
+    check(r.seconds > 5 && r.seconds <= 6, 'HAMMER TIME should be short (~6s), got ' + r.seconds);
+    for (const [i, s] of r.shots.entries()) {
+        check(s.punch > 2, 'shot ' + i + ': a paddle hit should punch at >2x speed, got ' + s.punch.toFixed(2) + 'x');
+        check(s.dmg === 3, 'shot ' + i + ': a punch always lands for 3, got ' + s.dmg + ' after ' + s.steps + ' steps');
+        check(s.steps < 60, 'shot ' + i + ': a punch should land within a second, took ' + s.steps + ' steps');
+        check(s.hearts === 0, 'shot ' + i + ': a punch must fly past the princess');
+        check(s.back, 'shot ' + i + ': the ball drops back to the paddle after the punch');
+    }
+});
+
 test('warp rift: opens within ~2 minutes of play and is reachable', '?level=8', async (page, check) => {
     // The timer only runs while a rift is allowed (not while portals are open, not with the level nearly
     // cleared...), so give it a worst case of 8s grace + ~52s interval, doubled for blocked time
