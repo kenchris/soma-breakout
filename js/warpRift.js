@@ -3,13 +3,14 @@
 // here needed import/export changes. See index.html for the required load order.)
 
 function warpInterval() {
-    const base = Math.max(24, 40 - curveLevel() * 0.5); // about every 20-55s of play: often enough to actually meet
+    const base = Math.max(90, 110 - curveLevel() * 0.5); // about every 70-150s of play: a treat, not a fixture
     return Math.round(60 * base * (0.75 + Math.random() * 0.6));
 }
 
 
 function canSpawnWarp() {
     return gameState === 'playing' && !warpRift && !portals && // never both at once: too much going on
+        !riftThisLevel && // at most one a level (a downed alien's included)
         !isTutorial() && // a warp would skip you past the lessons
         !maze && // (the maze fills the space a rift opens in)
         !plan.boss && // a boss has to be beaten, not skipped
@@ -26,6 +27,7 @@ function spawnWarpRift() {
         y = 300 + Math.random() * 140;
         if (!nearBumper(x, y, WARP_R + 30)) break;
     }
+    riftThisLevel = true;
     warpRift = {
         x,
         y,

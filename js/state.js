@@ -73,6 +73,7 @@ let warpRift = null;    // { x, y, r, pullR, warn, life, t }
 
 const explainedDrops = new Set(); // drop types whose tip has been shown this session
 let warpOffer = null;   // { steps, ball } while the warp dialog asks whether to jump
+let riftThisLevel = false; // a level gets at most one random rift (see canSpawnWarp)
 let warpTimer = 0;      // frames until the next one may appear
 
 let portals = null;     // { a, b, warn, life, t }: a linked pair, see portals.js

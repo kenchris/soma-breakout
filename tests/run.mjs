@@ -288,16 +288,20 @@ test('space gorilla: blue barrels are frequent, fast, barely telegraphed, aimed 
     check(r.afterTwo === 'kick', 'the second hit should knock it back, got ' + r.afterTwo);
 });
 
-test('warp rift: opens within ~2 minutes of play and is reachable', '?level=8', async (page, check) => {
-    // The timer only runs while a rift is allowed (not while portals are open, not with the level nearly
-    // cleared...), so give it a worst case of 8s grace + ~52s interval, doubled for blocked time
+test('warp rift: turns up now and then (not every level), at most one a level, big enough to reach', '?level=6', async (page, check) => {
     const r = await page.evaluate(() => {
         installHelpers();
-        let opened = false;
-        const secs = T.play(150, () => { if (warpRift) opened = true; return opened; }, { immortal: true });
-        return { opened, secs, r: WARP_R, life: WARP_LIFE_FRAMES };
+        const per = {};
+        const spawn = window.spawnWarpRift;
+        window.spawnWarpRift = () => { per[level] = (per[level] || 0) + 1; return spawn(); };
+        const seen = new Set();
+        T.play(900, () => { if (!plan.boss && !plan.maze && !isTutorial()) seen.add(level); return false; }, { immortal: true });
+        return { per, levels: seen.size, r: WARP_R, life: WARP_LIFE_FRAMES };
     });
-    check(r.opened, 'no warp rift in 150s of play');
+    const total = Object.values(r.per).reduce((a, b) => a + b, 0);
+    check(total >= 1, 'no warp rift at all in 15 minutes of play');
+    check(Object.values(r.per).every(n => n <= 1), 'more than one rift on a level: ' + JSON.stringify(r.per));
+    check(total <= Math.ceil(r.levels * 0.7), 'too frequent: ' + total + ' rifts on ' + r.levels + ' ordinary levels');
     check(r.r >= 36 && r.life >= 600, 'rift big and long-lived enough to reach');
 });
 
