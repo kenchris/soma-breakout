@@ -239,12 +239,44 @@ function chomperEat(m) {
     addScore((kind === 2 ? 50 : 10) * (m.zoomT > 0 ? 2 : 1) * (doubleTimer > 0 ? 2 : 1)); // boosted eating pays double
     maze.waka = !maze.waka;
     tone(maze.waka ? 220 : 330, 0.05, { type: 'triangle', vol: 0.12, slideTo: maze.waka ? 330 : 220, key: 'waka' });
+    // The goal bar lights up with every bite, and glows hotter the faster they're eating
+    maze.barFlash = 10;
+    maze.eatHeat = Math.min(1, (maze.eatHeat || 0) + 0.18);
+    const left = bricksLeft;
+    if (left === Math.floor(maze.goal / 2)) mazeBarCall('HALFWAY!', '#ffe14d');
+    else if (left === 10) mazeBarCall('10 MORE!', '#7dff6a');
     if (kind === 2) {
         addPopup(m.x, m.y - 18, 'POWER!', '#ffffff', { size: 18, life: 1, pop: true });
         spawnParticles(m.x, m.y, MAZE_DOT_COLOR, 10);
         scareGhosts();
     }
     if (bricksLeft <= 0) mazeGoalReached();
+}
+
+// The last half minute counts down out loud: a clock's tick-tock from 30, a sharper beep each second from
+// 10, and a hard double beep (with a buzz) on 3, 2, 1. The clock itself turns orange, then red (drawMazeBar).
+function mazeCountdown(secs) {
+    if (secs > 30) return;
+    if (secs === 30) mazeBarCall('30 SECONDS LEFT!', '#ffb03a');
+    if (secs === 10) mazeBarCall('10 SECONDS!', '#ff5a7a');
+    if (secs > 10) {
+        const tick = secs % 2 === 0;
+        tone(tick ? 1250 : 820, 0.05, { type: 'triangle', vol: 0.16, key: 'mazeTick' });
+    } else if (secs > 3) {
+        tone(990, 0.09, { type: 'square', vol: 0.17, key: 'mazeTick' });
+    } else {
+        tone(1320, 0.12, { type: 'square', vol: 0.24, key: 'mazeTick', force: true });
+        tone(1320, 0.1, { type: 'square', vol: 0.2, delay: 0.16, key: 'mazeTick2', force: true });
+        haptic(40, true);
+    }
+}
+
+// A call-out just under the goal bar (each one once a maze: a caught jelly can put dots back on the count)
+function mazeBarCall(text, color) {
+    maze.calls = maze.calls || {};
+    if (maze.calls[text]) return;
+    maze.calls[text] = true;
+    addPopup(CANVAS_W / 2, 118, text, color, { size: 20, life: 1.4, rise: 0.15, pop: true });
 }
 
 // A maze has no gold brick to hide a level code in: instead it gets one roll, at the normal per-level chance,
@@ -564,9 +596,11 @@ function updateMaze() {
         updateChomper(m);
         if (!maze || gameState !== 'playing') return;
     }
-    // The clock (ticking audibly through the last ten seconds)
+    // The clock (counting down out loud through the last half minute: see mazeCountdown)
     maze.time--;
-    if (maze.time <= 600 && maze.time % 60 === 0 && maze.time > 0) tone(maze.time <= 180 ? 1200 : 900, 0.04, { type: 'square', vol: 0.1, key: 'mazeTick' });
+    if (maze.time % 60 === 0 && maze.time > 0) mazeCountdown(maze.time / 60);
+    if (maze.eatHeat > 0) maze.eatHeat *= 0.97; // (the goal bar's glow: see chomperEat)
+    if (maze.barFlash > 0) maze.barFlash--;
     if (maze.time <= 0) {
         mazeTimeUp();
         return;
@@ -1067,21 +1101,37 @@ function drawMazeBar() {
     if (!maze || gameState === 'won' || maze.cleared) return;
     const w = 460, x = (CANVAS_W - w) / 2, y = 64, h = 14;
     const eaten = maze.goal - bricksLeft;
+    const p = Math.min(1, eaten / maze.goal);
     const secs = Math.max(0, Math.ceil(maze.time / 60));
     const low = secs <= 10;
+    const close = p >= 0.8;
+    // Hard to miss: it swells and flashes white with every bite, glows hotter the faster they eat, turns from
+    // yellow to green as the quota gets close, and pulses from 80%
+    const heat = maze.eatHeat || 0;
+    const flash = (maze.barFlash || 0) / 10;
+    const grow = Math.round(4 * flash + 4 * heat);
+    const hue = 50 + 80 * Math.max(0, (p - 0.5) / 0.5); // yellow until halfway, then toward green
+    const pulse = close ? 0.5 + 0.5 * Math.sin(maze.t / 5) : 0;
     ctx.save();
     ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
-    ctx.fillStyle = '#ffe14d';
-    ctx.fillRect(x, y, w * Math.min(1, eaten / maze.goal), h);
+    ctx.fillRect(x - 3, y - 3 - grow / 2, w + 6, h + 6 + grow);
+    ctx.shadowColor = 'hsl(' + hue + ', 100%, 60%)';
+    ctx.shadowBlur = 6 + 18 * Math.max(heat, pulse * 0.8);
+    ctx.fillStyle = 'hsl(' + hue + ', 100%, ' + (55 + 12 * pulse) + '%)';
+    ctx.fillRect(x, y - grow / 2, w * p, h + grow);
+    ctx.shadowBlur = 0;
+    if (flash > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + 0.6 * flash + ')';
+        ctx.fillRect(x, y - grow / 2, w * p, h + grow);
+    }
     ctx.font = pixelFont(12);
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('EAT ' + maze.goal + ' DOTS   ' + eaten + ' / ' + maze.goal, CANVAS_W / 2, y - 8);
-    const pulse = low ? 1 + 0.15 * Math.abs(Math.sin(maze.t / 8)) : 1;
-    ctx.font = pixelFont(Math.round(16 * pulse));
+    ctx.fillStyle = close ? 'hsl(' + hue + ', 100%, ' + (70 + 20 * pulse) + '%)' : '#ffffff';
+    ctx.fillText((close ? 'ALMOST!   ' : 'EAT ' + maze.goal + ' DOTS   ') + eaten + ' / ' + maze.goal, CANVAS_W / 2, y - 8 - grow / 2);
+    const tpulse = secs <= 30 ? 1 + (low ? 0.15 : 0.07) * Math.abs(Math.sin(maze.t / (low ? 8 : 14))) : 1;
+    ctx.font = pixelFont(Math.round(16 * tpulse));
     ctx.textAlign = 'left';
-    ctx.fillStyle = low ? '#ff5a7a' : '#ffffff';
+    ctx.fillStyle = low ? '#ff5a7a' : secs <= 30 ? '#ffb03a' : '#ffffff';
     ctx.fillText(Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'), x + w + 16, y + h);
     ctx.restore();
 }

@@ -30,6 +30,8 @@ test now passes. Tests that were added this way (do not remove them):
   dents one). Measured as speed/aim, not travel time (that varies).
 - **Warp rift never seen**, then **too often**: big and long-lived enough to reach, about every 70-150s of
   play and at most one a level (about every other ordinary level).
+- **Space Chomp clock and eating meter easy to miss**: the last 30s count down out loud (tick-tock, beeps
+  from 10, hard beeps on 3-2-1), and the goal bar flashes and glows as they eat, going green near the quota.
 - **Canvas jumping down on phones**: HUD chips re-wrapping when the score grew or the ASSIST chip appeared.
 - **Secret code on touch only worked on part of the screen**: a swipe starting on the pause dialog (it can
   scroll) gets its pointer events cancelled by the browser, so touch input is read from touch events, and
