@@ -516,6 +516,142 @@ test('secret code: a rift it opened that closes unused leaves the level its rand
     check(r.canSpawn, 'the level should still be able to get its own random rift');
 });
 
+test('aliens: a shielded alien is hit on its shield, all round (not a box shifted up-left)', '?level=18', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        const mk = () => ({ x: 450, y: 300, baseY: 300, w: ALIEN_W, h: ALIEN_H, vx: 0, hp: 3, maxHp: 3, entered: true, leaving: false, life: 999, fireIn: 999, cool: 0, flash: 0 });
+        const pad = alienShieldPad(mk());
+        const at = (x, y) => {
+            aliens.length = 0;
+            const a = mk();
+            aliens.push(a);
+            const b = makeBall(x, y, 0, 0);
+            alienBallCollision(b);
+            return a.hp < 3;
+        };
+        return {
+            pad,
+            right: at(450 + ALIEN_W / 2 + pad + 4, 300), // inside the right edge of the shield's reach
+            below: at(450, 300 + ALIEN_H / 2 + pad + 4),
+            farLeft: at(450 - ALIEN_W / 2 - pad - BALL_RADIUS - 4, 300) // clear of it
+        };
+    });
+    check(r.pad > 0, 'the alien should have a shield');
+    check(r.right, 'a ball touching the shield on the right should hit it');
+    check(r.below, 'a ball touching the shield from below should hit it');
+    check(!r.farLeft, 'a ball clear of the shield on the left should not hit it');
+});
+
+test('paddle: a narrow paddle at the right wall stays on screen when its effects end', '?level=8', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        paddle.w = paddleBaseW() * 0.55;
+        paddle.x = CANVAS_W - paddle.w;
+        clearTimedEffects();
+        return { right: paddle.x + paddle.w, W: CANVAS_W };
+    });
+    check(r.right <= r.W, 'paddle sticks out to ' + r.right);
+});
+
+test('chaos: a flip started over a Time Warp runs at normal speed', '?level=8', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        chaos.scale = TIME_WARP.turbo;
+        chaosEventsLeft = 5;
+        startChaos('timeWarp');
+        const warped = timeScale;
+        startChaos('fullFlip');
+        const s = timeScale;
+        endChaos(false);
+        return { warped, s };
+    });
+    check(r.warped !== 1, 'time warp should change timeScale');
+    check(r.s === 1, 'FULL FLIP kept timeScale ' + r.s);
+});
+
+test('ghost rows: the debut ghost level starts with 6 rows', '', async (page, check) => {
+    const r = await page.evaluate(() => {
+        let first = 0;
+        for (let l = 1; l < 80 && !first; l++) if (isGhostLevel(l)) first = l;
+        return { first, rows: buildGhostGrid(first).rows, at17: buildGhostGrid(TUTORIAL_LEVELS + 17).rows, at18: buildGhostGrid(TUTORIAL_LEVELS + 18).rows };
+    });
+    check(r.first > 0, 'no ghost level found');
+    check(r.rows === 6, 'first ghost level ' + r.first + ' has ' + r.rows + ' rows');
+    check(r.at17 === 7 && r.at18 === 8, 'rows at curve 17/18: ' + r.at17 + '/' + r.at18);
+});
+
+test('colour chain: guided aim rates bricks by the steered ball\'s own colour', '?code=AA9O', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        if (!plan.chain) return { chain: false };
+        let c0 = -1, r0 = -1;
+        for (let c = 0; c < BRICK_COLS && c0 < 0; c++) for (let r = 0; r < BRICK_ROWS; r++) if (bricks[c][r].alive && !bricks[c][r].cheat) { c0 = c; r0 = r; break; }
+        const col = bricks[c0][r0].chainColor;
+        const a = makeBall(100, 500, 3, -3);
+        const b = makeBall(200, 500, 3, -3);
+        balls = [a, b];
+        let other = -1;
+        for (let k = 0; k < CHAIN_COLORS.length; k++) if (k !== col && chainColorAlive(k)) other = k;
+        a.chain = other;
+        b.chain = col;
+        return { chain: true, ok: ballChain(b) === col && ballChain(a) !== col, vB: chainHitValue(c0, r0, b), vA: chainHitValue(c0, r0, a) };
+    });
+    check(r.chain, 'level 14 should be a Colour Chain level');
+    if (!r.chain) return;
+    check(r.ok, 'could not set the balls\' colours');
+    check(r.vB > 3 && r.vA === 3, 'values for the matching / other ball: ' + r.vB + ' / ' + r.vA);
+});
+
+test('intro card: does not time out while the game is paused', '?level=8', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        showIntroCard('TEST', ['a line'], 290);
+        gameState = 'paused';
+        for (let i = 0; i < INTRO_CARD_FRAMES + 10; i++) tickFx();
+        return { up: introCard !== null };
+    });
+    check(r.up, 'the intro card ran out behind the pause screen');
+});
+
+test('pause button: a new game started while paused shows Pause again', '?level=8', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        hideOverlay(); launchGame();
+        togglePause();
+        resetGame(8);
+        const btn = document.getElementById('pause-btn');
+        return { active: btn.classList.contains('active'), title: btn.title };
+    });
+    check(!r.active && r.title === 'Pause (P)', 'pause button left as ' + JSON.stringify(r));
+});
+
+test('warp: the WARP! screen ignores taps for a moment, and a warp never jumps past a boss', '?level=13', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        const rnd = Math.random;
+        Math.random = () => 0.99; // a roll of 5
+        offerWarp(balls[0]);
+        Math.random = rnd;
+        const steps = warpOffer.steps;
+        acceptWarp();
+        return { steps, level, locked: endScreenLocked(), boss: isBossLevel(15) };
+    });
+    check(r.boss, 'level 15 should be a boss level');
+    check(r.steps === 2 && r.level === 15, 'warp from 13 went ' + r.steps + ' to level ' + r.level);
+    check(r.locked, 'the WARP! screen should hold off taps for a moment');
+});
+
+test('level codes: a code capsule still falling when the level clears is awarded', '?level=8', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        hideOverlay(); launchGame();
+        spawnCheatCapsule(450, 200);
+        completeLevel();
+        return { found: foundCodes[8] || null, code: levelToCode(8) };
+    });
+    check(r.found === r.code, 'level 8 code not awarded: ' + r.found);
+});
+
 test('space chomp: autopilot clears level 19', '?level=19', async (page, check) => {
     const r = await page.evaluate(() => {
         installHelpers();

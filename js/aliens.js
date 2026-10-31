@@ -288,8 +288,10 @@ function alienBallCollision(b) {
         const pad = alienShieldPad(a); // a shielded alien is hit on its shield's edge
         const left = a.x - a.w / 2 - pad;
         const top = a.y - a.h / 2 - pad;
-        const cx = Math.max(left, Math.min(b.x, left + a.w));
-        const cy = Math.max(top, Math.min(b.y, top + a.h));
+        const w = a.w + 2 * pad; // (the shield reaches out on every side, not just up and left)
+        const h = a.h + 2 * pad;
+        const cx = Math.max(left, Math.min(b.x, left + w));
+        const cy = Math.max(top, Math.min(b.y, top + h));
         const dx = b.x - cx;
         const dy = b.y - cy;
         if (dx * dx + dy * dy >= b.r * b.r) continue;
@@ -301,11 +303,11 @@ function alienBallCollision(b) {
             if (Math.abs(dx) > Math.abs(dy)) {
                 const dir = dx > 0 ? 1 : -1;
                 b.vx = dir * Math.abs(b.vx);
-                b.x = dir > 0 ? left + a.w + b.r : left - b.r;
+                b.x = dir > 0 ? left + w + b.r : left - b.r;
             } else {
                 const dir = dy >= 0 ? 1 : -1;
                 b.vy = dir * Math.abs(b.vy);
-                b.y = dir > 0 ? top + a.h + b.r : top - b.r;
+                b.y = dir > 0 ? top + h + b.r : top - b.r;
             }
         }
         if (a.hp <= 0) {

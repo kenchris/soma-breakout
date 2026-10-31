@@ -279,7 +279,8 @@ function overlayOpen() {
 // Stray input right after an end screen appears shouldn't dismiss it before it can be read
 
 function endScreenLocked() {
-    return (gameState === 'won' || gameState === 'lost') && performance.now() < inputLockUntil;
+    // ('ready' too: the WARP! screen is one, and a double tap on WARP shouldn't launch past it unread)
+    return (gameState === 'won' || gameState === 'lost' || gameState === 'ready') && performance.now() < inputLockUntil;
 }
 
 
@@ -604,15 +605,21 @@ function updateTouchpad() {
 }
 
 
-function togglePause() {
+function setPauseButton(paused) {
     const pauseBtn = document.getElementById('pause-btn');
+    if (!pauseBtn) return;
+    pauseBtn.classList.toggle('active', paused);
+    pauseBtn.title = paused ? 'Resume (P)' : 'Pause (P)';
+}
+
+function togglePause() {
     if (gameState === 'playing') {
         gameState = 'paused';
-        if (pauseBtn) { pauseBtn.classList.add('active'); pauseBtn.title = 'Resume (P)'; }
+        setPauseButton(true);
         showOverlay('Paused\nTap or press P to resume', 'Resume');
     } else if (gameState === 'paused') {
         gameState = 'playing';
-        if (pauseBtn) { pauseBtn.classList.remove('active'); pauseBtn.title = 'Pause (P)'; }
+        setPauseButton(false);
         hideOverlay();
     }
 }

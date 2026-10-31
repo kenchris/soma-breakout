@@ -13,7 +13,7 @@ function isGhostLevel(l) {
 
 function buildGhostGrid(l) {
     const rand = seededRandom(l * 6700417 + 11);
-    const rows = 6 + (l >= 12 ? 1 : 0) + (l >= 18 ? 1 : 0);
+    const rows = 6 + (curveLevel(l) >= 12 ? 1 : 0) + (curveLevel(l) >= 18 ? 1 : 0); // (curve levels: the tutorial moved every level up)
     const cells = [];
     for (let c = 0; c < BRICK_COLS; c++) {
         cells[c] = [];

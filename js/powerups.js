@@ -128,6 +128,13 @@ function updatePowerups() {
 }
 
 
+// The level is ending (cleared, or warped away from) with a code capsule still in the air: it would be
+// wiped with the other drops and never get its chance to fall, so the code is awarded now instead
+function awardFallingCode() {
+    if (powerups.some(p => p.type === 'cheatcode')) revealLevelCode();
+}
+
+
 function drawPowerups() {
     ctx.save();
     ctx.textAlign = 'center';

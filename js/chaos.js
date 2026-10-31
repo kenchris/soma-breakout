@@ -134,7 +134,7 @@ function startChaos(key) {
     chaos.warn = 0;
     chaos.total = chaos.left = CHAOS[key].seconds * 60;
     chaosEventsLeft--;
-    if (key === 'timeWarp') timeScale = chaos.scale;
+    timeScale = key === 'timeWarp' ? chaos.scale : 1; // (one started over a Time Warp doesn't keep its speed)
     applyView();
     refreshInputMapping();
     addShake(6);

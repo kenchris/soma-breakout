@@ -194,11 +194,12 @@ function chainBallHit(b, c, r, hit) {
     return true;
 }
 
-// Guided ball: a shot is worth the group it would pop (a repaint is worth a little: it's progress)
-function chainHitValue(c, r) {
+// Guided ball: a shot is worth the group it would pop (a repaint is worth a little: it's progress).
+// Rated by the colour of the ball being steered: with multi-ball each one carries its own.
+function chainHitValue(c, r, ball = balls[0]) {
     const t = bricks[c][r];
     if (t.cheat) return 40;
-    const carried = balls.length ? ballChain(balls[0]) : -1;
+    const carried = ball ? ballChain(ball) : -1;
     if (t.chainColor !== carried) return 3;
     const n = chainGroup(c, r).length;
     return 5 * n * (n + 1);
