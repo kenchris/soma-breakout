@@ -93,7 +93,9 @@ function secretCodeEntered() {
     }
     secretUsed = true;
     portals = null; // never both at once
+    const hadRift = riftThisLevel;
     spawnWarpRift();
+    riftThisLevel = hadRift; // (the level's one random rift is still to come if this one closes unused)
     secretRift = warpRift;
     warpTimer = warpInterval();
     addPopup(CANVAS_W / 2, 140, 'SECRET CODE!', '#ffd319', { size: 26, life: 2, rise: 0.2, pop: true });

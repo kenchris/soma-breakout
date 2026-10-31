@@ -480,6 +480,42 @@ test('space chomp: the last 30s count down out loud, and the goal bar flashes as
     check(r.flash > 0 && r.heat > 0, 'a bite should flash and heat the goal bar');
 });
 
+test('space chomp: after a TIME UP the restarted clock is called out again', '?level=19', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        T.play(2, () => false, { immortal: true });
+        const said = [];
+        const addPopup0 = window.addPopup;
+        window.addPopup = (x, y, text, ...rest) => { said.push(text); return addPopup0(x, y, text, ...rest); };
+        mazeCountdown(30); // the first run of the clock got there...
+        mazeTimeUp();      // ...ran out, and restarted
+        mazeCountdown(30);
+        mazeCountdown(10);
+        mazeCountdown(10);
+        window.addPopup = addPopup0;
+        return { thirty: said.filter(t => /30 SECONDS LEFT/.test(t)).length, ten: said.filter(t => /10 SECONDS!/.test(t)).length };
+    });
+    check(r.thirty === 2, '"30 SECONDS LEFT!" should be called out on each run of the clock, got ' + r.thirty);
+    check(r.ten >= 1, '"10 SECONDS!" should be called out');
+});
+
+test('secret code: a rift it opened that closes unused leaves the level its random rift', '?level=8', async (page, check) => {
+    const r = await page.evaluate(() => {
+        installHelpers();
+        T.play(3, () => false, { immortal: true });
+        warpRift = null; portals = null;
+        riftThisLevel = false;
+        secretCodeEntered();
+        const opened = !!warpRift;
+        warpRift = null; // closes unused
+        updateWarpRift();
+        return { opened, codeBack: !secretUsed, canSpawn: canSpawnWarp() || bricksLeft <= 3 };
+    });
+    check(r.opened, 'the code should open a rift');
+    check(r.codeBack, 'the code should be given back');
+    check(r.canSpawn, 'the level should still be able to get its own random rift');
+});
+
 test('space chomp: autopilot clears level 19', '?level=19', async (page, check) => {
     const r = await page.evaluate(() => {
         installHelpers();
