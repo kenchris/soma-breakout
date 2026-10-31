@@ -569,6 +569,21 @@ test('chaos: a flip started over a Time Warp runs at normal speed', '?level=8', 
     check(r.s === 1, 'FULL FLIP kept timeScale ' + r.s);
 });
 
+test('snake venom: with reduced motion, the mirror poison reverses the controls without turning the screen', '', async (page, check) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(page.baseUrl + '?level=20');
+    await page.waitForFunction(READY);
+    const r = await page.evaluate(() => {
+        installHelpers();
+        launchGame();
+        applyPoison('mirror');
+        return { reduce: reduceMotion, type: chaos.type, transform: canvas.style.transform, mirror: mapMirror() };
+    });
+    check(r.reduce, 'reduced motion should be on for this test');
+    check(!r.transform, 'the canvas was turned (' + r.transform + ', ' + r.type + ') for a reduced-motion player');
+    check(r.mirror, 'the poison should still swap left and right');
+});
+
 test('ghost rows: the debut ghost level starts with 6 rows', '', async (page, check) => {
     const r = await page.evaluate(() => {
         let first = 0;

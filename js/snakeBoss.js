@@ -247,7 +247,9 @@ function applyPoison(debuff, scale = 1) {
     addPopup(paddle.x + paddle.w / 2, paddle.y - 10, 'POISONED: ' + SNAKE_POISON_LABELS[debuff], SNAKE_POISON_COLOR,
         { life: 1.3, size: 15, tag: 'powerup' });
     if (debuff === 'mirror') {
-        startChaos('fullFlip');
+        // (with reduced motion asked for, the controls swap the same way but the screen doesn't turn: the
+        // scheduled events never pick a visual one for those players either, see chaosPool)
+        startChaos(reduceMotion ? 'reverse' : 'fullFlip');
         chaos.total = chaos.left = Math.round(chaos.total * scale);
         // Unlike the scheduled FULL FLIP chaos event (which warns a few seconds ahead — see
         // startChaosWarning in chaos.js), this one lands with zero warning. A free miss covers the
