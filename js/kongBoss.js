@@ -3,7 +3,7 @@
 // A giant space gorilla in a bubble helmet stands on top of a Donkey Kong-style tower of space-station
 // girders and fights you with barrels. They roll down the sloped girders, drop off each end onto the next
 // one down (or, now and then, down a ladder gap), and finally fall at your paddle: one that lands on it
-// punches a hole. From phase 2 it also hurls blue steel barrels straight at you through the girders, and
+// punches a hole. It also hurls blue steel barrels straight at you through the girders (more as it gets angry), and
 // when ENRAGED it pounds its chest, which bounces every barrel on the tower and hurries them along.
 // The barrels are also your best weapon: hit one (anywhere, and they're easy to hit) and it flies back up
 // at the ape, homing in, for heavy damage, smashing any barrel in its way. The girders only carry the barrels: the ball flies straight through them, so the whole

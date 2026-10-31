@@ -47,7 +47,8 @@ function spawnWarpRift() {
 // or stay, and the rift collapses and spits the ball back out. How far it would go is rolled up front, so
 // the choice is an informed one.
 function offerWarp(b) {
-    const steps = 1 + Math.floor(Math.random() * WARP_MAX_STEPS); // 1-5 levels forward, never more
+    let steps = 1 + Math.floor(Math.random() * WARP_MAX_STEPS); // 1-5 levels forward, never more
+    for (let s = 1; s < steps; s++) if (isBossLevel(level + s)) steps = s; // ...and never past a boss: it lands on it
     warpOffer = { steps, ball: b };
     const text = document.getElementById('warp-text');
     if (text) text.textContent = 'Jump ' + steps + (steps === 1 ? ' level' : ' levels') + ' ahead, to level ' + (level + steps) + '?';
@@ -91,6 +92,7 @@ function declineWarp() {
 
 function triggerWarp(steps) {
     secretRiftTaken(); // (a rift the secret code opened counts as used only now: see secretCode.js)
+    awardFallingCode();
     const from = level;
     level += steps;
     assistLosses = assistLevelLosses = 0; // (a jump ahead neither counts as a clean clear nor carries the old level's lost balls)

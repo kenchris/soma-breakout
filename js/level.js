@@ -140,6 +140,7 @@ function resetGame(startLevel = 1) {
     easeHelpNeed(true);
     level = startLevel;
     gameState = 'ready';
+    setPauseButton(false); // (a new game can start while paused, from a level chip under the canvas)
     runStats = { maxCombo: 0, bricks: 0, aliens: 0, bosses: 0, warps: 0 };
     bestAtStart = bestScore;
     newBestShown = false;
@@ -419,6 +420,7 @@ function showLevelIntro() {
 function completeLevel() {
     const bossBeaten = plan.boss; // read before spawnLevel replaces the plan
     assistOnLevelCleared();
+    awardFallingCode();
     level++;
     gameState = 'won';
     powerups.length = 0;

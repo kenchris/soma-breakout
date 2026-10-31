@@ -118,6 +118,7 @@ function buildMaze() {
     for (const row of dots) for (const d of row) if (d) total++;
     maze = {
         bricks: mazeBricks(), dots, t: 0, fright: 0, eaten: 0, powerIn: 0, diveIn: 60 * 9,
+        barFlash: 0, eatHeat: 0, calls: {}, // (the goal bar's flash and glow, and its call-outs: see chomperEat)
         goal: Math.min(MAZE_GOAL, total),
         time: 60 * Math.max(55, 85 - n), // 71s on its debut, a little less later on
         chompers: CHOMPER_HOMES.map((h, i) => {
@@ -241,7 +242,7 @@ function chomperEat(m) {
     tone(maze.waka ? 220 : 330, 0.05, { type: 'triangle', vol: 0.12, slideTo: maze.waka ? 330 : 220, key: 'waka' });
     // The goal bar lights up with every bite, and glows hotter the faster they're eating
     maze.barFlash = 10;
-    maze.eatHeat = Math.min(1, (maze.eatHeat || 0) + 0.18);
+    maze.eatHeat = Math.min(1, maze.eatHeat + 0.18);
     const left = bricksLeft;
     if (left === Math.floor(maze.goal / 2)) mazeBarCall('HALFWAY!', '#ffe14d');
     else if (left === 10) mazeBarCall('10 MORE!', '#7dff6a');
@@ -257,8 +258,9 @@ function chomperEat(m) {
 // 10, and a hard double beep (with a buzz) on 3, 2, 1. The clock itself turns orange, then red (drawMazeBar).
 function mazeCountdown(secs) {
     if (secs > 30) return;
-    if (secs === 30) mazeBarCall('30 SECONDS LEFT!', '#ffb03a');
-    if (secs === 10) mazeBarCall('10 SECONDS!', '#ff5a7a');
+    // (Called out every time the clock gets there: after a TIME UP it restarts and counts down again)
+    if (secs === 30) mazeBarCall('30 SECONDS LEFT!', '#ffb03a', false);
+    if (secs === 10) mazeBarCall('10 SECONDS!', '#ff5a7a', false);
     if (secs > 10) {
         const tick = secs % 2 === 0;
         tone(tick ? 1250 : 820, 0.05, { type: 'triangle', vol: 0.16, key: 'mazeTick' });
@@ -271,10 +273,10 @@ function mazeCountdown(secs) {
     }
 }
 
-// A call-out just under the goal bar (each one once a maze: a caught jelly can put dots back on the count)
-function mazeBarCall(text, color) {
-    maze.calls = maze.calls || {};
-    if (maze.calls[text]) return;
+// A call-out just under the goal bar. The dot count ones come once a maze (a caught jelly can put dots back
+// on the count, and HALFWAY! twice would be silly)
+function mazeBarCall(text, color, once = true) {
+    if (once && maze.calls[text]) return;
     maze.calls[text] = true;
     addPopup(CANVAS_W / 2, 118, text, color, { size: 20, life: 1.4, rise: 0.15, pop: true });
 }
@@ -1096,7 +1098,7 @@ function drawMaze() {
 }
 
 // The goal bar across the top (over everything, like a boss's health bar): dots eaten toward the quota,
-// and the clock, which turns red and pulses for the last ten seconds
+// and the clock, which turns orange and pulses for the last half minute, red for the last ten seconds
 function drawMazeBar() {
     if (!maze || gameState === 'won' || maze.cleared) return;
     const w = 460, x = (CANVAS_W - w) / 2, y = 64, h = 14;
@@ -1107,19 +1109,26 @@ function drawMazeBar() {
     const close = p >= 0.8;
     // Hard to miss: it swells and flashes white with every bite, glows hotter the faster they eat, turns from
     // yellow to green as the quota gets close, and pulses from 80%
-    const heat = maze.eatHeat || 0;
-    const flash = (maze.barFlash || 0) / 10;
+    const heat = maze.eatHeat;
+    const flash = maze.barFlash / 10;
     const grow = Math.round(4 * flash + 4 * heat);
     const hue = 50 + 80 * Math.max(0, (p - 0.5) / 0.5); // yellow until halfway, then toward green
     const pulse = close ? 0.5 + 0.5 * Math.sin(maze.t / 5) : 0;
     ctx.save();
     ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
     ctx.fillRect(x - 3, y - 3 - grow / 2, w + 6, h + 6 + grow);
-    ctx.shadowColor = 'hsl(' + hue + ', 100%, 60%)';
-    ctx.shadowBlur = 6 + 18 * Math.max(heat, pulse * 0.8);
-    ctx.fillStyle = 'hsl(' + hue + ', 100%, ' + (55 + 12 * pulse) + '%)';
+    // The glow is a wider faint bar behind it: a canvas shadowBlur costs a blur pass on every frame
+    const glow = Math.max(heat, pulse * 0.8);
+    const fill = 'hsl(' + hue + ', 100%, ' + (55 + 12 * pulse) + '%)';
+    if (glow > 0.02 && p > 0) {
+        const spread = 3 + 7 * glow;
+        ctx.globalAlpha = 0.25 + 0.3 * glow;
+        ctx.fillStyle = fill;
+        ctx.fillRect(x - spread, y - grow / 2 - spread, w * p + 2 * spread, h + grow + 2 * spread);
+        ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = fill;
     ctx.fillRect(x, y - grow / 2, w * p, h + grow);
-    ctx.shadowBlur = 0;
     if (flash > 0) {
         ctx.fillStyle = 'rgba(255, 255, 255, ' + 0.6 * flash + ')';
         ctx.fillRect(x, y - grow / 2, w * p, h + grow);

@@ -2,8 +2,8 @@
 // split of the former game.js — every file shares one global scope, exactly as before, so nothing
 // here needed import/export changes. See index.html for the required load order.)
 
-function hitValue(c, r) {
-    if (plan.chain && !explosiveReady && fireTimer <= 0) return chainHitValue(c, r);
+function hitValue(c, r, ball) {
+    if (plan.chain && !explosiveReady && fireTimer <= 0) return chainHitValue(c, r, ball);
     const t = bricks[c][r];
     const worth = q => (q.steel ? (q.hitsLeft > 1 ? 8 : 20) : q.points);
     if (explosiveReady || t.tnt) {
@@ -78,7 +78,7 @@ function castRay(x, y, dx, dy) {
 // Sample the upward arc, score what each ray would hit, and return the best shot as
 // { vx, vy, c, r } at the current ball speed (null if nothing is hittable).
 
-function bestAim(x, y) {
+function bestAim(x, y, ball) {
     if (ghost) return bestAimGhost(x, y);
     if (maze) return bestAimMaze(x, y);
     const speed = currentSpeed();
@@ -98,7 +98,7 @@ function bestAim(x, y) {
         } else if (hit.boss) {
             value = inBossHatch(hit.x, hit.y) ? 150 : 45; // the hatch is worth triple
         } else {
-            value = hitValue(hit.c, hit.r);
+            value = hitValue(hit.c, hit.r, ball);
         }
         const v = value * (1 - Math.abs(deg) / 400); // slight preference for straighter shots
         if (v > bestValue) {
@@ -115,7 +115,7 @@ function bestAim(x, y) {
 
 function launchVelocity(b, throwVX, rect) {
     if (guidedTimer > 0) {
-        const aim = bestAim(b.x, b.y);
+        const aim = bestAim(b.x, b.y, b);
         if (aim) return [aim.vx, aim.vy];
     }
     return paddleDeflection(b.x, throwVX, rect);
@@ -127,7 +127,7 @@ function steerGuided(b) {
     if (b.vy >= 0) return; // only while heading up toward the bricks
     if (--b.aimIn <= 0) {
         b.aimIn = maze ? 6 : 15; // (in Space Chomp it tracks a moving chomper, so it re-aims more often)
-        b.aim = bestAim(b.x, b.y);
+        b.aim = bestAim(b.x, b.y, b);
     }
     if (!b.aim) return;
     const cur = Math.atan2(b.vy, b.vx);

@@ -91,7 +91,7 @@ function clearTimedEffects() {
     stickyCatches = 0;
     explosiveReady = false;
     multiReady = false;
-    paddle.w = paddleBaseW();
+    restorePaddleWidth(); // (clamped: a narrow paddle at the right wall would grow off the screen)
     paddleHoles.length = 0; // a new ball / level comes with a repaired paddle
 }
 
@@ -179,6 +179,7 @@ function skipIntroCard() {
 }
 
 function updateIntroCard() {
+    if (gameState === 'paused') return; // it holds play until read: don't let it run out behind the pause screen
     if (introCard && --introCard.life <= 0) introCard = null;
 }
 
