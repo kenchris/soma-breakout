@@ -2,7 +2,7 @@
 // list below changes (a new js/*.js file added/removed); code changes reach players on their next load
 // anyway (see the network-first fetch handler below). This is a static site with no build step, so this
 // list is maintained by hand, same as the <script> tags in index.html.
-const CACHE_VERSION = 'v38';
+const CACHE_VERSION = 'v39';
 const CACHE_NAME = 'breakout-' + CACHE_VERSION;
 
 const APP_SHELL = [
@@ -23,6 +23,7 @@ const APP_SHELL = [
     './js/ghostRows.js',
     './js/guided.js',
     './js/input.js',
+    './js/intro.js',
     './js/kongBoss.js',
     './js/level.js',
     './js/main.js',
@@ -69,6 +70,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const req = event.request;
     if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+
+    // The trailer's video is left to the browser: it is read in ranges (a 206 can't be cached) and is too big to
+    // keep for offline play. Offline it just fails to load, and the trailer skips itself (js/intro.js).
+    if (new URL(req.url).pathname.includes('/media/')) return;
 
     // Every page load (?level=N, a shared ?code=XXXX link, ...) is the same page: cache it under one key, so
     // an offline launch from any link finds it, and each new link doesn't add another copy

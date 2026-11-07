@@ -43,6 +43,9 @@ test now passes. Tests that were added this way (do not remove them):
   with an invisible #dialog-shield under it, so the level-code list can't scroll and nothing under it can be
   pressed. The secret code works whenever any dialog is up. The touch test aims at the part of the list the
   dialog doesn't cover (it fails without the shield).
+- **Trailer** (`js/intro.js`, `media/`): plays muted on a plain load; any key or tap skips it and is not also
+  a launch. Not shown for `?level=`, `?code=` or `?nointro`. If the video can't load (offline, missing file)
+  it must skip itself at once, not after the 6s fallback timer.
 - Assist tiers / score scaling, helpful drops, 5 lives + boss refill, level-code round-trip, Space Chomp
   clearable, every boss runs without errors.
 
@@ -59,6 +62,9 @@ Test helpers available inside `page.evaluate` (see `installHelpers`): `T.step()`
   convert it. (Python edits that read text mode silently turn CRLF into LF across the whole file.)
 - **New `js/*.js` file**: add its `<script>` tag in the right place in `index.html`, add it to the file list
   in `sw.js`, and bump `CACHE_VERSION` there.
+- **Trailer video**: `media/neon-smash-intro.mp4` (H.264) and `.webm` (VP9, which is what the headless test
+  browser can play) are made outside the repo and are not in `sw.js`'s file list (the service worker skips
+  `/media/`: a video is read in ranges and is too big to keep). Replacing one needs no cache bump.
 - **Level codes** (`levelToCode` / `codeToLevel` in `level.js`) are shared by players: never change what a
   level's code is.
 - **Points** all go through `addScore` (`fx.js`), which applies the assist multiplier. Don't add to `score`

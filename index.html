@@ -997,9 +997,33 @@
             body.secret-wobble #hud, body.secret-wobble #canvas, body.secret-wobble #overlay { animation: none; }
             #canvas { transition: none; }
         }
+        /* The trailer (js/intro.js): covers the page until it ends or is skipped */
+        #intro { position: fixed; inset: 0; z-index: 2000; background: #000; display: flex; align-items: center;
+                 justify-content: center; transition: opacity 0.4s; }
+        #intro[hidden] { display: none; }
+        #intro.closing { opacity: 0; pointer-events: none; }
+        #intro video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+        #intro button { position: absolute; top: max(14px, env(safe-area-inset-top)); font-family: var(--px); font-size: 11px;
+                        letter-spacing: 1px; color: var(--ink); background: rgba(10, 5, 22, 0.7); border: 2px solid var(--cyan);
+                        padding: 10px 14px; cursor: pointer; }
+        #intro button:hover, #intro button:focus-visible { background: var(--cyan); color: #07040f; outline: none; }
+        #intro-skip { right: max(14px, env(safe-area-inset-right)); }
+        #intro-sound { left: max(14px, env(safe-area-inset-left)); border-color: var(--magenta) !important; }
+        #intro-sound:hover, #intro-sound:focus-visible { background: var(--magenta) !important; }
+        #intro-hint { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center;
+                      font-family: var(--px); font-size: 9px; color: var(--dim); text-shadow: 0 0 6px #000; pointer-events: none; }
 </style>
 </head>
 <body>
+    <div id="intro" hidden role="dialog" aria-label="Neon Smash trailer">
+        <video id="intro-video" muted playsinline preload="auto" disablepictureinpicture poster="media/intro-poster.jpg">
+            <source src="media/neon-smash-intro.mp4" type="video/mp4">
+            <source src="media/neon-smash-intro.webm" type="video/webm">
+        </video>
+        <button id="intro-sound" type="button">SOUND: OFF</button>
+        <button id="intro-skip" type="button">SKIP &raquo;</button>
+        <div id="intro-hint">PRESS ANY KEY OR TAP TO PLAY</div>
+    </div>
     <div id="rotate-hint" aria-live="polite"><div class="phone"></div><div>Turn your phone upright<br>to play</div></div>
 
     <div id="release"></div>
@@ -1205,6 +1229,7 @@
     <script src="js/ui.js"></script>
     <script src="js/share.js"></script>
     <script src="js/input.js"></script>
+    <script src="js/intro.js"></script>
     <script src="js/main.js"></script>
     <script>
         // Register the service worker (see sw.js) so the game installs and keeps working offline.
