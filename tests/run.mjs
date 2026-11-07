@@ -453,6 +453,51 @@ test('release number: shown in the corner, bumped against origin/main', '?level=
     } catch (e) { /* no git / no origin/main: nothing to compare */ }
 });
 
+// The trailer (js/intro.js). It plays muted on a plain load; any key or tap skips it, and that key or tap must not also
+// reach the game under it. A deep link, ?nointro and a video that cannot load all go straight to the game.
+const INTRO_PLAYING = () => { const v = document.querySelector('#intro video'); return !!v && v.currentTime > 0.3 && !v.paused; };
+
+test('intro: plays muted on a plain load, the sound button works, a key skips it without launching the ball', '', async (page, check) => {
+    const shown = await page.evaluate(() => ({ active: introActive(), hidden: document.getElementById('intro').hidden, muted: document.querySelector('#intro video').muted }));
+    check(shown.active && !shown.hidden, 'the trailer is up on a plain load');
+    check(shown.muted, 'it starts muted (a browser will not start sound on its own)');
+    await page.waitForFunction(INTRO_PLAYING, null, { timeout: 15000 });
+    await page.click('#intro-sound');
+    const sound = await page.evaluate(() => ({ active: introActive(), muted: document.querySelector('#intro video').muted, label: document.getElementById('intro-sound').textContent }));
+    check(sound.active, 'the sound button does not skip the trailer');
+    check(!sound.muted && sound.label === 'SOUND: ON', 'the sound button turns the sound on: ' + JSON.stringify(sound));
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => !introActive(), null, { timeout: 3000 });
+    const after = await page.evaluate(() => ({ state: gameState, video: document.querySelector('#intro video') ? document.querySelector('#intro video').paused : true }));
+    check(after.state === 'ready', 'the Space that skipped it also launched the ball: ' + after.state);
+    check(after.video, 'the video is still playing after it was skipped');
+    await page.waitForFunction(() => !document.getElementById('intro'), null, { timeout: 3000 });
+});
+
+test('intro: a tap skips it and is not a tap on the game', '', async (page, check) => {
+    await page.waitForFunction(INTRO_PLAYING, null, { timeout: 15000 });
+    await page.mouse.click(500, 400);
+    await page.waitForFunction(() => !introActive(), null, { timeout: 3000 });
+    check((await page.evaluate(() => gameState)) === 'ready', 'the tap that skipped it also launched the ball');
+});
+
+test('intro: not shown for a deep link, ?nointro or a shared code', '', async (page, check) => {
+    for (const q of ['?level=6', '?nointro', '?code=7XK5']) {
+        await page.goto(page.baseUrl + q);
+        await page.waitForFunction(READY);
+        check(await page.evaluate(() => !introActive() && !document.getElementById('intro')), 'the trailer showed for ' + q);
+    }
+});
+
+test('intro: a video that cannot load skips itself', '', async (page, check) => {
+    await page.route('**/media/**', route => route.abort());
+    await page.goto(page.baseUrl);
+    await page.waitForFunction(READY);
+    // well inside the 6 s fallback timer: the failed file itself must end it, or an offline player stares at the poster
+    await page.waitForFunction(() => !introActive(), null, { timeout: 3000 });
+    check((await page.evaluate(() => gameState)) === 'ready', 'the game is not waiting at its start screen');
+});
+
 test('space chomp: the last 30s count down out loud, and the goal bar flashes as they eat', '?level=19', async (page, check) => {
     const r = await page.evaluate(() => {
         installHelpers();
